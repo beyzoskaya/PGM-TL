@@ -10,15 +10,12 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
-
 class ModelsWrapper(nn.Module):
-    """
-    Wrapper of multiple task models for multi-task learning.
-    """
 
     def __init__(self, models, names):
         super(ModelsWrapper, self).__init__()
         self.models = nn.ModuleList(models)
+        print("Model names:", names)
         self.names = names
 
     def forward(self, batches):
@@ -28,10 +25,11 @@ class ModelsWrapper(nn.Module):
         for id, batch in enumerate(batches):
             if hasattr(self.models[id], 'compute_loss'):
                 loss, metric = self.models[id].compute_loss(batch)
+                print(f"Task {id} loss from model's compute_loss: {loss.item()}")
             else:
-                # Default forward pass
                 outputs = self.models[id](batch)
                 loss = self.compute_default_loss(outputs, batch)
+                print(f"Task {id} loss from default compute_default_loss: {loss.item()}")
                 metric = self.compute_default_metrics(outputs, batch)
             
             for k, v in metric.items():
@@ -45,42 +43,139 @@ class ModelsWrapper(nn.Module):
         return all_loss, all_metric
     
     def compute_default_loss(self, outputs, batch):
-        """Compute default loss for classification tasks"""
+        """
+        Compute default loss supporting:
+        - sequence-level classification/regression
+        - token-level classification (list-of-lists or 2D tensor)
+        Uses outputs['attention_mask'] (residue-level mask) to ignore padding.
+        """
         logits = outputs["logits"]
-        
-        # Extract targets
+
+        # --- Extract targets from batch ---
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                # Use first target as default
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]
             else:
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
-        
-        # Handle different target types
+
+        # Helper: return a zero loss that requires grad (used when no active positions)
+        def zero_loss():
+            z = torch.tensor(0.0, device=logits.device, requires_grad=True)
+            return z
+
+        # --- Case A: target is list ---
         if isinstance(target, list):
-            target = torch.tensor(target, dtype=torch.float)
-        
-        target = target.to(logits.device)
-        
-        # Compute loss based on problem type
-        if logits.size(-1) == 1:
-            # Regression
+            # Token-level: list of lists (per-residue labels)
+            if len(target) > 0 and isinstance(target[0], list):
+                from torch.nn.utils.rnn import pad_sequence
+                tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
+                target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(logits.device)
+
+                mask = outputs.get("attention_mask")
+                if mask is None:
+                    # Fallback: assume all positions valid up to logits length
+                    mask = torch.ones((len(target), logits.size(1)), dtype=torch.long, device=logits.device)
+                else:
+                    mask = mask.to(logits.device)
+
+                # Align target length with mask/logits length
+                L_mask = mask.size(1)
+                if target_tensor.size(1) > L_mask:
+                    target_tensor = target_tensor[:, :L_mask]
+                elif target_tensor.size(1) < L_mask:
+                    pad = torch.full((target_tensor.size(0), L_mask - target_tensor.size(1)),
+                                    fill_value=-100, device=logits.device, dtype=target_tensor.dtype)
+                    target_tensor = torch.cat([target_tensor, pad], dim=1)
+
+                # Flatten/select active positions using reshape (works for non-contiguous)
+                active = mask.reshape(-1) == 1
+                active_logits = logits.reshape(-1, logits.size(-1))[active]
+                active_labels = target_tensor.reshape(-1)[active]
+
+                if active_logits.numel() == 0:
+                    return zero_loss()
+
+                loss = F.cross_entropy(active_logits, active_labels)
+                return loss
+
+            # Sequence-level: list of scalars
+            else:
+                if logits.dim() == 1 or logits.size(-1) == 1:
+                    t = torch.tensor(target, dtype=torch.float, device=logits.device)
+                    loss = F.mse_loss(logits.squeeze(), t)
+                else:
+                    t = torch.tensor(target, dtype=torch.long, device=logits.device)
+                    max_class = logits.size(-1) - 1
+                    t = torch.clamp(t, 0, max_class)
+                    loss = F.cross_entropy(logits, t)
+                return loss
+
+        # --- Case B: target is a tensor ---
+        if isinstance(target, torch.Tensor):
+            target = target.to(logits.device)
+
+            # Token-level as 2D tensor [batch, seq_len]
+            if target.dim() == 2:
+                mask = outputs.get("attention_mask")
+                if mask is None:
+                    # If missing, assume all positions valid up to logits length
+                    mask = torch.ones((target.size(0), logits.size(1)), dtype=torch.long, device=logits.device)
+                else:
+                    mask = mask.to(logits.device)
+
+                # Align lengths
+                L_mask = mask.size(1)
+                if target.size(1) > L_mask:
+                    target = target[:, :L_mask]
+                elif target.size(1) < L_mask:
+                    pad = torch.full((target.size(0), L_mask - target.size(1)),
+                                    fill_value=-100, device=logits.device, dtype=target.dtype)
+                    target = torch.cat([target, pad], dim=1)
+
+                active = mask.reshape(-1) == 1
+                active_logits = logits.reshape(-1, logits.size(-1))[active]
+                active_labels = target.reshape(-1)[active]
+
+                if active_logits.numel() == 0:
+                    return zero_loss()
+
+                loss = F.cross_entropy(active_logits, active_labels)
+                return loss
+
+            # Sequence-level tensor (1D)
+            else:
+                if logits.dim() == 1 or logits.size(-1) == 1:
+                    loss = F.mse_loss(logits.squeeze(), target.float())
+                else:
+                    if target.dtype != torch.long:
+                        target = target.long()
+                    max_class = logits.size(-1) - 1
+                    target = torch.clamp(target, 0, max_class)
+                    loss = F.cross_entropy(logits, target)
+                return loss
+
+        # --- Fallback ---
+        target = torch.tensor(target, dtype=torch.float, device=logits.device)
+        if logits.dim() == 1 or logits.size(-1) == 1:
             loss = F.mse_loss(logits.squeeze(), target.float())
         else:
-            # Classification
             loss = F.cross_entropy(logits, target.long())
-        
+
         return loss
+
     
     def compute_default_metrics(self, outputs, batch):
-        """Compute default metrics"""
+        """
+        Compute default metrics for classification/regression.
+        Token-level tasks use outputs['attention_mask'] to select valid residues.
+        """
         logits = outputs["logits"]
-        
-        # Extract targets
+
+        # --- Extract targets ---
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
@@ -89,27 +184,70 @@ class ModelsWrapper(nn.Module):
             else:
                 target = targets
         else:
-            return {"loss": 0.0}
-        
+            raise ValueError("Cannot find targets in batch")
+
+        # --- Token-level (list of lists or 2D tensor) ---
+        if isinstance(target, list) or (isinstance(target, torch.Tensor) and target.dim() == 2):
+            if isinstance(target, list):
+                from torch.nn.utils.rnn import pad_sequence
+                tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
+                target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(logits.device)
+            else:
+                target_tensor = target.to(logits.device)
+
+            mask = outputs.get("attention_mask")
+            if mask is None:
+                raise ValueError("Token-level task requires attention_mask from the model outputs")
+            mask = mask.to(logits.device)
+
+            # Align lengths with mask
+            L_mask = mask.size(1)
+            if target_tensor.size(1) > L_mask:
+                target_tensor = target_tensor[:, :L_mask]
+            elif target_tensor.size(1) < L_mask:
+                pad = torch.full((target_tensor.size(0), L_mask - target_tensor.size(1)),
+                                fill_value=-100, device=logits.device, dtype=target_tensor.dtype)
+                target_tensor = torch.cat([target_tensor, pad], dim=1)
+
+            # Predictions
+            pred = logits.argmax(dim=-1)
+
+            # Use reshape to handle non-contiguous tensors
+            active = mask.reshape(-1) == 1
+            active_preds = pred.reshape(-1)[active]
+            active_labels = target_tensor.reshape(-1)[active]
+
+            if active_preds.numel() == 0:
+                return {"accuracy": 0.0}
+
+            acc = (active_preds == active_labels).float().mean().item()
+            return {"accuracy": acc}
+
+        # --- Sequence-level classification/regression ---
+        if isinstance(target, torch.Tensor) and target.dim() == 1:
+            target = target.to(logits.device)
+            if logits.dim() == 2 and logits.size(-1) > 1:
+                pred = logits.argmax(dim=-1)
+                acc = (pred == target.long()).float().mean().item()
+                return {"accuracy": acc}
+            else:
+                mse = F.mse_loss(logits.squeeze(), target.float()).item()
+                return {"mse": mse}
+
+        # --- Fallback: list of scalars ---
         if isinstance(target, list):
-            target = torch.tensor(target, dtype=torch.float)
-        
-        target = target.to(logits.device)
-        
-        metrics = {}
-        
-        if logits.size(-1) == 1:
-            # Regression metrics
-            mse = F.mse_loss(logits.squeeze(), target.float())
-            metrics["mse"] = mse.item()
-            metrics["rmse"] = torch.sqrt(mse).item()
-        else:
-            # Classification metrics
-            pred = torch.argmax(logits, dim=-1)
-            acc = (pred == target.long()).float().mean()
-            metrics["accuracy"] = acc.item()
-        
-        return metrics
+            target_tensor = torch.tensor(target, device=logits.device)
+            if logits.dim() == 2 and logits.size(-1) > 1:
+                pred = logits.argmax(dim=-1)
+                acc = (pred == target_tensor.long()).float().mean().item()
+                return {"accuracy": acc}
+            else:
+                mse = F.mse_loss(logits.squeeze(), target_tensor.float()).item()
+                return {"mse": mse}
+
+        return {}
+
+
 
     def __getitem__(self, id):
         return self.models[id]
@@ -158,7 +296,6 @@ class MultiTaskEngine:
                 sequences.append(item['sequence'])
                 targets_list.append(item.get('targets', {}))
             else:
-                # Handle other formats
                 sequences.append(getattr(item, 'sequence', ''))
                 targets_list.append({})
         
@@ -169,13 +306,19 @@ class MultiTaskEngine:
                 for key, value in targets.items():
                     combined_targets[key].append(value)
         
-        # Convert to tensors
+        # Convert to tensors - HANDLE TOKEN-LEVEL vs SEQUENCE-LEVEL
         target_tensors = {}
         for key, values in combined_targets.items():
-            try:
-                target_tensors[key] = torch.tensor(values, dtype=torch.float)
-            except:
-                target_tensors[key] = values  # Keep as list if conversion fails
+            # Check if this is token-level data (list of lists)
+            if values and isinstance(values[0], list):
+                # Token-level: keep as nested list, don't convert to tensor yet
+                target_tensors[key] = values  # Keep as list of lists
+            else:
+                # Sequence-level: convert to tensor
+                try:
+                    target_tensors[key] = torch.tensor(values, dtype=torch.float)
+                except:
+                    target_tensors[key] = values
         
         return {
             'sequence': sequences,

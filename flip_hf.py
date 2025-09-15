@@ -92,7 +92,16 @@ class HuggingFaceDataset(ProteinDataset):
                             value = item[col]
                             if value == "" or value is None:
                                 value = float('nan')
-                            all_targets[col].append(float(value))
+                            # Handle different target types properly
+                            if isinstance(value, list):
+                                # Token-level targets (e.g., secondary structure)
+                                all_targets[col].append(value)  # Keep as list
+                            else:
+                                # Sequence-level targets (e.g., stability)
+                                try:
+                                    all_targets[col].append(float(value))
+                                except (ValueError, TypeError):
+                                    all_targets[col].append(float('nan'))
                         else:
                             all_targets[col].append(float('nan'))
         
@@ -145,6 +154,36 @@ class AAV(HuggingFaceDataset):
                 splits.append(Subset(self, []))  # Empty subset
         return splits
 
+
+class GB1(HuggingFaceDataset):
+    """GB1 dataset using HuggingFace datasets"""
+    
+    target_fields = ["target"]
+    
+    def __init__(self, path, split="two_vs_rest", verbose=1, **kwargs):
+        super().__init__()
+        
+        # Try to load from HuggingFace
+        try:
+            dataset_name = "proteinglm/gb1_prediction"  # This might not exist
+            self.load_hf_dataset(dataset_name, target_columns=self.target_fields, verbose=verbose)
+        except:
+            print("GB1 dataset not found in HuggingFace format")
+            raise ValueError("GB1 dataset not available in HuggingFace format")
+    
+    def split(self):
+        offset = 0
+        splits = []
+        for num_sample in self.num_samples:
+            if num_sample > 0:
+                split = Subset(self, range(offset, offset + num_sample))
+                splits.append(split)
+                offset += num_sample
+            else:
+                splits.append(Subset(self, []))
+        return splits
+
+
 class Thermostability(HuggingFaceDataset):
     """Thermostability dataset using HuggingFace datasets"""
     
@@ -158,7 +197,7 @@ class Thermostability(HuggingFaceDataset):
             dataset_name = "proteinglm/stability_prediction"
             self.load_hf_dataset(dataset_name, 
                                sequence_column='seq',
-                               target_columns=['stability_score'],  # Adjust based on actual column names
+                               target_columns=['label'],  
                                verbose=verbose)
             
             # Map stability_score to target for compatibility
@@ -195,7 +234,7 @@ class SecondaryStructure(HuggingFaceDataset):
             dataset_name = "proteinglm/ssp_q8"
             self.load_hf_dataset(dataset_name, 
                                sequence_column='seq',
-                               target_columns=['ss8'],
+                               target_columns=['label'],
                                verbose=verbose)
             
             # Convert secondary structure strings to lists if needed

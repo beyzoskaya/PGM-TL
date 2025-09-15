@@ -229,7 +229,6 @@ class ProtBertWithLoRA(nn.Module):
         # Add LoRA adapters to attention layers
         self.add_lora_adapters(lora_rank, lora_alpha, lora_dropout)
         
-        # Task-specific head
         if task_type == "classification":
             self.head = nn.Sequential(
                 nn.Dropout(lora_dropout),
@@ -239,6 +238,11 @@ class ProtBertWithLoRA(nn.Module):
             self.head = nn.Sequential(
                 nn.Dropout(lora_dropout),
                 nn.Linear(self.protbert.output_dim, num_labels)
+            )
+        elif task_type == "regression":
+            self.head = nn.Sequential(
+                nn.Dropout(lora_dropout),
+                nn.Linear(self.protbert.output_dim, num_labels)  # Usually num_labels=1 for regression
             )
         else:
             raise ValueError(f"Unsupported task type: {task_type}")
@@ -265,20 +269,45 @@ class ProtBertWithLoRA(nn.Module):
                     setattr(attention, name, lora_layer)
     
     def forward(self, batch):
+        """
+        Forward for ProtBertWithLoRA.
+
+        Returns a dict containing:
+        - "logits": model outputs (seq-level or token-level depending on task_type)
+        - "graph_feature": pooled/graph-level features
+        - "residue_feature": per-residue features (if available)
+        - "attention_mask": residue-level attention mask (if available) <-- ADDED
+        """
         outputs = self.protbert(batch)
-        
+
+        # Extract common outputs
+        graph_feature = outputs.get("graph_feature")
+        residue_feature = outputs.get("residue_feature")
+        attention_mask = outputs.get("attention_mask")  # may be None for some variants
+
+        # Compute logits according to task type
         if self.task_type == "classification":
-            graph_feature = outputs["graph_feature"]
             logits = self.head(graph_feature)
         elif self.task_type == "token_classification":
-            residue_feature = outputs["residue_feature"]
+            # residue_feature expected shape: [batch, seq_len, hidden]
             logits = self.head(residue_feature)
-        
-        return {
+        elif self.task_type == "regression":
+            logits = self.head(graph_feature)
+        else:
+            raise ValueError(f"Unsupported task type: {self.task_type}")
+
+        out = {
             "logits": logits,
-            "graph_feature": outputs["graph_feature"],
-            "residue_feature": outputs["residue_feature"]
+            "graph_feature": graph_feature,
+            "residue_feature": residue_feature
         }
+
+        # IMPORTANT: include attention_mask when available so engine can mask padding
+        if attention_mask is not None:
+            out["attention_mask"] = attention_mask
+
+        return out
+
 
 def create_protbert_model(model_type="base", **kwargs):
     """Factory function to create ProtBert models"""

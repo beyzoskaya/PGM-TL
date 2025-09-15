@@ -7,7 +7,7 @@ def check_requirements():
     """Check if required packages are installed"""
     required_packages = [
         'torch', 'transformers', 'datasets', 'tqdm', 
-        'numpy', 'pandas', 'PyYAML', 'easydict'
+        'numpy', 'pandas', 'yaml', 'easydict'
     ]
     
     missing = []
@@ -185,7 +185,7 @@ def run_quick_training(config):
                 readout=config['model']['readout'],
                 lora_rank=config['model']['lora_rank'],
                 lora_alpha=config['model']['lora_alpha'],
-                task_type='classification' if task_config['type'] == 'token_classification' else 'classification'
+                task_type=task_config['type']  # Use the task type directly: 'token_classification' or 'regression'
             )
             tasks.append(model)
         
