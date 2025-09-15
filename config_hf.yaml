@@ -1,0 +1,67 @@
+# HuggingFace-based Multi-Task Protein Language Model Configuration
+
+output_dir: './outputs'
+
+# Model configuration
+model:
+  type: 'lora'  # Options: base, classification, token_classification, lora
+  model_name: 'Rostlab/prot_bert_bfd'
+  readout: 'pooler'  # Options: pooler, mean, sum
+  freeze_bert: true
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  dropout: 0.1
+
+# Dataset configurations (first one with center: true is the main task)
+datasets:
+  - type: 'Thermostability'
+    path: './data'
+    split: 'human_cell'
+    center: true  # Main task
+  - type: 'SecondaryStructure'
+    path: './data'
+    center: false  # Auxiliary task
+
+# Task configurations (must match order of datasets)
+tasks:
+  - type: 'regression'
+    num_labels: 1
+    loss: 'mse'
+  - type: 'classification'
+    num_labels: 8  # 8-class secondary structure prediction
+    loss: 'cross_entropy'
+
+# Training configuration
+train:
+  num_epoch: 10
+  batch_size: 8
+  gradient_interval: 1
+  tradeoff: 0.5  # Weight for auxiliary tasks (1.0 = equal weight, <1.0 = less weight)
+
+# Optimizer configuration
+optimizer:
+  type: 'AdamW'  # Options: AdamW, Adam
+  lr: 2e-5
+  weight_decay: 0.01
+
+# Learning rate scheduler (optional)
+scheduler:
+  type: 'StepLR'  # Options: StepLR, CosineAnnealingLR
+  step_size: 3
+  gamma: 0.5
+
+# Engine configuration
+engine:
+  batch_size: 8
+  num_worker: 2
+  log_interval: 100
+
+# Evaluation settings
+eval_metric: 'accuracy'  # Metric to use for early stopping
+test_batch_size: 16
+
+# Contrastive learning (optional)
+use_contrastive: false
+contrastive_weight: 0.1
+temperature: 0.1
