@@ -4,15 +4,20 @@ from torch import nn
 from transformers import BertModel, BertTokenizer, AutoModel, AutoTokenizer
 import torch.nn.functional as F
 
+"""
+Models from protbert_hf.py accept batch, tokenize sequences, 
+run ProtBert and return a dict of outputs (logits, graph_feature, residue_feature, attention_mask)
+
+implements ProtBert wrapper around BERT model pre-trained for proteins + task heads and a LoRA adapter
+"""
 
 class ProtBert(nn.Module):
     
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="pooler", freeze_bert=False):
         super(ProtBert, self).__init__()
         
-        # Load model and tokenizer
         self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False) # seqs are converted to space-separated aas
         self.model = AutoModel.from_pretrained(model_name)
         
         self.output_dim = self.model.config.hidden_size  
@@ -24,32 +29,22 @@ class ProtBert(nn.Module):
         # Readout function
         if readout == "pooler":
             self.readout = "pooler"
-        elif readout == "sum":
+        elif readout == "sum":  # sum pooling
             self.readout = "sum"
-        elif readout == "mean":
+        elif readout == "mean": # over token positions excluding padding using attention_mask
             self.readout = "mean"
         else:
             raise ValueError("Unknown readout `%s`" % readout)
     
     def forward(self, batch):
-        """
-        Forward pass for the ProtBert model
-        
-        Args:
-            batch: Dictionary containing 'sequence' and other data
-            
-        Returns:
-            Dictionary with graph_feature and residue_feature
-        """
+       
         if isinstance(batch, dict) and 'sequence' in batch:
             sequences = batch['sequence']
         elif hasattr(batch, 'sequence'):
             sequences = batch.sequence
         else:
-            # Try to extract from graph if available
             sequences = self.extract_sequence_from_graph(batch)
-        
-        # Handle single sequence vs batch
+ 
         if isinstance(sequences, str):
             sequences = [sequences]
         

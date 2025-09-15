@@ -3,8 +3,14 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
+"""
+Creates dataset objects from flip_hf.py and 
+models from protbert_hf.py then creates a 
+MultiTaskEngine from engine_hf.py and 
+calls engine.train()
+"""
+
 def check_requirements():
-    """Check if required packages are installed"""
     required_packages = [
         'torch', 'transformers', 'datasets', 'tqdm', 
         'numpy', 'pandas', 'yaml', 'easydict'
@@ -18,50 +24,44 @@ def check_requirements():
             missing.append(package)
     
     if missing:
-        print(f"❌ Missing packages: {', '.join(missing)}")
+        print(f" Missing packages: {', '.join(missing)}")
         print("Install with: pip install " + ' '.join(missing))
         return False
     
-    print("✅ All required packages are installed")
+    print("All required packages are installed")
     return True
 
 
 def test_proteinglm_datasets():
-    """Test the specific proteinglm datasets you mentioned"""
-    print("\n🧪 Testing proteinglm datasets...")
+    print("\nTesting proteinglm datasets...")
     
     datasets_to_test = [
-        "proteinglm/ssp_q8",
-        "proteinglm/stability_prediction", 
-        "proteinglm/peptide_HLA_MHC_affinity"
+        "proteinglm/ssp_q8", # Secondary Structure (multi-class classification)
+        "proteinglm/stability_prediction",  # Thermostability (regression)
+        "proteinglm/peptide_HLA_MHC_affinity" # Peptide-HLA-MHC Affinity (binary classification)
     ]
     
     working_datasets = []
-    
     for dataset_name in datasets_to_test:
         try:
             from datasets import load_dataset
             print(f"Testing {dataset_name}...")
             dataset = load_dataset(dataset_name)
-            print(f"✅ {dataset_name} - OK")
+            print(f"{dataset_name} - OK")
             working_datasets.append(dataset_name)
         except Exception as e:
-            print(f"❌ {dataset_name} - Failed: {str(e)}")
+            print(f"{dataset_name} - Failed: {str(e)}")
     
     return working_datasets
 
-
 def create_minimal_config(working_datasets):
-    """Create a minimal configuration with working datasets"""
-    
-    # Map dataset names to our types
+
     dataset_mapping = {
         "proteinglm/stability_prediction": "Thermostability",
         "proteinglm/ssp_q8": "SecondaryStructure", 
         "proteinglm/peptide_HLA_MHC_affinity": "PeptideHLAMHCAffinity"
     }
     
-    # Create config with working datasets
     config = {
         'output_dir': './quick_start_outputs',
         
@@ -80,7 +80,7 @@ def create_minimal_config(working_datasets):
         
         'train': {
             'num_epoch': 2,  # Quick test
-            'batch_size': 4,  # Small for Colab
+            'batch_size': 4,  
             'gradient_interval': 2,
             'tradeoff': 0.5
         },
@@ -93,14 +93,13 @@ def create_minimal_config(working_datasets):
         
         'engine': {
             'batch_size': 4,
-            'num_worker': 0,  # No multiprocessing for simplicity
+            'num_worker': 0,  
             'log_interval': 10
         },
         
         'eval_metric': 'accuracy'
     }
     
-    # Add working datasets
     for i, dataset_name in enumerate(working_datasets[:3]):  # Max 3 datasets
         dataset_type = dataset_mapping[dataset_name]
         is_center = (i == 0)  # First one is center task
@@ -118,6 +117,12 @@ def create_minimal_config(working_datasets):
                 'num_labels': 8,
                 'loss': 'cross_entropy'
             })
+        elif dataset_type == 'PeptideHLAMHCAffinity':
+            config['tasks'].append({
+                'type': 'classification',  # multi-class classification with 2 labels
+                'num_labels': 2,
+                'loss': 'cross_entropy'
+            })
         else:  # Regression tasks
             config['tasks'].append({
                 'type': 'regression', 
@@ -127,9 +132,7 @@ def create_minimal_config(working_datasets):
     
     return config
 
-
 def run_quick_training(config):
-    """Run a quick training session"""
     print("\n Starting quick training...")
     
     try:
@@ -140,7 +143,6 @@ def run_quick_training(config):
         import torch
         from torch.optim import AdamW
         
-        # Create datasets
         print("Loading datasets...")
         train_sets, valid_sets, test_sets = [], [], []
         
@@ -157,8 +159,7 @@ def run_quick_training(config):
                 dataset = PeptideHLAMHCAffinity(**config_copy)
             
             train_set, valid_set, test_set = dataset.split()
-            
-            # Take small subset for quick test
+       
             train_subset = torch.utils.data.Subset(train_set, range(min(100, len(train_set))))
             valid_subset = torch.utils.data.Subset(valid_set, range(min(50, len(valid_set))))
             test_subset = torch.utils.data.Subset(test_set, range(min(50, len(test_set))))
@@ -174,7 +175,6 @@ def run_quick_training(config):
         
         print(f"Loaded {len(train_sets)} datasets")
         
-        # Create models
         print("Creating models...")
         tasks = []
         for task_config in config['tasks']:
@@ -185,18 +185,16 @@ def run_quick_training(config):
                 readout=config['model']['readout'],
                 lora_rank=config['model']['lora_rank'],
                 lora_alpha=config['model']['lora_alpha'],
-                task_type=task_config['type']  # Use the task type directly: 'token_classification' or 'regression'
+                task_type=task_config['type'] 
             )
             tasks.append(model)
         
-        # Create optimizer
         all_params = []
         for task in tasks:
             all_params.extend(list(task.parameters()))
         
         optimizer = AdamW(all_params, lr=config['optimizer']['lr'])
         
-        # Create engine
         engine = MultiTaskEngine(
             tasks=tasks,
             train_sets=train_sets,
@@ -208,11 +206,9 @@ def run_quick_training(config):
             num_worker=config['engine']['num_worker']
         )
         
-        # Quick training
         print("Training...")
         engine.train(num_epoch=config['train']['num_epoch'], tradeoff=config['train']['tradeoff'])
         
-        # Quick evaluation
         print("Evaluating...")
         metrics = engine.evaluate("valid")
         
@@ -222,39 +218,35 @@ def run_quick_training(config):
         return True
         
     except Exception as e:
-        print(f"❌ Training failed: {str(e)}")
+        print(f"Training failed: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
 
 def main():
-    """Main quick start function"""
     print("ProteinGLM Multi-Task Learning - Quick Start")
     print("=" * 60)
     
-    # Step 1: Check requirements
     if not check_requirements():
         return
-    
-    # Step 2: Test datasets
+
     working_datasets = test_proteinglm_datasets()
     
     if len(working_datasets) == 0:
-        print("\n❌ No proteinglm datasets are working!")
+        print("\nNo proteinglm datasets are working!")
         print("Possible solutions:")
         print("1. Check if you have access to the proteinglm organization")
         print("2. Verify the dataset names are correct")
         print("3. Try alternative datasets (run test_datasets.py)")
         return
     elif len(working_datasets) == 1:
-        print(f"\n⚠️  Only 1 dataset working: {working_datasets[0]}")
+        print(f"\nOnly 1 dataset working: {working_datasets[0]}")
         print("Multi-task learning needs at least 2 datasets.")
         print("This will run as single-task learning.")
     else:
-        print(f"\n✅ {len(working_datasets)} datasets working: {working_datasets}")
+        print(f"\n{len(working_datasets)} datasets working: {working_datasets}")
     
-    # Step 3: Create config and run
     config = create_minimal_config(working_datasets)
     
     import yaml
@@ -264,18 +256,16 @@ def main():
     
     print(f"\nConfig saved to: quick_start_config.yaml")
     
-    # Step 4: Run training
     success = run_quick_training(config)
     
     if success:
-        print("\n🎉 SUCCESS! Your setup is working!")
+        print("\nSUCCESS! setup is working!")
         print("Next steps:")
         print("1. Modify config_hf.yaml for your full experiment")  
         print("2. Run: python main_hf.py --config config_hf.yaml")
         print("3. Add contrastive learning: --use_contrastive")
     else:
         print("\nSomething went wrong. Check the error messages above.")
-
 
 if __name__ == "__main__":
     main()

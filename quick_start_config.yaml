@@ -33,9 +33,9 @@ tasks:
 - loss: mse
   num_labels: 1
   type: regression
-- loss: mse
-  num_labels: 1
-  type: regression
+- loss: cross_entropy
+  num_labels: 2
+  type: classification
 train:
   batch_size: 4
   gradient_interval: 2
