@@ -1,5 +1,3 @@
-# HuggingFace-based Multi-Task Protein Language Model Configuration
-
 output_dir: './outputs'
 
 # Model configuration
@@ -15,22 +13,27 @@ model:
 
 # Dataset configurations (first one with center: true is the main task)
 datasets:
-  - type: 'Thermostability'
+  - type: 'Thermostability'        # proteinglm/stability_prediction
     path: './data'
-    split: 'human_cell'
-    center: true  # Main task
-  - type: 'SecondaryStructure'
+    center: true  # Main task (regression)
+  - type: 'SecondaryStructure'     # proteinglm/ssp_q8
     path: './data'
-    center: false  # Auxiliary task
+    center: false  # Auxiliary task (token classification)
+  - type: 'PeptideHLAMHCAffinity'  # proteinglm/peptide_HLA_MHC_affinity
+    path: './data'
+    center: false  # Auxiliary task (regression)
 
 # Task configurations (must match order of datasets)
 tasks:
   - type: 'regression'
-    num_labels: 1
+    num_labels: 1      # Stability score
     loss: 'mse'
-  - type: 'classification'
-    num_labels: 8  # 8-class secondary structure prediction
+  - type: 'token_classification'  # Q8 secondary structure per residue
+    num_labels: 8      # 8-class secondary structure
     loss: 'cross_entropy'
+  - type: 'regression'
+    num_labels: 1      # HLA-MHC binding affinity
+    loss: 'mse'
 
 # Training configuration
 train:
