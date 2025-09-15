@@ -33,14 +33,15 @@ class ProteinDataset(Dataset):
         }
     
     def create_protein_graph(self, sequence):
-
+        """Create a simple protein representation"""
+        # Map amino acids to integers
         aa_to_id = {
             'A': 0, 'R': 1, 'N': 2, 'D': 3, 'C': 4, 'Q': 5, 'E': 6, 'G': 7, 'H': 8, 'I': 9,
             'L': 10, 'K': 11, 'M': 12, 'F': 13, 'P': 14, 'S': 15, 'T': 16, 'W': 17, 'Y': 18, 'V': 19,
             'X': 20, 'U': 21, 'B': 22, 'Z': 23, 'O': 24  # Extended amino acids
         }
         
-        # sequence to residue types
+        # Convert sequence to residue types
         residue_type = []
         for aa in sequence:
             residue_type.append(aa_to_id.get(aa, 20))  # Default to X for unknown
@@ -53,19 +54,25 @@ class ProteinDataset(Dataset):
 
 
 class HuggingFaceDataset(ProteinDataset):
+    """Base class for loading HuggingFace protein datasets"""
     
-    def load_hf_dataset(self, dataset_name, split_column='split', sequence_column='seq', 
+    def load_hf_dataset(self, dataset_name, split_column='split', sequence_column='sequence', 
                        target_columns=None, verbose=1):
+        """Load dataset from HuggingFace"""
         if verbose:
             print(f"Loading dataset: {dataset_name}")
-  
+        
+        # Load the dataset
         dataset = load_dataset(dataset_name)
         
+        # Handle different split formats
         if 'train' in dataset:
+            # Dataset already has splits
             train_data = dataset['train']
             valid_data = dataset.get('validation', dataset.get('valid', []))
             test_data = dataset.get('test', [])
         else:
+            # Single dataset, need to split based on column
             all_data = dataset['train'] if 'train' in dataset else dataset
             train_data = [item for item in all_data if item.get(split_column) == 'train']
             valid_data = [item for item in all_data if item.get(split_column) in ['valid', 'validation']]
@@ -126,7 +133,7 @@ class AAV(HuggingFaceDataset):
                             for seq in self.sequences]
     
     def split(self):
-   
+        """Split dataset into train/valid/test"""
         offset = 0
         splits = []
         for num_sample in self.num_samples:
@@ -137,36 +144,6 @@ class AAV(HuggingFaceDataset):
             else:
                 splits.append(Subset(self, []))  # Empty subset
         return splits
-
-
-class GB1(HuggingFaceDataset):
-    """GB1 dataset using HuggingFace datasets"""
-    
-    target_fields = ["target"]
-    
-    def __init__(self, path, split="two_vs_rest", verbose=1, **kwargs):
-        super().__init__()
-        
-        # Try to load from HuggingFace
-        try:
-            dataset_name = "proteinglm/gb1_prediction"  # This might not exist
-            self.load_hf_dataset(dataset_name, target_columns=self.target_fields, verbose=verbose)
-        except:
-            print("GB1 dataset not found in HuggingFace format")
-            raise ValueError("GB1 dataset not available in HuggingFace format")
-    
-    def split(self):
-        offset = 0
-        splits = []
-        for num_sample in self.num_samples:
-            if num_sample > 0:
-                split = Subset(self, range(offset, offset + num_sample))
-                splits.append(split)
-                offset += num_sample
-            else:
-                splits.append(Subset(self, []))
-        return splits
-
 
 class Thermostability(HuggingFaceDataset):
     """Thermostability dataset using HuggingFace datasets"""
@@ -180,7 +157,7 @@ class Thermostability(HuggingFaceDataset):
         try:
             dataset_name = "proteinglm/stability_prediction"
             self.load_hf_dataset(dataset_name, 
-                               sequence_column='sequence',
+                               sequence_column='seq',
                                target_columns=['stability_score'],  # Adjust based on actual column names
                                verbose=verbose)
             
@@ -205,6 +182,7 @@ class Thermostability(HuggingFaceDataset):
         return splits
 
 
+# Alternative: Direct HuggingFace dataset loader
 class SecondaryStructure(HuggingFaceDataset):
     """Secondary Structure Prediction using proteinglm/ssp_q8"""
     
@@ -216,7 +194,7 @@ class SecondaryStructure(HuggingFaceDataset):
         try:
             dataset_name = "proteinglm/ssp_q8"
             self.load_hf_dataset(dataset_name, 
-                               sequence_column='sequence',
+                               sequence_column='seq',
                                target_columns=['ss8'],
                                verbose=verbose)
             
@@ -240,6 +218,41 @@ class SecondaryStructure(HuggingFaceDataset):
                 splits.append(Subset(self, []))
         return splits
 
+class PeptideHLAMHCAffinity(HuggingFaceDataset):
+    """Peptide HLA MHC Affinity prediction using proteinglm/peptide_HLA_MHC_affinity"""
+    
+    target_fields = ["label"]
+    
+    def __init__(self, path, verbose=1, **kwargs):
+        super().__init__()
+        
+        try:
+            dataset_name = "proteinglm/peptide_HLA_MHC_affinity"
+            self.load_hf_dataset(dataset_name, 
+                               sequence_column='seq',
+                               target_columns=['label'],
+                               verbose=verbose)
+            
+            # Map label to target for compatibility
+            if 'label' in self.targets:
+                self.targets['target'] = self.targets['label']
+                
+        except Exception as e:
+            print(f"Error loading proteinglm/peptide_HLA_MHC_affinity dataset: {e}")
+            print("Please check if the dataset exists and column names are correct")
+            raise ValueError("Peptide HLA MHC affinity dataset not available")
+    
+    def split(self):
+        offset = 0
+        splits = []
+        for num_sample in self.num_samples:
+            if num_sample > 0:
+                split = Subset(self, range(offset, offset + num_sample))
+                splits.append(split)
+                offset += num_sample
+            else:
+                splits.append(Subset(self, []))
+        return splits
 
 def create_dataset(dataset_type, **kwargs):
     """Factory function to create datasets"""
@@ -247,7 +260,8 @@ def create_dataset(dataset_type, **kwargs):
         'AAV': AAV,
         'GB1': GB1,
         'Thermostability': Thermostability,
-        'SecondaryStructure': SecondaryStructure
+        'SecondaryStructure': SecondaryStructure,
+        'PeptideHLAMHCAffinity': PeptideHLAMHCAffinity
     }
     
     if dataset_type not in datasets:

@@ -1,3 +1,8 @@
+"""
+Test script to verify that the proteinglm datasets work correctly.
+Run this before training to ensure all datasets load properly.
+"""
+
 from datasets import load_dataset
 import traceback
 
@@ -60,13 +65,11 @@ def test_dataset_loading():
 
 
 def test_our_dataset_classes():
-    """Test our custom dataset classes"""
     
     print(f"\n{'='*60}")
     print("Testing our custom dataset classes")
     print(f"{'='*60}")
-    
-    # Import our classes
+
     try:
         from flip_hf import Thermostability, SecondaryStructure, PeptideHLAMHCAffinity
         
@@ -80,7 +83,6 @@ def test_our_dataset_classes():
             print(f"\nTesting {name}...")
             
             try:
-                # Create dataset instance
                 dataset = dataset_class(path='./data', verbose=1)
                 
                 print(f"✅ {name} loaded successfully")
@@ -102,10 +104,11 @@ def test_our_dataset_classes():
                 
             except Exception as e:
                 print(f"❌ {name} failed: {str(e)}")
-                traceback.print_exc()
+                # Don't print full traceback for cleaner output
     
     except ImportError as e:
         print(f"❌ Failed to import dataset classes: {e}")
+        print("This means the flip_hf.py file needs to be updated.")
 
 
 def check_data_compatibility():
@@ -149,7 +152,7 @@ def check_data_compatibility():
         
     except Exception as e:
         print(f"❌ Compatibility check failed: {e}")
-        traceback.print_exc()
+        print("This is expected - we'll fix it in the next step.")
 
 
 if __name__ == "__main__":
@@ -181,10 +184,10 @@ if __name__ == "__main__":
         print(f"  - {dataset}")
     
     if len(working_datasets) >= 2:
-        print("\nYou have enough datasets for multi-task learning!")
+        print("\n🎉 You have enough datasets for multi-task learning!")
         print("You can proceed with training.")
     else:
-        print("\nYou need at least 2 working datasets for multi-task learning.")
+        print("\n⚠️  You need at least 2 working datasets for multi-task learning.")
         print("Consider using alternative datasets or check your access permissions.")
     
     print(f"\nNext steps:")
