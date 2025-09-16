@@ -7,6 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.nn.functional as F
 from tqdm import tqdm
+from torch.nn.utils.rnn import pad_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +15,6 @@ logger = logging.getLogger(__name__)
 engine_hf.MultiTaskEngine.train creates PyTorch DataLoaders, 
 uses collate_fn to batch items, and calls models in ModelsWrapper.forward
 """
-
-from collections import defaultdict
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class ModelsWrapper(nn.Module):
 
@@ -54,31 +50,50 @@ class ModelsWrapper(nn.Module):
         
         all_loss = torch.stack(all_loss)
         return all_loss, all_metric
+    
+    """
+    SSP-Q8 --> token level --> CrossEntropy with attention mask (multi-class classification) / target shape: [batch, seq_len]
+    Stability prediction --> sequence level --> MSE (regression) / target shape: [batch]
+    HLA-MHC affinity --> classification (binary/multi-class) --> BCE or CrossEntropy / target shape: [batch]
+    """
 
     def compute_default_loss(self, outputs, batch, task_type=None):
-        logits = outputs["logits"]
+        logits = outputs["logits"] # raw outputs of the final layer before softmax/sigmoid
 
-        # --- Extract targets ---
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
+                print("Targets is a dict, using the first key for loss computation."),
+                print("Available keys:", list(targets.keys()))
                 target_key = list(targets.keys())[0]
-                target = targets[target_key]
+                target = targets[target_key] # ground truth labels (graph the first one if multiple)
+                print("Using target key:", target_key) 
+                print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
             else:
-                target = targets
+                print("Targets is not a dict, using it directly for loss computation.")
+                print("Targets type:", type(targets))
+                print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
+                target = targets # ground truth labels
         else:
             raise ValueError("Cannot find targets in batch")
+        
+        print("\n[DEBUG] ====== New Batch ======")
+        if "sequence" in batch:
+            print("Example sequence:", batch["sequence"][0][:50], "...")
+        print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
+        print("Logits shape:", logits.shape)
 
         if task_type is None:
             task_type = getattr(self, 'task_type', None)
         if task_type is None:
-            task_type = batch.get('task_type', 'regression')
+            task_type = batch.get('task_type', 'regression') # degault to regression
+        print("Task type chosen:", task_type)
 
         # --- Token-level classification ---
+        # Target is a sequence of labels per token (not just one label per sequence) for example sq8 secondary structure
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
            (isinstance(target, torch.Tensor) and target.dim() == 2):
 
-            from torch.nn.utils.rnn import pad_sequence
             if isinstance(target, list):
                 tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
                 target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(logits.device)
@@ -87,16 +102,18 @@ class ModelsWrapper(nn.Module):
 
             mask = outputs.get("attention_mask")
             if mask is None:
+                print("Warning: attention_mask not found in outputs, assuming all tokens are valid.")
                 mask = torch.ones((target_tensor.size(0), logits.size(1)), dtype=torch.long, device=logits.device)
             else:
+                print("Using attention_mask from outputs for loss computation.")
                 mask = mask.to(logits.device)
 
             L_mask = mask.size(1)
             if target_tensor.size(1) > L_mask:
                 target_tensor = target_tensor[:, :L_mask]
-            elif target_tensor.size(1) < L_mask:
+            elif target_tensor.size(1) < L_mask: # pad target if shorter than mask
                 pad = torch.full((target_tensor.size(0), L_mask - target_tensor.size(1)),
-                                fill_value=-100, device=logits.device, dtype=target_tensor.dtype)
+                                fill_value=-100, device=logits.device, dtype=target_tensor.dtype) # -100 is ignored in cross_entropy for padded tokens
                 target_tensor = torch.cat([target_tensor, pad], dim=1)
 
             active = mask.reshape(-1) == 1
@@ -106,15 +123,16 @@ class ModelsWrapper(nn.Module):
             if active_logits.numel() == 0:
                 return torch.tensor(0.0, device=logits.device, requires_grad=True)
 
-            return F.cross_entropy(active_logits, active_labels)
+            return F.cross_entropy(active_logits, active_labels) # standard token classification loss
 
         # --- Sequence-level tasks ---
+        # one label per sequence
         else:
             t = torch.tensor(target, device=logits.device, dtype=torch.float)
 
             if task_type == 'binary_classification':
                 logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
-                return F.binary_cross_entropy_with_logits(logits_, t.float())
+                return F.binary_cross_entropy_with_logits(logits_, t.float()) # BCEWithLogitsLoss 
 
             elif task_type == 'regression':
                 # Fix: make logits shape match target
@@ -141,26 +159,32 @@ class ModelsWrapper(nn.Module):
 
     def compute_default_metrics(self, outputs, batch):
         logits = outputs["logits"]
+        print("[DEBUG] logits shape:", logits.shape)
+        print("[DEBUG] batch keys:", batch.keys())
+        print("[DEBUG] raw targets type:", type(targets))
 
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
+                print("Targets is a dict, using the first key for metric computation.")
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]
             else:
+                print("Targets is not a dict, using it directly for metric computation.")
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
 
-        task_type = getattr(self, 'task_type', None)
+        task_type = getattr(self, 'task_type', None) # if the model has a task_type attribute use it
         if task_type is None:
             task_type = batch.get('task_type', 'regression')
+        print("[DEBUG] task_type detected:", task_type)
 
-        # --- Token-level ---
+        # --- Token-level --- sequence labeling (like Secondary Structure Prediction)
+        # Pads the targets, aligns with attention_mask, and computes accuracy only on active tokens
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
            (isinstance(target, torch.Tensor) and target.dim() == 2):
 
-            from torch.nn.utils.rnn import pad_sequence
             if isinstance(target, list):
                 tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
                 target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(logits.device)
@@ -186,15 +210,27 @@ class ModelsWrapper(nn.Module):
             active_labels = target_tensor.reshape(-1)[active]
 
             acc = (active_preds == active_labels).float().mean().item() if active_preds.numel() > 0 else 0.0
+            print("[DEBUG] Token-level task")
+            print("[DEBUG] target_tensor shape:", target_tensor.shape)
+            print("[DEBUG] mask shape:", mask.shape)
+            print("[DEBUG] pred shape:", pred.shape)
+            print("[DEBUG] active_preds size:", active_preds.size())
+            print("[DEBUG] active_labels size:", active_labels.size())
             return {"accuracy": acc}
 
-        # --- Sequence-level ---
+        # --- Sequence-level --- binary classification, regression or multi-class classification
         else:
             t = torch.tensor(target, device=logits.device, dtype=torch.float)
 
             if task_type == 'binary_classification':
                 logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
                 pred = (torch.sigmoid(logits_) > 0.5).long()
+                print("[DEBUG] Binary classification")
+                print("[DEBUG] logits shape:", logits.shape)
+                print("[DEBUG] logits_ shape after squeeze:", logits_.shape)
+                print("[DEBUG] targets shape:", t.shape)
+                print("[DEBUG] sample preds:", pred[:10].tolist())
+                print("[DEBUG] sample targets:", t[:10].tolist())
                 return {"accuracy": (pred == t.long()).float().mean().item()}
 
             elif task_type == 'regression':
@@ -205,6 +241,10 @@ class ModelsWrapper(nn.Module):
                 else:
                     logits_flat = logits.mean(dim=1)
                 mse = F.mse_loss(logits_flat, t.float()).item()
+                print("[DEBUG] Regression")
+                print("[DEBUG] logits shape:", logits.shape)
+                print("[DEBUG] targets shape:", t.shape)
+                print("[DEBUG] logits_flat shape:", logits_flat.shape)
                 return {"mse": mse}
 
             else:  # multi-class
@@ -217,6 +257,11 @@ class ModelsWrapper(nn.Module):
                     return {"mse": mse}
                 else:
                     pred = logits.argmax(dim=-1)
+                    print("[DEBUG] Multi-class classification")
+                    print("[DEBUG] logits shape:", logits.shape)
+                    print("[DEBUG] targets shape:", t.shape)
+                    print("[DEBUG] sample preds:", pred[:10].tolist())
+                    print("[DEBUG] sample targets:", t[:10].tolist())
                     return {"accuracy": (pred == t.long()).float().mean().item()}
 
     def __getitem__(self, id):

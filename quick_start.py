@@ -1,7 +1,11 @@
 import os
 import sys
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore'),
+from datasets import load_dataset
+import torch
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
 
 """
 Creates dataset objects from flip_hf.py and 
@@ -44,9 +48,15 @@ def test_proteinglm_datasets():
     working_datasets = []
     for dataset_name in datasets_to_test:
         try:
-            from datasets import load_dataset
-            print(f"Testing {dataset_name}...")
+            print(f"Loading dataset: {dataset_name}")
             dataset = load_dataset(dataset_name)
+            # --- DEBUG: show example raw item ---
+            try:
+                print(f"[DEBUG] First example from {dataset_name}:")
+                print(dataset['train'][0])  # raw sequence + targets
+            except Exception as e:
+                print(f"[DEBUG] Could not show example from {dataset_name}: {e}")
+
             print(f"{dataset_name} - OK")
             working_datasets.append(dataset_name)
         except Exception as e:
@@ -140,9 +150,6 @@ def run_quick_training(config):
         from protbert_hf import create_protbert_model
         from engine_hf import MultiTaskEngine
         
-        import torch
-        from torch.optim import AdamW
-        
         print("Loading datasets...")
         train_sets, valid_sets, test_sets = [], [], []
         
@@ -159,6 +166,13 @@ def run_quick_training(config):
                 dataset = PeptideHLAMHCAffinity(**config_copy)
             
             train_set, valid_set, test_set = dataset.split()
+
+            # --- DEBUG: show one example after split ---
+            try:
+                print(f"[DEBUG] Example from {dataset_type} train split:")
+                print(train_set[0])
+            except Exception as e:
+                print(f"[DEBUG] Could not fetch split example for {dataset_type}: {e}")
        
             train_subset = torch.utils.data.Subset(train_set, range(min(100, len(train_set))))
             valid_subset = torch.utils.data.Subset(valid_set, range(min(50, len(valid_set))))
@@ -205,9 +219,23 @@ def run_quick_training(config):
             batch_size=config['engine']['batch_size'],
             num_worker=config['engine']['num_worker']
         )
-        
+
         print("Training...")
+
+        # --- DEBUG: Peek one training batch before actual training ---
+        debug_loader = DataLoader(train_sets[0], batch_size=config['train']['batch_size'])
+        first_batch = next(iter(debug_loader))
+        print("[DEBUG] First batch structure keys:", first_batch.keys() if isinstance(first_batch, dict) else type(first_batch))
+        if isinstance(first_batch, dict):
+            if "sequence" in first_batch:
+                print("[DEBUG] Example sequence:", first_batch["sequence"][0][:50], "...")
+            if "targets" in first_batch:
+                print("[DEBUG] Example targets:", first_batch["targets"][0])
+
         engine.train(num_epoch=config['train']['num_epoch'], tradeoff=config['train']['tradeoff'])
+
+        #print("Training...")
+        #engine.train(num_epoch=config['train']['num_epoch'], tradeoff=config['train']['tradeoff'])
         
         print("Evaluating...")
         metrics = engine.evaluate("valid")
