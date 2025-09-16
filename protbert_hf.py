@@ -129,11 +129,9 @@ class ProtBert(nn.Module):
 class ProtBertForSequenceClassification(nn.Module):
     """ProtBert model for sequence classification tasks"""
     
-    def __init__(self, model_name="Rostlab/prot_bert_bfd", num_labels=1, readout="pooler", 
-                 freeze_bert=False, dropout=0.1):
+    def __init__(self, protbert=None, num_labels=1, dropout=0.1):
         super().__init__()
-        
-        self.protbert = ProtBert(model_name, readout, freeze_bert)
+        self.protbert = protbert if protbert else ProtBert()
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(self.protbert.output_dim, num_labels)
         
@@ -152,13 +150,9 @@ class ProtBertForSequenceClassification(nn.Module):
 
 
 class ProtBertForTokenClassification(nn.Module):
-    """ProtBert model for token (residue) classification tasks"""
-    
-    def __init__(self, model_name="Rostlab/prot_bert_bfd", num_labels=8, readout="mean", 
-                 freeze_bert=False, dropout=0.1):
+    def __init__(self, protbert=None, num_labels=8, dropout=0.1):
         super().__init__()
-        
-        self.protbert = ProtBert(model_name, readout, freeze_bert)
+        self.protbert = protbert if protbert else ProtBert(readout="mean")
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(self.protbert.output_dim, num_labels)
         
@@ -317,3 +311,4 @@ def create_protbert_model(model_type="base", **kwargs):
         raise ValueError(f"Unknown model type: {model_type}")
     
     return models[model_type](**kwargs)
+

@@ -8,6 +8,9 @@ from torch.utils.data import DataLoader, DistributedSampler
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.nn.utils.rnn import pad_sequence
+from copy import deepcopy
+from protbert_hf import ProtBert
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +256,6 @@ class ModelsWrapper(nn.Module):
             acc = (pred == t).float().mean().item()
             print("[DEBUG] Multi-class classification")
             return {"accuracy": acc}
-
 
     def __getitem__(self, id):
         return self.models[id]
@@ -555,83 +557,359 @@ class MultiTaskEngine:
         self.epoch = checkpoint.get("epoch", 0)
         self.step = checkpoint.get("step", 0)
 
-class ContrastiveLoss(nn.Module):
-    """Contrastive loss for protein representation learning"""
-    
-    def __init__(self, temperature=0.1, normalize=True):
+
+class SharedBackboneMultiTaskModel(nn.Module):
+
+    def __init__(self, model_name="Rostlab/prot_bert_bfd", tasks_config=None, 
+                 readout="pooler", freeze_bert=False, lora_config=None):
         super().__init__()
-        self.temperature = temperature
-        self.normalize = normalize
+        
+        # Single shared backbone
+        self.shared_backbone = ProtBert(
+            model_name=model_name, 
+            readout=readout, 
+            freeze_bert=freeze_bert
+        )
+        
+        if lora_config:
+            self.add_lora_adapters(**lora_config)
+        
+        # Task-specific heads
+        self.task_heads = nn.ModuleDict()
+        self.task_types = {}
+        
+        if tasks_config:
+            for task_id, task_config in enumerate(tasks_config):
+                task_name = f"task_{task_id}"
+                self.task_types[task_name] = task_config['type']
+                
+                # Create task-specific head
+                if task_config['type'] == 'token_classification':
+                    head = nn.Sequential(
+                        nn.Dropout(0.1),
+                        nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
+                    )
+                elif task_config['type'] in ['classification', 'regression']:
+                    head = nn.Sequential(
+                        nn.Dropout(0.1),
+                        nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
+                    )
+                else:
+                    raise ValueError(f"Unsupported task type: {task_config['type']}")
+                
+                self.task_heads[task_name] = head
     
-    def forward(self, embeddings1, embeddings2, labels=None):
-        """
-        Compute contrastive loss between two sets of embeddings
+    def add_lora_adapters(self, rank=16, alpha=32, dropout=0.1):
+        from protbert_hf import LoRALinear
         
-        Args:
-            embeddings1: First set of embeddings [batch_size, embed_dim]
-            embeddings2: Second set of embeddings [batch_size, embed_dim]
-            labels: Optional labels for supervised contrastive learning
-        """
-        if self.normalize:
-            embeddings1 = F.normalize(embeddings1, dim=1)
-            embeddings2 = F.normalize(embeddings2, dim=1)
+        for layer in self.shared_backbone.model.encoder.layer:
+            attention = layer.attention.self
+            
+            for name in ['query', 'key', 'value']:
+                if hasattr(attention, name):
+                    original_layer = getattr(attention, name)
+                    lora_layer = LoRALinear(
+                        original_layer.in_features,
+                        original_layer.out_features,
+                        rank=rank,
+                        alpha=alpha,
+                        dropout=dropout
+                    )
+                    lora_layer.linear.weight.data = original_layer.weight.data.clone()
+                    setattr(attention, name, lora_layer)
+    
+    def forward(self, batch, task_id):
         
-        # Compute similarity matrix
-        logits = torch.matmul(embeddings1, embeddings2.T) / self.temperature
+        task_name = f"task_{task_id}"
         
-        batch_size = embeddings1.size(0)
+        # Shared backbone forward pass
+        backbone_outputs = self.shared_backbone(batch)
         
-        if labels is None:
-            # Self-supervised contrastive learning
-            # Positive pairs are (i, i), negative pairs are (i, j) where i != j
-            targets = torch.arange(batch_size, device=embeddings1.device)
-            loss = F.cross_entropy(logits, targets)
+        # Task-specific head
+        task_type = self.task_types[task_name]
+        head = self.task_heads[task_name]
+        
+        if task_type == 'token_classification':
+            # Use residue-level features
+            logits = head(backbone_outputs["residue_feature"])
         else:
-            # Supervised contrastive learning
-            labels = labels.view(-1, 1)
-            mask = torch.eq(labels, labels.T).float()
-            
-            # Mask out diagonal (self-similarity)
-            mask = mask - torch.eye(batch_size, device=embeddings1.device)
-            
-            # Compute loss
-            exp_logits = torch.exp(logits)
-            log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
-            
-            mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-            loss = -mean_log_prob_pos.mean()
+            # Use graph-level features
+            logits = head(backbone_outputs["graph_feature"])
         
-        return loss
+        return {
+            "logits": logits,
+            "graph_feature": backbone_outputs["graph_feature"],
+            "residue_feature": backbone_outputs["residue_feature"],
+            "attention_mask": backbone_outputs.get("attention_mask")
+        }
+    
+    def get_task_model(self, task_id):
+        return TaskModelWrapper(self, task_id)
 
 
-class MultiTaskWithContrastive(MultiTaskEngine):
-    """Multi-task engine with contrastive learning"""
+class TaskModelWrapper(nn.Module):
     
-    def __init__(self, *args, contrastive_weight=0.1, temperature=0.1, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.contrastive_weight = contrastive_weight
-        self.contrastive_loss = ContrastiveLoss(temperature=temperature)
+    def __init__(self, shared_model, task_id):
+        super().__init__()
+        self.shared_model = shared_model
+        self.task_id = task_id
+        self.task_type = shared_model.task_types[f"task_{task_id}"]
     
-    def compute_contrastive_loss(self, batches):
-        """Compute contrastive loss between different task representations"""
-        if len(batches) < 2:
-            return torch.tensor(0.0, device=self.device)
+    def forward(self, batch):
+        return self.shared_model(batch, self.task_id)
+    
+    def parameters(self):
+        return self.shared_model.parameters()
+
+
+class SharedBackboneModelsWrapper(nn.Module):
+  
+    def __init__(self, shared_model, task_names):
+        super().__init__()
+        self.shared_model = shared_model
+        self.names = task_names
         
-        # Get embeddings from different tasks
-        embeddings = []
-        for i, (batch, model) in enumerate(zip(batches, self.models)):
-            outputs = model(batch)
-            graph_feature = outputs.get("graph_feature")
-            if graph_feature is not None:
-                embeddings.append(graph_feature)
+        # Create task wrappers for compatibility
+        self.task_wrappers = nn.ModuleList([
+            shared_model.get_task_model(i) for i in range(len(task_names))
+        ])
+    
+    def forward(self, batches):
+        all_loss = []
+        all_metric = {}
         
-        if len(embeddings) < 2:
-            return torch.tensor(0.0, device=self.device)
+        for task_id, batch in enumerate(batches):
+            task_wrapper = self.task_wrappers[task_id]
+            task_type = getattr(task_wrapper, 'task_type', None)
+            
+            # Forward pass through shared model for this task
+            outputs = task_wrapper(batch)
+            
+            # Compute loss (reuse existing loss computation)
+            loss = self.compute_default_loss(outputs, batch, task_type=task_type)
+            metric = self.compute_default_metrics(outputs, batch, task_type=task_type)
+            
+            # Store metrics with task names
+            for k, v in metric.items():
+                name = self.names[task_id] + " " + k
+                if task_id == 0:
+                    name = "Center - " + name
+                all_metric[name] = v
+            
+            all_loss.append(loss)
         
-        # Compute contrastive loss between first task and others
-        total_contrastive_loss = 0
-        for i in range(1, len(embeddings)):
-            loss = self.contrastive_loss(embeddings[0], embeddings[i])
-            total_contrastive_loss += loss
-        
-        return total_contrastive_loss / (len(embeddings) - 1)
+        all_loss = torch.stack(all_loss)
+        return all_loss, all_metric
+    
+    def compute_default_loss(self, outputs, batch, task_type=None):
+        logits = outputs["logits"]  # raw outputs of the final layer before softmax/sigmoid
+
+        # Extract targets
+        if isinstance(batch, dict) and 'targets' in batch:
+            targets = batch['targets']
+            if isinstance(targets, dict):
+                print("Targets is a dict, using the first key for loss computation.")
+                print("Available keys:", list(targets.keys()))
+                target_key = list(targets.keys())[0]
+                target = targets[target_key]  # pick first if multiple
+                print("Using target key:", target_key)
+                print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
+            else:
+                print("Targets is not a dict, using it directly for loss computation.")
+                print("Targets type:", type(targets))
+                print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
+                target = targets
+        else:
+            raise ValueError("Cannot find targets in batch")
+
+        print("\n[DEBUG] ====== New Batch ======")
+        if "sequence" in batch:
+            print("Example sequence:", batch["sequence"][0][:50], "...")
+        print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
+        print("Logits shape:", logits.shape)
+
+        # Determine task type
+        task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+        # Special case: force Task_2 to multi-class classification
+        if hasattr(self, 'names') and "Task_2" in self.names:
+            task_type = "multi_class"
+        print("[DEBUG] task_type detected:", task_type)
+
+        # --- Token-level classification (sequence labeling) ---
+        if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
+        (isinstance(target, torch.Tensor) and target.dim() == 2):
+
+            if isinstance(target, list):
+                tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
+                target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(logits.device)
+            else:
+                target_tensor = target.to(logits.device)
+
+            mask = outputs.get("attention_mask")
+            if mask is None:
+                print("Warning: attention_mask not found, assuming all tokens are valid.")
+                mask = torch.ones((target_tensor.size(0), logits.size(1)), dtype=torch.long, device=logits.device)
+            else:
+                mask = mask.to(logits.device)
+
+            L_mask = mask.size(1)
+            if target_tensor.size(1) > L_mask:
+                target_tensor = target_tensor[:, :L_mask]
+            elif target_tensor.size(1) < L_mask:
+                pad = torch.full((target_tensor.size(0), L_mask - target_tensor.size(1)),
+                                fill_value=-100, device=logits.device, dtype=target_tensor.dtype)
+                target_tensor = torch.cat([target_tensor, pad], dim=1)
+
+            active = mask.reshape(-1) == 1
+            active_logits = logits.reshape(-1, logits.size(-1))[active]
+            active_labels = target_tensor.reshape(-1)[active]
+
+            if active_logits.numel() == 0:
+                return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+            return F.cross_entropy(active_logits, active_labels)  # token-level classification loss
+
+        # --- Sequence-level tasks ---
+        t = torch.tensor(target, device=logits.device, dtype=torch.float)
+
+        if task_type == 'binary_classification':
+            logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
+            return F.binary_cross_entropy_with_logits(logits_, t.float())
+
+        elif task_type == 'regression':
+            if logits.numel() == t.numel():
+                logits_flat = logits.view_as(t)
+            elif logits.size(-1) == 1:
+                logits_flat = logits.squeeze(-1)
+            else:
+                logits_flat = logits.mean(dim=1)
+            return F.mse_loss(logits_flat, t.float())
+
+        else:  # multi-class
+            if logits.dim() == 1 or logits.size(-1) == 1:
+                if logits.numel() == t.numel():
+                    logits_flat = logits.view_as(t)
+                else:
+                    logits_flat = logits.squeeze(-1)
+                return F.mse_loss(logits_flat, t.float())
+            else:
+                if t.dtype != torch.long:
+                    t = t.long()
+                t = torch.clamp(t, 0, logits.size(-1)-1)
+                return F.cross_entropy(logits, t)
+
+    def compute_default_metrics(self, outputs, batch, task_type=None):
+        logits = outputs["logits"]
+        print("[DEBUG] logits shape:", logits.shape)
+        print("[DEBUG] batch keys:", batch.keys())
+
+        # Extract targets
+        if isinstance(batch, dict) and 'targets' in batch:
+            targets = batch['targets']
+            if isinstance(targets, dict):
+                print("Targets is a dict, using the first key for metric computation.")
+                target_key = list(targets.keys())[0]
+                target = targets[target_key]
+            else:
+                print("Targets is not a dict, using it directly for metric computation.")
+                target = targets
+        else:
+            raise ValueError("Cannot find targets in batch")
+
+        print("[DEBUG] raw targets type:", type(target))
+
+        # Determine task type
+        task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+        # Force Task_2 as multi-class
+        if hasattr(self, 'names') and "Task_2" in self.names:
+            task_type = "multi_class"
+        print("[DEBUG] task_type detected:", task_type)
+
+        # --- Token-level classification ---
+        if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
+        (isinstance(target, torch.Tensor) and target.dim() == 2):
+
+            if isinstance(target, list):
+                tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
+                target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(logits.device)
+            else:
+                target_tensor = target.to(logits.device)
+
+            mask = outputs.get("attention_mask")
+            if mask is None:
+                raise ValueError("Token-level task requires attention_mask")
+            mask = mask.to(logits.device)
+
+            L_mask = mask.size(1)
+            if target_tensor.size(1) > L_mask:
+                target_tensor = target_tensor[:, :L_mask]
+            elif target_tensor.size(1) < L_mask:
+                pad = torch.full((target_tensor.size(0), L_mask - target_tensor.size(1)),
+                                fill_value=-100, device=logits.device, dtype=target_tensor.dtype)
+                target_tensor = torch.cat([target_tensor, pad], dim=1)
+
+            pred = logits.argmax(dim=-1)
+            active = mask.reshape(-1) == 1
+            active_preds = pred.reshape(-1)[active]
+            active_labels = target_tensor.reshape(-1)[active]
+
+            acc = (active_preds == active_labels).float().mean().item() if active_preds.numel() > 0 else 0.0
+            print("[DEBUG] Token-level task")
+            print("[DEBUG] target_tensor shape:", target_tensor.shape)
+            print("[DEBUG] mask shape:", mask.shape)
+            print("[DEBUG] pred shape:", pred.shape)
+            print("[DEBUG] active_preds size:", active_preds.size())
+            print("[DEBUG] active_labels size:", active_labels.size())
+            return {"accuracy": acc}
+
+        # --- Sequence-level tasks ---
+        t = torch.tensor(target, device=logits.device, dtype=torch.float)
+
+        if task_type == 'binary_classification':
+            logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
+            pred = (torch.sigmoid(logits_) > 0.5).long()
+            print("[DEBUG] Binary classification")
+            return {"accuracy": (pred == t.long()).float().mean().item()}
+
+        elif task_type == 'regression':
+            if logits.numel() == t.numel():
+                logits_flat = logits.view_as(t)
+            elif logits.size(-1) == 1:
+                logits_flat = logits.squeeze(-1)
+            else:
+                logits_flat = logits.mean(dim=1)
+            mse = F.mse_loss(logits_flat, t.float()).item()
+            print("[DEBUG] Regression")
+            return {"mse": mse}
+
+        else:  # multi-class classification
+            if t.dtype != torch.long:
+                t = t.long()
+            t = torch.clamp(t, 0, logits.size(-1)-1)
+            pred = logits.argmax(dim=-1)
+            acc = (pred == t).float().mean().item()
+            print("[DEBUG] Multi-class classification")
+            return {"accuracy": acc}
+    
+    def __getitem__(self, idx):
+        return self.task_wrappers[idx]
+
+
+def create_shared_multitask_model(tasks_config, model_config):
+    lora_config = None
+    if model_config.get('type') == 'lora':
+        lora_config = {
+            'rank': model_config.get('lora_rank', 16),
+            'alpha': model_config.get('lora_alpha', 32),
+            'dropout': model_config.get('lora_dropout', 0.1)
+        }
+    
+    shared_model = SharedBackboneMultiTaskModel(
+        model_name=model_config['model_name'],
+        tasks_config=tasks_config,
+        readout=model_config['readout'],
+        freeze_bert=model_config.get('freeze_bert', False),
+        lora_config=lora_config
+    )
+    
+    return shared_model
