@@ -138,7 +138,7 @@ def run_quick_training_with_shared_backbone(config):
     
     try:
         from flip_hf import Thermostability, SecondaryStructure, PeptideHLAMHCAffinity
-        from shared_backbone_model import create_shared_multitask_model, SharedBackboneModelsWrapper
+        from engine_hf import create_shared_multitask_model, SharedBackboneModelsWrapper
         from engine_hf import MultiTaskEngine
         from torch.utils.data import DataLoader
         
