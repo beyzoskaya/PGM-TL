@@ -455,15 +455,15 @@ class MultiTaskEngine:
     @torch.no_grad()
     def evaluate(self, split, log=True):
         """
-        Evaluate the model on specified split.
+        Evaluate the model on specified split with detailed per-task debug.
         """
         logger.info(f"Evaluating on {split} set")
-        
+
         test_sets = getattr(self, f"{split}_sets")
         self.models.eval()
-        
+
         all_metrics = defaultdict(float)
-        
+
         for task_id, (test_set, model) in enumerate(zip(test_sets, self.models)):
             dataloader = DataLoader(
                 test_set,
@@ -472,25 +472,34 @@ class MultiTaskEngine:
                 num_workers=self.num_worker,
                 collate_fn=self.collate_fn
             )
-            
+
             task_metrics = defaultdict(list)
-            
+            total_samples = 0
+            total_correct = 0  # For accuracy debugging
+
             for batch in tqdm(dataloader, desc=f"Evaluating Task {task_id}"):
                 batch = self.move_to_device(batch)
-                
+
                 # Forward pass
                 outputs = model(batch)
-                
+
                 # Compute metrics
                 if hasattr(model, 'evaluate'):
                     metrics = model.evaluate(outputs, batch)
                 else:
                     metrics = self.models.compute_default_metrics(outputs, batch)
-                
+
+                # Track metrics and accuracy computation
+                batch_size = len(batch['labels']) if 'labels' in batch else 1
+                total_samples += batch_size
+
+                if 'accuracy' in metrics:
+                    total_correct += metrics['accuracy'] * batch_size  # Convert batch accuracy to absolute correct
+
                 for key, value in metrics.items():
                     if isinstance(value, (int, float)):
                         task_metrics[key].append(value)
-            
+
             # Average metrics for this task
             for key, values in task_metrics.items():
                 if values:
@@ -499,13 +508,18 @@ class MultiTaskEngine:
                     if task_id == 0:
                         metric_name = "Center - " + metric_name
                     all_metrics[metric_name] = avg_value
-        
+
+            # Log debug info for this task
+            computed_accuracy = (total_correct / total_samples) if total_samples > 0 else 0.0
+            logger.info(f"Task {task_id}: Total samples = {total_samples}, Computed accuracy = {computed_accuracy:.4f}")
+
         if log:
             logger.info("Evaluation Results:")
             for key, value in all_metrics.items():
                 logger.info(f"  {key}: {value:.4f}")
-        
+
         return dict(all_metrics)
+
 
     def save(self, checkpoint_path):
         """Save model checkpoint"""
