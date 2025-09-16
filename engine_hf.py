@@ -454,9 +454,7 @@ class MultiTaskEngine:
 
     @torch.no_grad()
     def evaluate(self, split, log=True):
-        """
-        Evaluate the model on specified split with detailed per-task debug.
-        """
+   
         logger.info(f"Evaluating on {split} set")
 
         test_sets = getattr(self, f"{split}_sets")
@@ -489,12 +487,17 @@ class MultiTaskEngine:
                 else:
                     metrics = self.models.compute_default_metrics(outputs, batch)
 
-                # Track metrics and accuracy computation
-                batch_size = len(batch['labels']) if 'labels' in batch else 1
+                if 'labels' in batch:
+                    batch_size = batch['labels'].shape[0] if isinstance(batch['labels'], torch.Tensor) else len(batch['labels'])
+                elif 'targets' in batch:
+                    batch_size = batch['targets'].shape[0] if isinstance(batch['targets'], torch.Tensor) else len(batch['targets'])
+                else:
+                    batch_size = 1  # fallback
+
                 total_samples += batch_size
 
                 if 'accuracy' in metrics:
-                    total_correct += metrics['accuracy'] * batch_size  # Convert batch accuracy to absolute correct
+                    total_correct += metrics['accuracy'] * batch_size
 
                 for key, value in metrics.items():
                     if isinstance(value, (int, float)):
@@ -509,7 +512,7 @@ class MultiTaskEngine:
                         metric_name = "Center - " + metric_name
                     all_metrics[metric_name] = avg_value
 
-            # Log debug info for this task
+            # Log task-level debug info
             computed_accuracy = (total_correct / total_samples) if total_samples > 0 else 0.0
             logger.info(f"Task {task_id}: Total samples = {total_samples}, Computed accuracy = {computed_accuracy:.4f}")
 
@@ -520,9 +523,7 @@ class MultiTaskEngine:
 
         return dict(all_metrics)
 
-
     def save(self, checkpoint_path):
-        """Save model checkpoint"""
         logger.info(f"Saving checkpoint to {checkpoint_path}")
         
         state = {
@@ -537,7 +538,6 @@ class MultiTaskEngine:
         torch.save(state, checkpoint_path)
 
     def load(self, checkpoint_path, load_optimizer=True):
-        """Load model checkpoint"""
         logger.info(f"Loading checkpoint from {checkpoint_path}")
         
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
