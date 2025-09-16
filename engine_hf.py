@@ -161,7 +161,6 @@ class ModelsWrapper(nn.Module):
         logits = outputs["logits"]
         print("[DEBUG] logits shape:", logits.shape)
         print("[DEBUG] batch keys:", batch.keys())
-        print("[DEBUG] raw targets type:", type(targets))
 
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
@@ -175,15 +174,16 @@ class ModelsWrapper(nn.Module):
         else:
             raise ValueError("Cannot find targets in batch")
 
-        task_type = getattr(self, 'task_type', None) # if the model has a task_type attribute use it
+        print("[DEBUG] raw targets type:", type(target))
+
+        task_type = getattr(self, 'task_type', None)  # if the model has a task_type attribute use it
         if task_type is None:
             task_type = batch.get('task_type', 'regression')
         print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level --- sequence labeling (like Secondary Structure Prediction)
-        # Pads the targets, aligns with attention_mask, and computes accuracy only on active tokens
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
-           (isinstance(target, torch.Tensor) and target.dim() == 2):
+        (isinstance(target, torch.Tensor) and target.dim() == 2):
 
             if isinstance(target, list):
                 tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]

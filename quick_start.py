@@ -6,6 +6,7 @@ from datasets import load_dataset
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+import yaml
 
 """
 Creates dataset objects from flip_hf.py and 
@@ -293,8 +294,7 @@ def main():
         print(f"\n{len(working_datasets)} datasets working: {working_datasets}")
     
     config = create_minimal_config(working_datasets)
-    
-    import yaml
+
     os.makedirs('quick_start_outputs', exist_ok=True)
     with open('quick_start_config.yaml', 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
