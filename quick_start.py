@@ -54,6 +54,25 @@ def test_proteinglm_datasets():
             try:
                 print(f"[DEBUG] First example from {dataset_name}:")
                 print(dataset['train'][0])  # raw sequence + targets
+
+                """
+                {'seq': 'ADIGEVAGDAIVSFQDVFFTTPRGRYDIDIYKNSIRLRGKTYEYKLQHRQIQRIVSLPKADDIH
+                HLLVLAIEPPLRQGQTTYPFLVLQFQKDEETEVQLNLEDEDYEENYKDKLKKQYDAKTHIVLSHVLKGLTDRRV
+                IVPGEYKSKYDQCAVSCSFKANEGYLYPLDNAFFFLTKPTLYIPFSDVSMVNISRAGQTSTSSRTFDLEVVLRS
+                NRGSTTFANISKEEQQLLEQFLKSKNLRVK', 
+
+                'label': [7, 7, 7, 7, 5, 7, 7, 6, 6, 7, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 
+                6, 4, 4, 4, 4, 4, 4, 4, 7, 5, 5, 4, 4, 4, 4, 4, 7, 5, 5, 7, 4, 4, 4, 4, 4, 
+                0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 7, 6, 6, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+                4, 4, 4, 4, 6, 6, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 6, 7, 4, 4, 4, 4, 4, 7, 
+                5, 7, 7, 1, 1, 1, 2, 2, 2, 2, 2, 6, 6, 6, 7, 7, 5, 4, 4, 4, 4, 4, 1, 1, 1, 1, 
+                1, 1, 1, 1, 1, 1, 1, 1, 1, 7, 7, 7, 4, 4, 7, 7, 7, 5, 7, 7, 7, 6, 6, 5, 7, 5, 
+                7, 4, 4, 4, 4, 4, 6, 6, 4, 4, 4, 4, 4, 4, 4, 7, 5, 5, 4, 4, 4, 4, 4, 5, 5, 5, 
+                7, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 4, 
+                4, 4, 4, 4, 4, 4, 4, 0, 0, 0, 7, 7, 4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 0, 1, 1, 1, 
+                1, 1, 1, 1, 1, 1, 1, 6, 6, 7, 7, 7, 7]}
+                proteinglm/ssp_q8 - OK
+                """
             except Exception as e:
                 print(f"[DEBUG] Could not show example from {dataset_name}: {e}")
 
@@ -149,6 +168,7 @@ def run_quick_training(config):
         from flip_hf import Thermostability, SecondaryStructure, PeptideHLAMHCAffinity
         from protbert_hf import create_protbert_model
         from engine_hf import MultiTaskEngine
+        from torch.utils.data import DataLoader
         
         print("Loading datasets...")
         train_sets, valid_sets, test_sets = [], [], []
@@ -166,13 +186,6 @@ def run_quick_training(config):
                 dataset = PeptideHLAMHCAffinity(**config_copy)
             
             train_set, valid_set, test_set = dataset.split()
-
-            # --- DEBUG: show one example after split ---
-            try:
-                print(f"[DEBUG] Example from {dataset_type} train split:")
-                print(train_set[0])
-            except Exception as e:
-                print(f"[DEBUG] Could not fetch split example for {dataset_type}: {e}")
        
             train_subset = torch.utils.data.Subset(train_set, range(min(100, len(train_set))))
             valid_subset = torch.utils.data.Subset(valid_set, range(min(50, len(valid_set))))
@@ -209,6 +222,7 @@ def run_quick_training(config):
         
         optimizer = AdamW(all_params, lr=config['optimizer']['lr'])
         
+        # --- Initialize engine ---
         engine = MultiTaskEngine(
             tasks=tasks,
             train_sets=train_sets,
@@ -220,22 +234,26 @@ def run_quick_training(config):
             num_worker=config['engine']['num_worker']
         )
 
-        print("Training...")
-
-        # --- DEBUG: Peek one training batch before actual training ---
-        debug_loader = DataLoader(train_sets[0], batch_size=config['train']['batch_size'])
+        ### DEBUG: Check batching
+        debug_loader = DataLoader(
+            train_sets[0],
+            batch_size=config['train']['batch_size'],
+            collate_fn=engine.collate_fn
+        )
         first_batch = next(iter(debug_loader))
-        print("[DEBUG] First batch structure keys:", first_batch.keys() if isinstance(first_batch, dict) else type(first_batch))
-        if isinstance(first_batch, dict):
-            if "sequence" in first_batch:
-                print("[DEBUG] Example sequence:", first_batch["sequence"][0][:50], "...")
-            if "targets" in first_batch:
-                print("[DEBUG] Example targets:", first_batch["targets"][0])
+        print("\nDEBUG: First batch structure:")
+        print("Keys:", first_batch.keys())
+        if "targets" in first_batch:
+            print("Targets type:", type(first_batch["targets"]))
+            if isinstance(first_batch["targets"], dict):
+                for k, v in first_batch["targets"].items():
+                    print(f"  - {k}: {type(v)}, shape={getattr(v, 'shape', None)}")
+            else:
+                print("Targets:", first_batch["targets"])
 
+        ### TRAINING
+        print("Training...")
         engine.train(num_epoch=config['train']['num_epoch'], tradeoff=config['train']['tradeoff'])
-
-        #print("Training...")
-        #engine.train(num_epoch=config['train']['num_epoch'], tradeoff=config['train']['tradeoff'])
         
         print("Evaluating...")
         metrics = engine.evaluate("valid")
@@ -250,7 +268,6 @@ def run_quick_training(config):
         import traceback
         traceback.print_exc()
         return False
-
 
 def main():
     print("ProteinGLM Multi-Task Learning - Quick Start")

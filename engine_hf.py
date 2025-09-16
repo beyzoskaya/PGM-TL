@@ -447,7 +447,6 @@ class MultiTaskEngine:
         return dict(avg_metrics)
 
     def move_to_device(self, batch):
-        """Move batch to device"""
         if isinstance(batch, dict):
             moved_batch = {}
             for key, value in batch.items():
@@ -551,8 +550,6 @@ class MultiTaskEngine:
         self.epoch = checkpoint.get("epoch", 0)
         self.step = checkpoint.get("step", 0)
 
-
-# Contrastive Loss Implementation
 class ContrastiveLoss(nn.Module):
     """Contrastive loss for protein representation learning"""
     
