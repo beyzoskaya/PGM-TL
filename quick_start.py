@@ -85,11 +85,10 @@ def test_proteinglm_datasets():
     return working_datasets
 
 def create_minimal_config(working_datasets):
-
     dataset_mapping = {
-        "proteinglm/stability_prediction": "Thermostability",
-        "proteinglm/ssp_q8": "SecondaryStructure", 
-        "proteinglm/peptide_HLA_MHC_affinity": "PeptideHLAMHCAffinity"
+        "proteinglm/stability_prediction": "Thermostability",  # regression
+        "proteinglm/ssp_q8": "SecondaryStructure",             # token classification
+        "proteinglm/peptide_HLA_MHC_affinity": "PeptideHLAMHCAffinity"  # binary classification
     }
     
     config = {
@@ -100,7 +99,7 @@ def create_minimal_config(working_datasets):
             'model_name': 'Rostlab/prot_bert_bfd',
             'readout': 'pooler',
             'freeze_bert': True,
-            'lora_rank': 8,  # Smaller for faster training
+            'lora_rank': 8,  
             'lora_alpha': 16,
             'lora_dropout': 0.1
         },
@@ -109,7 +108,7 @@ def create_minimal_config(working_datasets):
         'tasks': [],
         
         'train': {
-            'num_epoch': 2,  # Quick test
+            'num_epoch': 2,  
             'batch_size': 4,  
             'gradient_interval': 2,
             'tradeoff': 0.5
@@ -132,33 +131,36 @@ def create_minimal_config(working_datasets):
     
     for i, dataset_name in enumerate(working_datasets[:3]):  # Max 3 datasets
         dataset_type = dataset_mapping[dataset_name]
-        is_center = (i == 0)  # First one is center task
+        is_center = (i == 0)  # First dataset is center task
         
+        # Add dataset entry
         config['datasets'].append({
             'type': dataset_type,
             'path': './data',
             'center': is_center
         })
         
-        # Add corresponding task
+        # Add corresponding task entry
         if dataset_type == 'SecondaryStructure':
             config['tasks'].append({
-                'type': 'token_classification',
+                'type': 'token_classification',  # multi-class
                 'num_labels': 8,
                 'loss': 'cross_entropy'
             })
         elif dataset_type == 'PeptideHLAMHCAffinity':
             config['tasks'].append({
-                'type': 'classification',  # multi-class classification with 2 labels
+                'type': 'classification',  # binary classification
                 'num_labels': 2,
                 'loss': 'cross_entropy'
             })
-        else:  # Regression tasks
+        elif dataset_type == 'Thermostability':
             config['tasks'].append({
-                'type': 'regression', 
+                'type': 'regression',  # regression
                 'num_labels': 1,
                 'loss': 'mse'
             })
+        else:
+            raise ValueError(f"Unknown dataset type: {dataset_type}")
     
     return config
 
