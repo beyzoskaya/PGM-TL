@@ -1,1 +1,1 @@
-# PGM-TL
+# PGM-TL → ProteinGLM Multi-task Learning
