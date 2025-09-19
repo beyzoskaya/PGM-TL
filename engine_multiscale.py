@@ -175,6 +175,10 @@ class MultiScaleEncoder(nn.Module):
         self.scale_weights = nn.Parameter(torch.ones(3))
         
     def forward(self, batch):
+        print(f"[DEBUG] MultiScaleEncoder.forward called")
+        print(f"[DEBUG] batch type: {type(batch)}")
+        print(f"[DEBUG] batch content: {batch}")
+
         sequences = batch.get('sequence', [])
         device = next(self.parameters()).device
         
@@ -548,7 +552,7 @@ class MultiScaleModelsWrapper(nn.Module):
 
             multiscale_outputs = outputs.get("multiscale_outputs", {})
             mask = multiscale_outputs.get("attention_mask")
-
+            
             if mask is None:
                 raise ValueError("Token-level task requires attention_mask")
             mask = mask.to(logits.device)
@@ -605,24 +609,35 @@ class MultiScaleModelsWrapper(nn.Module):
             return {"accuracy": acc}
     
     def __getitem__(self, idx):
-        return TaskSpecificModelWrapper(self.multiscale_model, idx)
-
-class TaskSpecificModelWrapper:
-    def __init__(self, multiscale_model, task_id):
-        self.multiscale_model = multiscale_model
-        self.task_id = task_id
-    
-    def __call__(self, batch):
-        return self.multiscale_model(batch, self.task_id)
-    
-    def to(self, device):
-        return self
-    
-    def eval(self):
-        return self
-    
-    def train(self):
-        return self
+        
+        class TaskModel:
+            def __init__(self, wrapper, task_id):
+                self.wrapper = wrapper
+                self.task_id = task_id
+                
+            def __call__(self, batch):
+                print(f"[DEBUG] TaskModel called for task {self.task_id}")
+                print(f"[DEBUG] batch type in TaskModel: {type(batch)}")
+                return self.wrapper.multiscale_model(batch, self.task_id)
+            
+            def forward(self, batch):
+                return self(batch)
+                
+            def to(self, device):
+                return self
+                
+            def eval(self):
+                self.wrapper.multiscale_model.eval()
+                return self
+                
+            def train(self):
+                self.wrapper.multiscale_model.train()
+                return self
+                
+            def parameters(self):
+                return self.wrapper.multiscale_model.parameters()
+        
+        return TaskModel(self, idx)
 
 def create_multiscale_shared_model(tasks_config, model_config):    
     # Create base ProtBert
