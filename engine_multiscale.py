@@ -236,7 +236,8 @@ class MultiScaleEncoder(nn.Module):
             "domain_features": domain_features,       # Domain level
             "attention_weights": attention_weights,   # For interpretability
             "scale_weights": scale_weights,          # Learned scale importance
-            "residue_feature": protbert_outputs.get("residue_feature")  # For token tasks
+            "residue_feature": protbert_outputs.get("residue_feature"),  # For token tasks
+            "attention_mask": protbert_outputs.get("attention_mask")
         }
 
 
@@ -527,7 +528,7 @@ class MultiScaleModelsWrapper(nn.Module):
         #task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         task_config = self.multiscale_model.tasks_config[task_id]
         task_type = task_config['type']
-        
+
         # Force Task_2 as multi-class
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
