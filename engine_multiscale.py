@@ -59,6 +59,9 @@ class ProteinScaleExtractor:
         all_motifs = []
         all_positions = []
         
+        # Fixed: Pad all motifs to consistent size (9 * 4 = 36 features max)
+        max_motif_features = 36  # 9 amino acids * 4 properties each
+        
         for window_size in window_sizes:
             for i in range(len(sequence) - window_size + 1):
                 motif = sequence[i:i+window_size]
@@ -66,6 +69,13 @@ class ProteinScaleExtractor:
                 motif_features = []
                 for aa in motif:
                     motif_features.extend(self.aa_properties.get(aa, [0, 0, 0, 0]))
+                
+                # FIXED: Pad motif_features to consistent length
+                while len(motif_features) < max_motif_features:
+                    motif_features.append(0.0)  # Pad with zeros
+                
+                # Truncate if somehow longer (shouldn't happen with our window sizes)
+                motif_features = motif_features[:max_motif_features]
                 
                 all_motifs.append(motif_features)
                 all_positions.append((i, i+window_size, window_size))
