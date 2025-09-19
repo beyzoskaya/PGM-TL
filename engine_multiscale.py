@@ -140,41 +140,37 @@ class MultiScaleEncoder(nn.Module):
         # 1. Amino acid level: use ProtBert directly
         
         # 2. Motif level encoder
+        # AFTER (correct):
         self.motif_encoder = nn.Sequential(
-            nn.Linear(36, hidden_dim // 4),  # Max motif size 9 * 4 properties
+            nn.Linear(36, self.hidden_dim // 4),  # <-- self.hidden_dim
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(hidden_dim // 4, hidden_dim // 2)
+            nn.Linear(self.hidden_dim // 4, self.hidden_dim // 2)  # <-- self.hidden_dim
         )
-        
-        # 3. Domain level encoder  
+
         self.domain_encoder = nn.Sequential(
-            nn.Linear(24, hidden_dim // 2),  # 20 AA + 4 summary features
+            nn.Linear(24, self.hidden_dim // 2),  # <-- self.hidden_dim
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(hidden_dim // 2, hidden_dim // 2)
+            nn.Linear(self.hidden_dim // 2, self.hidden_dim // 2)  # <-- self.hidden_dim
         )
-        
-        # Cross-scale attention
+
         self.scale_attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim,
+            embed_dim=self.hidden_dim,  # <-- self.hidden_dim
             num_heads=8,
             dropout=0.1,
             batch_first=True
         )
-        
-        # Scale projection layers to same dimension
-        self.motif_proj = nn.Linear(hidden_dim // 2, hidden_dim)
-        self.domain_proj = nn.Linear(hidden_dim // 2, hidden_dim)
-        
-        # Scale fusion
+
+        self.motif_proj = nn.Linear(self.hidden_dim // 2, self.hidden_dim)  # <-- self.hidden_dim
+        self.domain_proj = nn.Linear(self.hidden_dim // 2, self.hidden_dim)  # <-- self.hidden_dim
+
         self.fusion_layer = nn.Sequential(
-            nn.Linear(hidden_dim * 3, hidden_dim),
-            nn.LayerNorm(hidden_dim),
+            nn.Linear(self.hidden_dim * 3, self.hidden_dim),  # <-- self.hidden_dim
+            nn.LayerNorm(self.hidden_dim),  # <-- self.hidden_dim
             nn.ReLU(),
             nn.Dropout(0.1)
         )
-        
         # Scale-specific weights (learnable)
         self.scale_weights = nn.Parameter(torch.ones(3))
         
