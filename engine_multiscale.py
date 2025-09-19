@@ -174,75 +174,101 @@ class MultiScaleEncoder(nn.Module):
         # Scale-specific weights (learnable)
         self.scale_weights = nn.Parameter(torch.ones(3))
         
-    def forward(self, batch):
-        print(f"[DEBUG] MultiScaleEncoder.forward called")
-        print(f"[DEBUG] batch type: {type(batch)}")
-        print(f"[DEBUG] batch content: {batch}")
+    # In engine_multiscale.py, replace the MultiScaleEncoder.forward method with this:
 
+def forward(self, batch):
+    print(f"[DEBUG] MultiScaleEncoder.forward called")
+    print(f"[DEBUG] batch type: {type(batch)}")
+    
+    # FIXED: Handle both dict and string inputs
+    if isinstance(batch, dict):
         sequences = batch.get('sequence', [])
-        device = next(self.parameters()).device
-        
-        # 1. Amino acid level (sequence level from ProtBert)
-        protbert_outputs = self.protbert(batch)
-        aa_features = protbert_outputs["graph_feature"]  # [batch_size, hidden_dim]
-        
-        # 2. Motif level
-        batch_motif_features = []
-        for seq in sequences:
-            motif_features, _ = self.scale_extractor.extract_motifs(seq)
-            if motif_features.size(0) > 0:
-                # Pad to consistent size
-                max_features = 36
-                if motif_features.size(1) < max_features:
-                    padding = torch.zeros(motif_features.size(0), max_features - motif_features.size(1))
-                    motif_features = torch.cat([motif_features, padding], dim=1)
-                else:
-                    motif_features = motif_features[:, :max_features]
-                
-                # Pool motifs to get sequence-level representation
-                motif_repr = self.motif_encoder(motif_features.to(device))
-                motif_repr = motif_repr.mean(dim=0)  # Pool over motifs
+        print(f"[DEBUG] batch is dict, sequences: {len(sequences)} items")
+    elif isinstance(batch, str):
+        # Single sequence case
+        sequences = [batch]
+        print(f"[DEBUG] batch is string, converted to list")
+        # Convert to dict format for ProtBert
+        batch = {'sequence': sequences}
+    elif isinstance(batch, list) and all(isinstance(s, str) for s in batch):
+        # List of sequences case
+        sequences = batch
+        print(f"[DEBUG] batch is list of strings, {len(sequences)} items")
+        batch = {'sequence': sequences}
+    else:
+        raise ValueError(f"Unexpected batch type: {type(batch)}. Expected dict, str, or list of str.")
+    
+    if not sequences:
+        raise ValueError("No sequences found in batch")
+    
+    device = next(self.parameters()).device
+    
+    # 1. Amino acid level (sequence level from ProtBert)
+    print(f"[DEBUG] Processing {len(sequences)} sequences through ProtBert")
+    protbert_outputs = self.protbert(batch)
+    aa_features = protbert_outputs["graph_feature"]  # [batch_size, hidden_dim]
+    
+    # 2. Motif level
+    batch_motif_features = []
+    for i, seq in enumerate(sequences):
+        print(f"[DEBUG] Processing motifs for sequence {i+1}/{len(sequences)}")
+        motif_features, _ = self.scale_extractor.extract_motifs(seq)
+        if motif_features.size(0) > 0:
+            # Pad to consistent size
+            max_features = 36
+            if motif_features.size(1) < max_features:
+                padding = torch.zeros(motif_features.size(0), max_features - motif_features.size(1))
+                motif_features = torch.cat([motif_features, padding], dim=1)
             else:
-                motif_repr = torch.zeros(self.hidden_dim // 2, device=device)
+                motif_features = motif_features[:, :max_features]
             
-            batch_motif_features.append(motif_repr)
+            # Pool motifs to get sequence-level representation
+            motif_repr = self.motif_encoder(motif_features.to(device))
+            motif_repr = motif_repr.mean(dim=0)  # Pool over motifs
+        else:
+            motif_repr = torch.zeros(self.hidden_dim // 2, device=device)
         
-        motif_features = torch.stack(batch_motif_features)
-        motif_features = self.motif_proj(motif_features)
-        
-        # 3. Domain level
-        batch_domain_features = []
-        for seq in sequences:
-            domain_features, _ = self.scale_extractor.extract_domains(seq)
-            domain_repr = self.domain_encoder(domain_features.to(device))
-            domain_repr = domain_repr.mean(dim=0)  # Pool over domains
-            batch_domain_features.append(domain_repr)
-        
-        domain_features = torch.stack(batch_domain_features)
-        domain_features = self.domain_proj(domain_features)
-        
-        # Cross-scale attention
-        scales = torch.stack([aa_features, motif_features, domain_features], dim=1)  # [batch, 3, hidden]
-        attended_scales, attention_weights = self.scale_attention(scales, scales, scales)
-        
-        # Weighted combination
-        scale_weights = F.softmax(self.scale_weights, dim=0)
-        weighted_scales = attended_scales * scale_weights.view(1, 3, 1)
-        
-        # Fusion
-        fused_input = weighted_scales.flatten(start_dim=1)  # [batch, 3*hidden]
-        fused_features = self.fusion_layer(fused_input)
-        
-        return {
-            "graph_feature": fused_features,           # Fused multi-scale
-            "aa_features": aa_features,               # Amino acid level
-            "motif_features": motif_features,         # Motif level  
-            "domain_features": domain_features,       # Domain level
-            "attention_weights": attention_weights,   # For interpretability
-            "scale_weights": scale_weights,          # Learned scale importance
-            "residue_feature": protbert_outputs.get("residue_feature"),  # For token tasks
-            "attention_mask": protbert_outputs.get("attention_mask")
-        }
+        batch_motif_features.append(motif_repr)
+    
+    motif_features = torch.stack(batch_motif_features)
+    motif_features = self.motif_proj(motif_features)
+    
+    # 3. Domain level
+    batch_domain_features = []
+    for i, seq in enumerate(sequences):
+        print(f"[DEBUG] Processing domains for sequence {i+1}/{len(sequences)}")
+        domain_features, _ = self.scale_extractor.extract_domains(seq)
+        domain_repr = self.domain_encoder(domain_features.to(device))
+        domain_repr = domain_repr.mean(dim=0)  # Pool over domains
+        batch_domain_features.append(domain_repr)
+    
+    domain_features = torch.stack(batch_domain_features)
+    domain_features = self.domain_proj(domain_features)
+    
+    # Cross-scale attention
+    scales = torch.stack([aa_features, motif_features, domain_features], dim=1)  # [batch, 3, hidden]
+    attended_scales, attention_weights = self.scale_attention(scales, scales, scales)
+    
+    # Weighted combination
+    scale_weights = F.softmax(self.scale_weights, dim=0)
+    weighted_scales = attended_scales * scale_weights.view(1, 3, 1)
+    
+    # Fusion
+    fused_input = weighted_scales.flatten(start_dim=1)  # [batch, 3*hidden]
+    fused_features = self.fusion_layer(fused_input)
+    
+    print(f"[DEBUG] MultiScaleEncoder completed successfully")
+    
+    return {
+        "graph_feature": fused_features,           # Fused multi-scale
+        "aa_features": aa_features,               # Amino acid level
+        "motif_features": motif_features,         # Motif level  
+        "domain_features": domain_features,       # Domain level
+        "attention_weights": attention_weights,   # For interpretability
+        "scale_weights": scale_weights,          # Learned scale importance
+        "residue_feature": protbert_outputs.get("residue_feature"),  # For token tasks
+        "attention_mask": protbert_outputs.get("attention_mask")
+    }
 
 
 class ScaleAdaptiveTaskHeads(nn.Module):
@@ -609,7 +635,7 @@ class MultiScaleModelsWrapper(nn.Module):
             return {"accuracy": acc}
     
     def __getitem__(self, idx):
-        
+    
         class TaskModel:
             def __init__(self, wrapper, task_id):
                 self.wrapper = wrapper
@@ -624,6 +650,7 @@ class MultiScaleModelsWrapper(nn.Module):
                 return self(batch)
                 
             def to(self, device):
+                self.wrapper.multiscale_model.to(device)
                 return self
                 
             def eval(self):
@@ -636,6 +663,15 @@ class MultiScaleModelsWrapper(nn.Module):
                 
             def parameters(self):
                 return self.wrapper.multiscale_model.parameters()
+            
+            # FIXED: Add missing attributes that the engine might access
+            @property
+            def device(self):
+                return next(self.wrapper.multiscale_model.parameters()).device
+            
+            def __getattr__(self, name):
+                # Delegate any other attribute access to the wrapped model
+                return getattr(self.wrapper.multiscale_model, name)
         
         return TaskModel(self, idx)
 
