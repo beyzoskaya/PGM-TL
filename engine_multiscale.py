@@ -451,7 +451,9 @@ class MultiScaleModelsWrapper(nn.Module):
             else:
                 target_tensor = target.to(logits.device)
 
-            mask = outputs.get("attention_mask")
+            multiscale_outputs = outputs.get("multiscale_outputs", {})
+            mask = multiscale_outputs.get("attention_mask")
+
             if mask is None:
                 print("Warning: attention_mask not found, assuming all tokens are valid.")
                 mask = torch.ones((target_tensor.size(0), logits.size(1)), dtype=torch.long, device=logits.device)
@@ -544,7 +546,9 @@ class MultiScaleModelsWrapper(nn.Module):
             else:
                 target_tensor = target.to(logits.device)
 
-            mask = outputs.get("attention_mask")
+            multiscale_outputs = outputs.get("multiscale_outputs", {})
+            mask = multiscale_outputs.get("attention_mask")
+            
             if mask is None:
                 raise ValueError("Token-level task requires attention_mask")
             mask = mask.to(logits.device)
