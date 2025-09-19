@@ -129,11 +129,11 @@ class ProteinScaleExtractor:
 
 class MultiScaleEncoder(nn.Module):
   
-    def __init__(self, protbert_model, hidden_dim=768):
+    def __init__(self, protbert_model, hidden_dim=None):
         super().__init__()
         
         self.protbert = protbert_model
-        self.hidden_dim = hidden_dim
+        self.hidden_dim = hidden_dim or protbert_model.output_dim
         self.scale_extractor = ProteinScaleExtractor()
         
         # Scale-specific encoders
