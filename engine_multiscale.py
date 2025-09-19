@@ -176,100 +176,99 @@ class MultiScaleEncoder(nn.Module):
         
     # In engine_multiscale.py, replace the MultiScaleEncoder.forward method with this:
 
-def forward(self, batch):
-    print(f"[DEBUG] MultiScaleEncoder.forward called")
-    print(f"[DEBUG] batch type: {type(batch)}")
-    
-    # FIXED: Handle both dict and string inputs
-    if isinstance(batch, dict):
-        sequences = batch.get('sequence', [])
-        print(f"[DEBUG] batch is dict, sequences: {len(sequences)} items")
-    elif isinstance(batch, str):
-        # Single sequence case
-        sequences = [batch]
-        print(f"[DEBUG] batch is string, converted to list")
-        # Convert to dict format for ProtBert
-        batch = {'sequence': sequences}
-    elif isinstance(batch, list) and all(isinstance(s, str) for s in batch):
-        # List of sequences case
-        sequences = batch
-        print(f"[DEBUG] batch is list of strings, {len(sequences)} items")
-        batch = {'sequence': sequences}
-    else:
-        raise ValueError(f"Unexpected batch type: {type(batch)}. Expected dict, str, or list of str.")
-    
-    if not sequences:
-        raise ValueError("No sequences found in batch")
-    
-    device = next(self.parameters()).device
-    
-    # 1. Amino acid level (sequence level from ProtBert)
-    print(f"[DEBUG] Processing {len(sequences)} sequences through ProtBert")
-    protbert_outputs = self.protbert(batch)
-    aa_features = protbert_outputs["graph_feature"]  # [batch_size, hidden_dim]
-    
-    # 2. Motif level
-    batch_motif_features = []
-    for i, seq in enumerate(sequences):
-        print(f"[DEBUG] Processing motifs for sequence {i+1}/{len(sequences)}")
-        motif_features, _ = self.scale_extractor.extract_motifs(seq)
-        if motif_features.size(0) > 0:
-            # Pad to consistent size
-            max_features = 36
-            if motif_features.size(1) < max_features:
-                padding = torch.zeros(motif_features.size(0), max_features - motif_features.size(1))
-                motif_features = torch.cat([motif_features, padding], dim=1)
-            else:
-                motif_features = motif_features[:, :max_features]
-            
-            # Pool motifs to get sequence-level representation
-            motif_repr = self.motif_encoder(motif_features.to(device))
-            motif_repr = motif_repr.mean(dim=0)  # Pool over motifs
-        else:
-            motif_repr = torch.zeros(self.hidden_dim // 2, device=device)
+    def forward(self, batch):
+        print(f"[DEBUG] MultiScaleEncoder.forward called")
+        print(f"[DEBUG] batch type: {type(batch)}")
         
-        batch_motif_features.append(motif_repr)
-    
-    motif_features = torch.stack(batch_motif_features)
-    motif_features = self.motif_proj(motif_features)
-    
-    # 3. Domain level
-    batch_domain_features = []
-    for i, seq in enumerate(sequences):
-        print(f"[DEBUG] Processing domains for sequence {i+1}/{len(sequences)}")
-        domain_features, _ = self.scale_extractor.extract_domains(seq)
-        domain_repr = self.domain_encoder(domain_features.to(device))
-        domain_repr = domain_repr.mean(dim=0)  # Pool over domains
-        batch_domain_features.append(domain_repr)
-    
-    domain_features = torch.stack(batch_domain_features)
-    domain_features = self.domain_proj(domain_features)
-    
-    # Cross-scale attention
-    scales = torch.stack([aa_features, motif_features, domain_features], dim=1)  # [batch, 3, hidden]
-    attended_scales, attention_weights = self.scale_attention(scales, scales, scales)
-    
-    # Weighted combination
-    scale_weights = F.softmax(self.scale_weights, dim=0)
-    weighted_scales = attended_scales * scale_weights.view(1, 3, 1)
-    
-    # Fusion
-    fused_input = weighted_scales.flatten(start_dim=1)  # [batch, 3*hidden]
-    fused_features = self.fusion_layer(fused_input)
-    
-    print(f"[DEBUG] MultiScaleEncoder completed successfully")
-    
-    return {
-        "graph_feature": fused_features,           # Fused multi-scale
-        "aa_features": aa_features,               # Amino acid level
-        "motif_features": motif_features,         # Motif level  
-        "domain_features": domain_features,       # Domain level
-        "attention_weights": attention_weights,   # For interpretability
-        "scale_weights": scale_weights,          # Learned scale importance
-        "residue_feature": protbert_outputs.get("residue_feature"),  # For token tasks
-        "attention_mask": protbert_outputs.get("attention_mask")
-    }
-
+        # FIXED: Handle both dict and string inputs
+        if isinstance(batch, dict):
+            sequences = batch.get('sequence', [])
+            print(f"[DEBUG] batch is dict, sequences: {len(sequences)} items")
+        elif isinstance(batch, str):
+            # Single sequence case
+            sequences = [batch]
+            print(f"[DEBUG] batch is string, converted to list")
+            # Convert to dict format for ProtBert
+            batch = {'sequence': sequences}
+        elif isinstance(batch, list) and all(isinstance(s, str) for s in batch):
+            # List of sequences case
+            sequences = batch
+            print(f"[DEBUG] batch is list of strings, {len(sequences)} items")
+            batch = {'sequence': sequences}
+        else:
+            raise ValueError(f"Unexpected batch type: {type(batch)}. Expected dict, str, or list of str.")
+        
+        if not sequences:
+            raise ValueError("No sequences found in batch")
+        
+        device = next(self.parameters()).device
+        
+        # 1. Amino acid level (sequence level from ProtBert)
+        print(f"[DEBUG] Processing {len(sequences)} sequences through ProtBert")
+        protbert_outputs = self.protbert(batch)
+        aa_features = protbert_outputs["graph_feature"]  # [batch_size, hidden_dim]
+        
+        # 2. Motif level
+        batch_motif_features = []
+        for i, seq in enumerate(sequences):
+            print(f"[DEBUG] Processing motifs for sequence {i+1}/{len(sequences)}")
+            motif_features, _ = self.scale_extractor.extract_motifs(seq)
+            if motif_features.size(0) > 0:
+                # Pad to consistent size
+                max_features = 36
+                if motif_features.size(1) < max_features:
+                    padding = torch.zeros(motif_features.size(0), max_features - motif_features.size(1))
+                    motif_features = torch.cat([motif_features, padding], dim=1)
+                else:
+                    motif_features = motif_features[:, :max_features]
+                
+                # Pool motifs to get sequence-level representation
+                motif_repr = self.motif_encoder(motif_features.to(device))
+                motif_repr = motif_repr.mean(dim=0)  # Pool over motifs
+            else:
+                motif_repr = torch.zeros(self.hidden_dim // 2, device=device)
+            
+            batch_motif_features.append(motif_repr)
+        
+        motif_features = torch.stack(batch_motif_features)
+        motif_features = self.motif_proj(motif_features)
+        
+        # 3. Domain level
+        batch_domain_features = []
+        for i, seq in enumerate(sequences):
+            print(f"[DEBUG] Processing domains for sequence {i+1}/{len(sequences)}")
+            domain_features, _ = self.scale_extractor.extract_domains(seq)
+            domain_repr = self.domain_encoder(domain_features.to(device))
+            domain_repr = domain_repr.mean(dim=0)  # Pool over domains
+            batch_domain_features.append(domain_repr)
+        
+        domain_features = torch.stack(batch_domain_features)
+        domain_features = self.domain_proj(domain_features)
+        
+        # Cross-scale attention
+        scales = torch.stack([aa_features, motif_features, domain_features], dim=1)  # [batch, 3, hidden]
+        attended_scales, attention_weights = self.scale_attention(scales, scales, scales)
+        
+        # Weighted combination
+        scale_weights = F.softmax(self.scale_weights, dim=0)
+        weighted_scales = attended_scales * scale_weights.view(1, 3, 1)
+        
+        # Fusion
+        fused_input = weighted_scales.flatten(start_dim=1)  # [batch, 3*hidden]
+        fused_features = self.fusion_layer(fused_input)
+        
+        print(f"[DEBUG] MultiScaleEncoder completed successfully")
+        
+        return {
+            "graph_feature": fused_features,           # Fused multi-scale
+            "aa_features": aa_features,               # Amino acid level
+            "motif_features": motif_features,         # Motif level  
+            "domain_features": domain_features,       # Domain level
+            "attention_weights": attention_weights,   # For interpretability
+            "scale_weights": scale_weights,          # Learned scale importance
+            "residue_feature": protbert_outputs.get("residue_feature"),  # For token tasks
+            "attention_mask": protbert_outputs.get("attention_mask")
+        }
 
 class ScaleAdaptiveTaskHeads(nn.Module):
     
@@ -434,7 +433,18 @@ class MultiScaleModelsWrapper(nn.Module):
         all_loss = torch.stack(all_loss)
         return all_loss, all_metric
     
-    def compute_default_loss(self, outputs, batch, task_id):
+    def compute_default_loss(self, outputs, batch, task_id=None):
+        
+        # If task_id not provided, try to infer it from context
+        if task_id is None:
+            # Method 1: Check if there's a task_id in the batch
+            if isinstance(batch, dict) and 'task_id' in batch:
+                task_id = batch['task_id']
+            else:
+                # Method 2: Use a default task_id (assume task 0)
+                task_id = 0
+                print(f"[WARNING] task_id not provided for loss computation, defaulting to task_id=0")
+        
         logits = outputs["logits"]  # raw outputs of the final layer before softmax/sigmoid
 
         # Extract targets
@@ -462,12 +472,11 @@ class MultiScaleModelsWrapper(nn.Module):
         print("Logits shape:", logits.shape)
 
         # Determine task type
-        #task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         task_config = self.multiscale_model.tasks_config[task_id]
         task_type = task_config['type']
 
         # Special case: force Task_2 to multi-class classification
-        if hasattr(self, 'names') and "Task_2" in self.names:
+        if hasattr(self, 'names') and task_id < len(self.names) and "Task_2" in self.names[task_id]:
             task_type = "multi_class"
         print("[DEBUG] task_type detected:", task_type)
 
@@ -536,7 +545,18 @@ class MultiScaleModelsWrapper(nn.Module):
                 t = torch.clamp(t, 0, logits.size(-1)-1)
                 return F.cross_entropy(logits, t)
 
-    def compute_default_metrics(self, outputs, batch, task_id):
+    def compute_default_metrics(self, outputs, batch, task_id=None):
+     
+        # If task_id not provided, try to infer it from context
+        if task_id is None:
+            # Method 1: Check if there's a task_id in the batch
+            if isinstance(batch, dict) and 'task_id' in batch:
+                task_id = batch['task_id']
+            else:
+                # Method 2: Use a default task_id (assume task 0)
+                task_id = 0
+                print(f"[WARNING] task_id not provided, defaulting to task_id=0")
+        
         logits = outputs["logits"]
         print("[DEBUG] logits shape:", logits.shape)
         print("[DEBUG] batch keys:", batch.keys())
@@ -557,12 +577,11 @@ class MultiScaleModelsWrapper(nn.Module):
         print("[DEBUG] raw targets type:", type(target))
 
         # Determine task type
-        #task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         task_config = self.multiscale_model.tasks_config[task_id]
         task_type = task_config['type']
 
         # Force Task_2 as multi-class
-        if hasattr(self, 'names') and "Task_2" in self.names:
+        if hasattr(self, 'names') and task_id < len(self.names) and "Task_2" in self.names[task_id]:
             task_type = "multi_class"
         print("[DEBUG] task_type detected:", task_type)
 
