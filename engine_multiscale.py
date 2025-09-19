@@ -431,7 +431,10 @@ class MultiScaleModelsWrapper(nn.Module):
         print("Logits shape:", logits.shape)
 
         # Determine task type
-        task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+        #task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+        task_config = self.multiscale_model.tasks_config[task_id]
+        task_type = task_config['type']
+
         # Special case: force Task_2 to multi-class classification
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
@@ -521,7 +524,10 @@ class MultiScaleModelsWrapper(nn.Module):
         print("[DEBUG] raw targets type:", type(target))
 
         # Determine task type
-        task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+        #task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+        task_config = self.multiscale_model.tasks_config[task_id]
+        task_type = task_config['type']
+        
         # Force Task_2 as multi-class
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
