@@ -548,7 +548,7 @@ class MultiScaleModelsWrapper(nn.Module):
 
             multiscale_outputs = outputs.get("multiscale_outputs", {})
             mask = multiscale_outputs.get("attention_mask")
-            
+
             if mask is None:
                 raise ValueError("Token-level task requires attention_mask")
             mask = mask.to(logits.device)
@@ -605,6 +605,23 @@ class MultiScaleModelsWrapper(nn.Module):
             return {"accuracy": acc}
     
     def __getitem__(self, idx):
+        return TaskSpecificModelWrapper(self.multiscale_model, idx)
+
+class TaskSpecificModelWrapper:
+    def __init__(self, multiscale_model, task_id):
+        self.multiscale_model = multiscale_model
+        self.task_id = task_id
+    
+    def __call__(self, batch):
+        return self.multiscale_model(batch, self.task_id)
+    
+    def to(self, device):
+        return self
+    
+    def eval(self):
+        return self
+    
+    def train(self):
         return self
 
 def create_multiscale_shared_model(tasks_config, model_config):    
