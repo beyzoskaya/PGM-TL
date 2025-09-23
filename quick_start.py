@@ -131,9 +131,7 @@ def create_minimal_config(working_datasets):
     return config
 
 def run_quick_training_with_shared_backbone(config):
-    """
-    Updated training function using shared backbone architecture
-    """
+
     print("\nStarting quick training with shared backbone...")
     
     try:
@@ -228,21 +226,24 @@ def run_quick_training_with_shared_backbone(config):
             num_worker=config['engine']['num_worker']
         )
         
-        # Debug: Check batching
+
         debug_loader = DataLoader(
             train_sets[0],
             batch_size=config['train']['batch_size'],
             collate_fn=engine.collate_fn
         )
         first_batch = next(iter(debug_loader))
-        print("\nDEBUG: First batch structure:")
+        print("\n[DEBUG 1] First batch structure and targets:")
         print("Keys:", first_batch.keys())
         if "targets" in first_batch:
             print("Targets type:", type(first_batch["targets"]))
             if isinstance(first_batch["targets"], dict):
                 for k, v in first_batch["targets"].items():
                     print(f"  - {k}: {type(v)}, shape={getattr(v, 'shape', None)}")
-        
+            else:
+                print(first_batch["targets"])
+        print("Sequences (first 2 examples):", first_batch["sequence"][:2])
+
         print("Training with shared backbone...")
         engine.train(num_epoch=config['train']['num_epoch'], tradeoff=config['train']['tradeoff'])
         

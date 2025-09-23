@@ -117,6 +117,12 @@ class ModelsWrapper(nn.Module):
                 mask = torch.ones((target_tensor.size(0), logits.size(1)), dtype=torch.long, device=logits.device)
             else:
                 mask = mask.to(logits.device)
+            
+            print("[DEBUG] mask shape:", mask.shape)
+            print("[DEBUG] target_tensor shape after padding:", target_tensor.shape)
+
+            if mask.size(1) != target_tensor.size(1):
+                print(f"[WARNING] Sequence length mismatch: mask={mask.size(1)}, target={target_tensor.size(1)}")
 
             L_mask = mask.size(1)
             if target_tensor.size(1) > L_mask:
@@ -635,6 +641,11 @@ class SharedBackboneMultiTaskModel(nn.Module):
         else:
             # Use graph-level features
             logits = head(backbone_outputs["graph_feature"])
+            
+        print("\n[DEBUG-BACKBONE] task_id:", task_id)
+        print("residue_feature shape:", backbone_outputs["residue_feature"].shape)
+        print("graph_feature shape:", backbone_outputs["graph_feature"].shape)
+        print("attention_mask shape:", backbone_outputs.get("attention_mask", None))
         
         return {
             "logits": logits,
