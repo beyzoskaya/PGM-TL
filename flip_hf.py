@@ -59,6 +59,8 @@ class HuggingFaceDataset(ProteinDataset):
                        target_columns=None, verbose=1, valid_ratio=0.1):
         if verbose:
             print(f"Loading dataset: {dataset_name}")
+            for key, values in self.targets.items():
+                print(f"DEBUG: First 2 target values for {key}:", values[:2])
         
         # Load the dataset
         dataset = load_dataset(dataset_name)
@@ -190,6 +192,7 @@ class SecondaryStructure(HuggingFaceDataset):
                     else:
                         processed_targets.append(item)
                 self.targets['target'] = processed_targets
+                print("DEBUG: First 2 token labels:", self.targets[self.target_fields[0]][:2])
             else:
                 print("Warning: 'label' field not found in dataset. Setting empty targets.")
                 self.targets['target'] = [[] for _ in range(len(self.sequences))]
