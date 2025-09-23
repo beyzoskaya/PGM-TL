@@ -88,18 +88,18 @@ class ModelsWrapper(nn.Module):
         else:
             raise ValueError("Cannot find targets in batch")
 
-        print("\n[DEBUG] ====== New Batch ======")
-        if "sequence" in batch:
-            print("Example sequence:", batch["sequence"][0][:50], "...")
-        print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
-        print("Logits shape:", logits.shape)
+        #print("\n[DEBUG] ====== New Batch ======")
+        #if "sequence" in batch:
+        #    print("Example sequence:", batch["sequence"][0][:50], "...")
+        #print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
+        #print("Logits shape:", logits.shape)
 
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         # Special case: force Task_2 to multi-class classification
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
-        print("[DEBUG] task_type detected:", task_type)
+        #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification (sequence labeling) ---
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
@@ -641,7 +641,7 @@ class SharedBackboneMultiTaskModel(nn.Module):
         else:
             # Use graph-level features
             logits = head(backbone_outputs["graph_feature"])
-            
+
         print("\n[DEBUG-BACKBONE] task_id:", task_id)
         print("residue_feature shape:", backbone_outputs["residue_feature"].shape)
         print("graph_feature shape:", backbone_outputs["graph_feature"].shape)
@@ -733,18 +733,18 @@ class SharedBackboneModelsWrapper(nn.Module):
         else:
             raise ValueError("Cannot find targets in batch")
 
-        print("\n[DEBUG] ====== New Batch ======")
-        if "sequence" in batch:
-            print("Example sequence:", batch["sequence"][0][:50], "...")
-        print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
-        print("Logits shape:", logits.shape)
+        #print("\n[DEBUG] ====== New Batch ======")
+        #if "sequence" in batch:
+        #    print("Example sequence:", batch["sequence"][0][:50], "...")
+        #print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
+        #print("Logits shape:", logits.shape)
 
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         # Special case: force Task_2 to multi-class classification
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
-        print("[DEBUG] task_type detected:", task_type)
+        #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification (sequence labeling) ---
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
@@ -811,8 +811,8 @@ class SharedBackboneModelsWrapper(nn.Module):
 
     def compute_default_metrics(self, outputs, batch, task_type=None):
         logits = outputs["logits"]
-        print("[DEBUG] logits shape:", logits.shape)
-        print("[DEBUG] batch keys:", batch.keys())
+        #print("[DEBUG] logits shape:", logits.shape)
+        #print("[DEBUG] batch keys:", batch.keys())
 
         # Extract targets
         if isinstance(batch, dict) and 'targets' in batch:
@@ -834,7 +834,7 @@ class SharedBackboneModelsWrapper(nn.Module):
         # Force Task_2 as multi-class
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
-        print("[DEBUG] task_type detected:", task_type)
+        #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification ---
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
