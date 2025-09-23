@@ -65,6 +65,7 @@ class ProtBert(nn.Module):
         device = next(self.model.parameters()).device
         encoded = {k: v.to(device) for k, v in encoded.items()}
 
+        # after encoding the sequences
         print("DEBUG: tokenized input ids shape:", encoded['input_ids'].shape)
         print("DEBUG: attention mask shape:", encoded['attention_mask'].shape)
 
@@ -93,7 +94,8 @@ class ProtBert(nn.Module):
         # For residue-level features, remove special tokens
         # [CLS] sequence [SEP] -> sequence
         residue_feature = last_hidden_state[:, 1:-1]  # Remove [CLS] and [SEP]
-    
+
+        # after computing features
         print("DEBUG: graph_feature shape:", graph_feature.shape)
         print("DEBUG: residue_feature shape:", residue_feature.shape)
 

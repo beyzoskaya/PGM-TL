@@ -31,7 +31,7 @@ class ModelsWrapper(nn.Module):
     def __init__(self, models, names):
         super(ModelsWrapper, self).__init__()
         self.models = nn.ModuleList(models)
-        print("Model names:", names)
+        #print("Model names:", names)
         self.names = names
 
     def forward(self, batches):
@@ -74,16 +74,16 @@ class ModelsWrapper(nn.Module):
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                print("Targets is a dict, using the first key for loss computation.")
-                print("Available keys:", list(targets.keys()))
+                #print("Targets is a dict, using the first key for loss computation.")
+                #print("Available keys:", list(targets.keys()))
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]  # pick first if multiple
-                print("Using target key:", target_key)
-                print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
+                #print("Using target key:", target_key)
+                #print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
             else:
-                print("Targets is not a dict, using it directly for loss computation.")
-                print("Targets type:", type(targets))
-                print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
+                #print("Targets is not a dict, using it directly for loss computation.")
+                #print("Targets type:", type(targets))
+                #print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
@@ -173,16 +173,16 @@ class ModelsWrapper(nn.Module):
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                print("Targets is a dict, using the first key for metric computation.")
+                #print("Targets is a dict, using the first key for metric computation.")
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]
             else:
-                print("Targets is not a dict, using it directly for metric computation.")
+                #print("Targets is not a dict, using it directly for metric computation.")
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
 
-        print("[DEBUG] raw targets type:", type(target))
+        #print("[DEBUG] raw targets type:", type(target))
 
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
@@ -220,12 +220,12 @@ class ModelsWrapper(nn.Module):
             active_labels = target_tensor.reshape(-1)[active]
 
             acc = (active_preds == active_labels).float().mean().item() if active_preds.numel() > 0 else 0.0
-            print("[DEBUG] Token-level task")
-            print("[DEBUG] target_tensor shape:", target_tensor.shape)
-            print("[DEBUG] mask shape:", mask.shape)
-            print("[DEBUG] pred shape:", pred.shape)
-            print("[DEBUG] active_preds size:", active_preds.size())
-            print("[DEBUG] active_labels size:", active_labels.size())
+            #print("[DEBUG] Token-level task")
+            #print("[DEBUG] target_tensor shape:", target_tensor.shape)
+            #print("[DEBUG] mask shape:", mask.shape)
+            #print("[DEBUG] pred shape:", pred.shape)
+            #print("[DEBUG] active_preds size:", active_preds.size())
+            #print("[DEBUG] active_labels size:", active_labels.size())
             return {"accuracy": acc}
 
         # --- Sequence-level tasks ---
@@ -708,16 +708,16 @@ class SharedBackboneModelsWrapper(nn.Module):
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                print("Targets is a dict, using the first key for loss computation.")
-                print("Available keys:", list(targets.keys()))
+                #print("Targets is a dict, using the first key for loss computation.")
+                #print("Available keys:", list(targets.keys()))
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]  # pick first if multiple
-                print("Using target key:", target_key)
-                print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
+                #print("Using target key:", target_key)
+                #print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
             else:
-                print("Targets is not a dict, using it directly for loss computation.")
-                print("Targets type:", type(targets))
-                print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
+                #print("Targets is not a dict, using it directly for loss computation.")
+                #print("Targets type:", type(targets))
+                #print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
@@ -807,16 +807,16 @@ class SharedBackboneModelsWrapper(nn.Module):
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                print("Targets is a dict, using the first key for metric computation.")
+                #print("Targets is a dict, using the first key for metric computation.")
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]
             else:
-                print("Targets is not a dict, using it directly for metric computation.")
+                #print("Targets is not a dict, using it directly for metric computation.")
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
 
-        print("[DEBUG] raw targets type:", type(target))
+        #print("[DEBUG] raw targets type:", type(target))
 
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
@@ -854,12 +854,12 @@ class SharedBackboneModelsWrapper(nn.Module):
             active_labels = target_tensor.reshape(-1)[active]
 
             acc = (active_preds == active_labels).float().mean().item() if active_preds.numel() > 0 else 0.0
-            print("[DEBUG] Token-level task")
-            print("[DEBUG] target_tensor shape:", target_tensor.shape)
-            print("[DEBUG] mask shape:", mask.shape)
-            print("[DEBUG] pred shape:", pred.shape)
-            print("[DEBUG] active_preds size:", active_preds.size())
-            print("[DEBUG] active_labels size:", active_labels.size())
+            #print("[DEBUG] Token-level task")
+            #print("[DEBUG] target_tensor shape:", target_tensor.shape)
+            #print("[DEBUG] mask shape:", mask.shape)
+            #print("[DEBUG] pred shape:", pred.shape)
+            #print("[DEBUG] active_preds size:", active_preds.size())
+            #print("[DEBUG] active_labels size:", active_labels.size())
             return {"accuracy": acc}
 
         # --- Sequence-level tasks ---

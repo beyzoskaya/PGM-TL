@@ -235,7 +235,6 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
                 
         except Exception as e:
             print(f"Error loading proteinglm/peptide_HLA_MHC_affinity dataset: {e}")
-            print("Please check if the dataset exists and column names are correct")
             raise ValueError("Peptide HLA MHC affinity dataset not available")
     
     def split(self):
