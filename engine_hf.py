@@ -98,8 +98,8 @@ class ModelsWrapper(nn.Module):
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         # Special case: force Task_2 to multi-class classification
-        if hasattr(self, 'names') and "Task_2" in self.names:
-            task_type = "multi_class"
+        #if hasattr(self, 'names') and "Task_2" in self.names:
+        #    task_type = "multi_class"
         #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification (sequence labeling) ---
@@ -194,8 +194,8 @@ class ModelsWrapper(nn.Module):
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         # Force Task_2 as multi-class
-        if hasattr(self, 'names') and "Task_2" in self.names:
-            task_type = "multi_class"
+        #if hasattr(self, 'names') and "Task_2" in self.names:
+        #    task_type = "multi_class"
         #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification ---
@@ -821,8 +821,8 @@ class SharedBackboneModelsWrapper(nn.Module):
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
         # Force Task_2 as multi-class
-        if hasattr(self, 'names') and "Task_2" in self.names:
-            task_type = "multi_class"
+        #if hasattr(self, 'names') and "Task_2" in self.names:
+        #    task_type = "multi_class"
         #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification ---

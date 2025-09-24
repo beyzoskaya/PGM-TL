@@ -444,14 +444,13 @@ def main():
     
     if success:
         print("\n" + "="*70)
-        print("SUCCESS! BASELINE SETUP IS WORKING CORRECTLY!")
+        print("BASELINE SETUP IS WORKING CORRECTLY")
         print("="*70)
         print("[OK] Dataset loading works")
         print("[OK] Model creation works") 
         print("[OK] Batch processing works")
         print("[OK] Training loop works")
         print("[OK] Evaluation works")
-        print("\nYou're ready to run the full training with confidence!")
         
     else:
         print("\n" + "="*70)
