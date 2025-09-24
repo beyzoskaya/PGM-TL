@@ -47,8 +47,9 @@ class ModelsWrapper(nn.Module):
                 print(f"Task {id} loss from model's compute_loss: {loss.item()}")
             else:
                 outputs = model(batch)
+                #print(f"[DEBUG] Shape of logits from Task {id}:", outputs["logits"].shape)
                 loss = self.compute_default_loss(outputs, batch, task_type=task_type)
-                print(f"Task {id} loss from default compute_default_loss: {loss.item()}")
+                #print(f"Task {id} loss from default compute_default_loss: {loss.item()}")
                 metric = self.compute_default_metrics(outputs, batch)
             
             for k, v in metric.items():
@@ -118,8 +119,8 @@ class ModelsWrapper(nn.Module):
             else:
                 mask = mask.to(logits.device)
             
-            print("[DEBUG] mask shape:", mask.shape)
-            print("[DEBUG] target_tensor shape after padding:", target_tensor.shape)
+            #print("[DEBUG] mask shape:", mask.shape)
+            #print("[DEBUG] target_tensor shape after padding:", target_tensor.shape)
 
             if mask.size(1) != target_tensor.size(1):
                 print(f"[WARNING] Sequence length mismatch: mask={mask.size(1)}, target={target_tensor.size(1)}")
@@ -172,8 +173,8 @@ class ModelsWrapper(nn.Module):
 
     def compute_default_metrics(self, outputs, batch, task_type=None):
         logits = outputs["logits"]
-        print("[DEBUG] logits shape:", logits.shape)
-        print("[DEBUG] batch keys:", batch.keys())
+        #print("[DEBUG] logits shape:", logits.shape)
+        #print("[DEBUG] batch keys:", batch.keys())
 
         # Extract targets
         if isinstance(batch, dict) and 'targets' in batch:
@@ -195,7 +196,7 @@ class ModelsWrapper(nn.Module):
         # Force Task_2 as multi-class
         if hasattr(self, 'names') and "Task_2" in self.names:
             task_type = "multi_class"
-        print("[DEBUG] task_type detected:", task_type)
+        #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification ---
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
@@ -240,7 +241,7 @@ class ModelsWrapper(nn.Module):
         if task_type == 'binary_classification':
             logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
             pred = (torch.sigmoid(logits_) > 0.5).long()
-            print("[DEBUG] Binary classification")
+            #print("[DEBUG] Binary classification")
             return {"accuracy": (pred == t.long()).float().mean().item()}
 
         elif task_type == 'regression':
@@ -251,7 +252,7 @@ class ModelsWrapper(nn.Module):
             else:
                 logits_flat = logits.mean(dim=1)
             mse = F.mse_loss(logits_flat, t.float()).item()
-            print("[DEBUG] Regression")
+            #print("[DEBUG] Regression")
             return {"mse": mse}
 
         else:  # multi-class classification
@@ -260,16 +261,13 @@ class ModelsWrapper(nn.Module):
             t = torch.clamp(t, 0, logits.size(-1)-1)
             pred = logits.argmax(dim=-1)
             acc = (pred == t).float().mean().item()
-            print("[DEBUG] Multi-class classification")
+            #print("[DEBUG] Multi-class classification")
             return {"accuracy": acc}
 
     def __getitem__(self, id):
         return self.models[id]
 
 class MultiTaskEngine:
-    """
-    Multi-Task Learning engine compatible with HuggingFace datasets and models.
-    """
 
     def __init__(self, tasks, train_sets, valid_sets, test_sets, optimizer, scheduler=None, 
                  batch_size=1, gradient_interval=1, num_worker=0, log_interval=100,
@@ -299,8 +297,11 @@ class MultiTaskEngine:
         for i, (train_set, valid_set, test_set) in enumerate(zip(train_sets, valid_sets, test_sets)):
             logger.info(f"Task {i}: Train={len(train_set)}, Valid={len(valid_set)}, Test={len(test_set)}")
 
+    # collate keeps token-level labels as lists so that padding can be handled in compute_loss
+    # collate converts sequence-level labels into tensors assuming these are numeric
+    # collate does not tokenize or pad sequences - returns a list of raw sequences (tokenization and padding occur inside the backbone model)
     def collate_fn(self, batch):
-        """Custom collate function for protein sequences"""
+
         sequences = []
         targets_list = []
         
@@ -311,23 +312,22 @@ class MultiTaskEngine:
             else:
                 sequences.append(getattr(item, 'sequence', ''))
                 targets_list.append({})
-        
-        # Combine targets
+
         combined_targets = defaultdict(list)
         for targets in targets_list:
             if isinstance(targets, dict):
                 for key, value in targets.items():
                     combined_targets[key].append(value)
         
-        # Convert to tensors - HANDLE TOKEN-LEVEL vs SEQUENCE-LEVEL
+        # TOKEN-LEVEL vs SEQUENCE-LEVEL
         target_tensors = {}
         for key, values in combined_targets.items():
-            # Check if this is token-level data (list of lists)
+            # if this is token-level data (list of lists)
             if values and isinstance(values[0], list):
-                # Token-level: keep as nested list, don't convert to tensor yet
-                target_tensors[key] = values  # Keep as list of lists
+                # Token-level: nested list
+                target_tensors[key] = values  
             else:
-                # Sequence-level: convert to tensor
+                # Sequence-level: tensor
                 try:
                     target_tensors[key] = torch.tensor(values, dtype=torch.float)
                 except:
@@ -339,9 +339,7 @@ class MultiTaskEngine:
         }
 
     def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0):
-        """
-        Train the model for multiple epochs.
-        """
+      
         logger.info(f"Starting training for {num_epoch} epochs")
         
         self.models.train()
@@ -349,7 +347,7 @@ class MultiTaskEngine:
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
             
-            # Create data loaders
+            # creates one DataLoader per task and store iterator objects
             dataloaders = []
             for train_set in self.train_sets:
                 dataloader = DataLoader(
@@ -368,18 +366,15 @@ class MultiTaskEngine:
             start_id = 0
             gradient_interval = min(batch_per_epoch_ - start_id, self.gradient_interval)
             
-            # Training loop
             progress_bar = tqdm(range(batch_per_epoch_), desc=f"Epoch {epoch + 1}")
             
             for batch_id in progress_bar:
                 batches = []
                 
-                # Get batch from each task
                 for task_id, dataloader in enumerate(dataloaders):
                     try:
                         batch = next(dataloader)
                     except StopIteration:
-                        # Restart dataloader if exhausted
                         dataloader = iter(DataLoader(
                             self.train_sets[task_id],
                             batch_size=self.batch_size,
@@ -391,15 +386,14 @@ class MultiTaskEngine:
                         dataloaders[task_id] = dataloader
                         batch = next(dataloader)
                     
-                    # Move batch to device
                     batch = self.move_to_device(batch)
                     batches.append(batch)
                 
-                # Forward pass
                 loss, metric = self.models(batches)
                 loss = loss / gradient_interval
                 
                 # Weight losses (first task has weight 1, others have weight tradeoff)
+                # loss is a per-task vector; dividing by gradient_interval to average over steps
                 weights = [1.0 if i == 0 else tradeoff for i in range(len(dataloaders))]
                 all_loss = (loss * torch.tensor(weights, device=self.device)).sum()
                 
@@ -408,13 +402,11 @@ class MultiTaskEngine:
                 
                 all_loss.backward()
                 metrics.append(metric)
-                
-                # Update parameters
+
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-                    
-                    # Log metrics
+            
                     if len(metrics) > 0:
                         avg_metrics = self.average_metrics(metrics)
                         progress_bar.set_postfix(avg_metrics)
@@ -430,7 +422,6 @@ class MultiTaskEngine:
                 self.scheduler.step()
 
     def average_metrics(self, metrics_list):
-        """Average metrics across batches"""
         if not metrics_list:
             return {}
         
@@ -488,8 +479,8 @@ class MultiTaskEngine:
 
                 # Forward pass
                 outputs = model(batch)
+                #print(f"[DEBUG] Eval Task {task_id} logits shape:", outputs["logits"].shape)
 
-                # Compute metrics
                 if hasattr(model, 'evaluate'):
                     metrics = model.evaluate(outputs, batch)
                 else:
@@ -580,7 +571,6 @@ class SharedBackboneMultiTaskModel(nn.Module):
         if lora_config:
             self.add_lora_adapters(**lora_config)
         
-        # Task-specific heads
         self.task_heads = nn.ModuleDict()
         self.task_types = {}
         
@@ -589,7 +579,6 @@ class SharedBackboneMultiTaskModel(nn.Module):
                 task_name = f"task_{task_id}"
                 self.task_types[task_name] = task_config['type']
                 
-                # Create task-specific head
                 if task_config['type'] == 'token_classification':
                     head = nn.Sequential(
                         nn.Dropout(0.1),
@@ -642,10 +631,10 @@ class SharedBackboneMultiTaskModel(nn.Module):
             # Use graph-level features
             logits = head(backbone_outputs["graph_feature"])
 
-        print("\n[DEBUG-BACKBONE] task_id:", task_id)
-        print("residue_feature shape:", backbone_outputs["residue_feature"].shape)
-        print("graph_feature shape:", backbone_outputs["graph_feature"].shape)
-        print("attention_mask shape:", backbone_outputs.get("attention_mask", None))
+        #print("\n[DEBUG-BACKBONE] task_id:", task_id)
+        #print("residue_feature shape:", backbone_outputs["residue_feature"].shape)
+        #print("graph_feature shape:", backbone_outputs["graph_feature"].shape)
+        #print("attention_mask shape:", backbone_outputs.get("attention_mask", None))
         
         return {
             "logits": logits,
@@ -680,7 +669,6 @@ class SharedBackboneModelsWrapper(nn.Module):
         self.shared_model = shared_model
         self.names = task_names
         
-        # Create task wrappers for compatibility
         self.task_wrappers = nn.ModuleList([
             shared_model.get_task_model(i) for i in range(len(task_names))
         ])
@@ -741,9 +729,10 @@ class SharedBackboneModelsWrapper(nn.Module):
 
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
+       
         # Special case: force Task_2 to multi-class classification
-        if hasattr(self, 'names') and "Task_2" in self.names:
-            task_type = "multi_class"
+        #if hasattr(self, 'names') and "Task_2" in self.names:
+        #    task_type = "multi_class"
         #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification (sequence labeling) ---
@@ -879,7 +868,7 @@ class SharedBackboneModelsWrapper(nn.Module):
         if task_type == 'binary_classification':
             logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
             pred = (torch.sigmoid(logits_) > 0.5).long()
-            print("[DEBUG] Binary classification")
+            #print("[DEBUG] Binary classification")
             return {"accuracy": (pred == t.long()).float().mean().item()}
 
         elif task_type == 'regression':
@@ -890,7 +879,7 @@ class SharedBackboneModelsWrapper(nn.Module):
             else:
                 logits_flat = logits.mean(dim=1)
             mse = F.mse_loss(logits_flat, t.float()).item()
-            print("[DEBUG] Regression")
+            #print("[DEBUG] Regression")
             return {"mse": mse}
 
         else:  # multi-class classification
@@ -899,7 +888,7 @@ class SharedBackboneModelsWrapper(nn.Module):
             t = torch.clamp(t, 0, logits.size(-1)-1)
             pred = logits.argmax(dim=-1)
             acc = (pred == t).float().mean().item()
-            print("[DEBUG] Multi-class classification")
+            #print("[DEBUG] Multi-class classification")
             return {"accuracy": acc}
     
     def __getitem__(self, idx):

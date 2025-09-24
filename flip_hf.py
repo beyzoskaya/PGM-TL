@@ -9,7 +9,6 @@ from transformers import BertTokenizer
 
 
 class ProteinDataset(Dataset):
-    """Base protein dataset class to replace torchdrug.data.ProteinDataset"""
     
     def __init__(self):
         self.sequences = []
@@ -33,7 +32,6 @@ class ProteinDataset(Dataset):
         }
     
     def create_protein_graph(self, sequence):
-        """Create a simple protein representation"""
         # Map amino acids to integers
         aa_to_id = {
             'A': 0, 'R': 1, 'N': 2, 'D': 3, 'C': 4, 'Q': 5, 'E': 6, 'G': 7, 'H': 8, 'I': 9,
@@ -41,7 +39,7 @@ class ProteinDataset(Dataset):
             'X': 20, 'U': 21, 'B': 22, 'Z': 23, 'O': 24  # Extended amino acids
         }
         
-        # Convert sequence to residue types
+        # sequence to residue types
         residue_type = []
         for aa in sequence:
             residue_type.append(aa_to_id.get(aa, 20))  # Default to X for unknown
@@ -57,15 +55,14 @@ class HuggingFaceDataset(ProteinDataset):
 
     def load_hf_dataset(self, dataset_name, split_column='split', sequence_column='sequence', 
                        target_columns=None, verbose=1, valid_ratio=0.1):
-        if verbose:
-            print(f"Loading dataset: {dataset_name}")
-            for key, values in self.targets.items():
-                print(f"DEBUG: First 2 target values for {key}:", values[:2])
+        #if verbose:
+            #print(f"Loading dataset: {dataset_name}")
+            #for key, values in self.targets.items():
+                #print(f"DEBUG: First 2 target values for {key}:", values[:2])
         
         # Load the dataset
         dataset = load_dataset(dataset_name)
         
-        # Handle splits
         if 'train' in dataset:
             train_data = dataset['train']
             valid_data = dataset.get('validation', dataset.get('valid', []))
@@ -127,14 +124,12 @@ class HuggingFaceDataset(ProteinDataset):
             print(f"Splits - Train: {self.num_samples[0]}, Valid: {self.num_samples[1]}, Test: {self.num_samples[2]}")
 
 class Thermostability(HuggingFaceDataset):
-    """Thermostability dataset using HuggingFace datasets"""
-    
+
     target_fields = ["target"]
     
     def __init__(self, path, split="human_cell", verbose=1, **kwargs):
         super().__init__()
-        
-        # Use the proteinglm stability prediction dataset
+
         try:
             dataset_name = "proteinglm/stability_prediction"
             self.load_hf_dataset(dataset_name, 
@@ -164,8 +159,7 @@ class Thermostability(HuggingFaceDataset):
 
 
 class SecondaryStructure(HuggingFaceDataset):
-    """Secondary Structure Prediction using proteinglm/ssp_q8"""
-    
+
     target_fields = ["label"] 
     
     def __init__(self, path=None, verbose=1, **kwargs):
@@ -182,9 +176,7 @@ class SecondaryStructure(HuggingFaceDataset):
                 verbose=verbose
             )
             
-            # Ensure the 'target' key exists and contains the label data
             if self.target_fields[0] in self.targets:
-                # Convert to list of characters if needed
                 processed_targets = []
                 for item in self.targets[self.target_fields[0]]:
                     if isinstance(item, str):
@@ -192,7 +184,7 @@ class SecondaryStructure(HuggingFaceDataset):
                     else:
                         processed_targets.append(item)
                 self.targets['target'] = processed_targets
-                print("DEBUG: First 2 token labels:", self.targets[self.target_fields[0]][:2])
+                #print("DEBUG: First 2 token labels:", self.targets[self.target_fields[0]][:2])
             else:
                 print("Warning: 'label' field not found in dataset. Setting empty targets.")
                 self.targets['target'] = [[] for _ in range(len(self.sequences))]
@@ -202,7 +194,6 @@ class SecondaryStructure(HuggingFaceDataset):
             raise ValueError("Secondary structure dataset not available")
     
     def split(self):
-        """Split dataset into train/valid/test subsets"""
         offset = 0
         splits = []
         for num_sample in self.num_samples:
@@ -215,8 +206,7 @@ class SecondaryStructure(HuggingFaceDataset):
         return splits
 
 class PeptideHLAMHCAffinity(HuggingFaceDataset):
-    """Peptide HLA MHC Affinity prediction using proteinglm/peptide_HLA_MHC_affinity"""
-    
+
     target_fields = ["label"]
     
     def __init__(self, path, verbose=1, **kwargs):
@@ -229,7 +219,6 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
                                target_columns=['label'],
                                verbose=verbose)
             
-            # Map label to target for compatibility
             if 'label' in self.targets:
                 self.targets['target'] = self.targets['label']
                 
@@ -250,7 +239,6 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
         return splits
 
 def create_dataset(dataset_type, **kwargs):
-    """Factory function to create datasets"""
     datasets = {
         'Thermostability': Thermostability,
         'SecondaryStructure': SecondaryStructure,
