@@ -484,7 +484,8 @@ class MultiTaskEngine:
                 if hasattr(model, 'evaluate'):
                     metrics = model.evaluate(outputs, batch)
                 else:
-                    metrics = self.models.compute_default_metrics(outputs, batch)
+                    task_type = getattr(model, 'task_type', None)
+                    metrics = self.models.compute_default_metrics(outputs, batch, task_type=task_type)
 
                 if 'labels' in batch:
                     batch_size = batch['labels'].shape[0] if isinstance(batch['labels'], torch.Tensor) else len(batch['labels'])
