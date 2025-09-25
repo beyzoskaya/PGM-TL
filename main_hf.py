@@ -8,6 +8,7 @@ import argparse
 import numpy as np
 import yaml
 from easydict import EasyDict
+import time
 
 import torch
 import torch.nn as nn
@@ -100,7 +101,7 @@ def create_default_config():
         ],
         
         'train': {
-            'num_epoch': 8,
+            'num_epoch': 6,
             'batch_size': 8,
             'gradient_interval': 4,
             'tradeoff': 0.5
@@ -120,7 +121,7 @@ def create_default_config():
         
         'engine': {
             'batch_size': 8,
-            'num_worker': 2,
+            'num_worker': 1,
             'log_interval': 50
         },
         
@@ -169,7 +170,7 @@ def create_datasets(dataset_configs, limit_samples=None):
         original_sizes = (len(train_set), len(valid_set), len(test_set))
         print(f"  Original sizes - Train: {original_sizes[0]}, Valid: {original_sizes[1]}, Test: {original_sizes[2]}")
         
-        if limit_samples:
+        if limit_samples and not is_center:  
             train_limit = limit_samples.get('train', len(train_set))
             valid_limit = limit_samples.get('valid', len(valid_set))
             test_limit = limit_samples.get('test', len(test_set))
@@ -185,6 +186,8 @@ def create_datasets(dataset_configs, limit_samples=None):
                 test_set = Subset(test_set, test_indices)
             
             print(f"  Limited sizes - Train: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
+        elif is_center:
+            print(f"  Using FULL center task dataset")
         
         if is_center:
             train_sets = [train_set] + train_sets
@@ -325,7 +328,7 @@ def build_solver(cfg, logger, limit_samples=None):
     return solver
 
 def train_and_validate(cfg, solver, logger):
-    step = math.ceil(cfg.train.num_epoch / 4)  
+    step = 1
     best_score = float("-inf")
     best_epoch = -1
 
@@ -491,9 +494,12 @@ def get_root_logger():
 def create_working_directory(cfg):
     output_dir = os.path.expanduser(cfg.output_dir)
     
-    import time
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(output_dir, f"baseline_multitask_{timestamp}")
+    
+    if "--phase2" in sys.argv or "--full" in sys.argv:
+        output_dir = os.path.join(output_dir, f"phase2_baseline_{timestamp}")
+    else:
+        output_dir = os.path.join(output_dir, f"baseline_multitask_{timestamp}")
     
     os.makedirs(output_dir, exist_ok=True)
     os.chdir(output_dir)
@@ -514,7 +520,8 @@ if __name__ == "__main__":
         limit_samples = {'train': 2000, 'valid': 500, 'test': 500}
     elif args.phase2 or args.full:
         print("PHASE 2: Full baseline training")
-        pass
+        limit_samples = {'train': 15000, 'valid': 2000, 'test': 2000}
+        cfg.train.num_epoch = 6
     elif args.limit_train or args.limit_valid or args.limit_test:
         limit_samples = {
             'train': args.limit_train,
