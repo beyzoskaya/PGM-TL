@@ -584,7 +584,7 @@ class SharedBackboneMultiTaskModel(nn.Module):
                         nn.Dropout(0.1),
                         nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
                     )
-                elif task_config['type'] in ['classification', 'regression']:
+                elif task_config['type'] in ['classification', 'binary_classification', 'regression']:
                     head = nn.Sequential(
                         nn.Dropout(0.1),
                         nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
