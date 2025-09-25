@@ -461,3 +461,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+Task 0 --> Secondary Structure --> Token classification (8 labels) --> accuracy
+Task 1 --> Thermostability --> Regression (1 label) --> mse
+Task 2 --> Peptide-HLA MHC Affinity --> Binary classification (1 label) --> accuracy
+"""

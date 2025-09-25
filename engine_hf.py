@@ -394,6 +394,10 @@ class MultiTaskEngine:
                 
                 # Weight losses (first task has weight 1, others have weight tradeoff)
                 # loss is a per-task vector; dividing by gradient_interval to average over steps
+                # center task strategy - first task is the main task with full weight
+                # Task 1,2 auxiliary tasks with reduced weight
+
+                # FIXME: Without weighting, one task could dominate training!
                 weights = [1.0 if i == 0 else tradeoff for i in range(len(dataloaders))]
                 all_loss = (loss * torch.tensor(weights, device=self.device)).sum()
                 
