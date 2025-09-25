@@ -143,9 +143,9 @@ def create_minimal_config(working_datasets):
             
         elif dataset_type == 'PeptideHLAMHCAffinity':
             task_config = {
-                'type': 'binary_classification',  # ← Changed from 'classification'
-                'num_labels': 2,
-                'loss': 'binary_cross_entropy'   # ← Changed from 'cross_entropy'
+                'type': 'binary_classification',
+                'num_labels': 1,  # ← Change from 2 to 1
+                'loss': 'binary_cross_entropy'
             }
             
         elif dataset_type == 'Thermostability':
