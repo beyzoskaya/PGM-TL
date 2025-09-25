@@ -305,10 +305,13 @@ def debug_batch_processing(engine, train_sets):
             loss = engine.models.compute_default_loss(outputs, batch_device)
             print(f"    Loss: {loss.item():.4f}")
             
-            metrics = engine.models.compute_default_metrics(outputs, batch_device)
+            #metrics = engine.models.compute_default_metrics(outputs, batch_device)
+            task_model = engine.models[task_id]
+            task_type = getattr(task_model, 'task_type', None)
+            metrics = engine.models.compute_default_metrics(outputs, batch_device, task_type=task_type)
             print(f"    Metrics: {metrics}")
             if task_id == 2:  
-                print(f"    [TASK 2 CHECK] Should show accuracy, not mse: {list(metrics.keys())}")
+                print(f"[TASK 2 CHECK] Should show accuracy, not mse: {list(metrics.keys())}")
             
         except Exception as e:
             print(f"    [FAILED] Forward pass failed: {str(e)}")
