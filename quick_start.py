@@ -140,15 +140,13 @@ def create_minimal_config(working_datasets):
                 'num_labels': 8,
                 'loss': 'cross_entropy'
             }
-            print(f"  Task type: Token classification (8-class secondary structure)")
             
         elif dataset_type == 'PeptideHLAMHCAffinity':
             task_config = {
-                'type': 'classification',
+                'type': 'binary_classification',  # ← Changed from 'classification'
                 'num_labels': 2,
-                'loss': 'cross_entropy'
+                'loss': 'binary_cross_entropy'   # ← Changed from 'cross_entropy'
             }
-            print(f"  Task type: Binary classification (binding affinity)")
             
         elif dataset_type == 'Thermostability':
             task_config = {
@@ -156,7 +154,6 @@ def create_minimal_config(working_datasets):
                 'num_labels': 1,
                 'loss': 'mse'
             }
-            print(f"  Task type: Regression (thermostability score)")
             
         config['tasks'].append(task_config)
     

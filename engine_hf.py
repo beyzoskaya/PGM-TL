@@ -21,9 +21,9 @@ uses collate_fn to batch items, and calls models in ModelsWrapper.forward
 
 
 TASK_TYPE_MAP = {
-    "Task_0": "token_classification",    # SSP-Q8
-    "Task_1": "regression",              # Stability
-    "Task_2": "classification"           # HLA-MHC
+    "Task_0": "token_classification",    # SSP-Q8, 8 labels
+    "Task_1": "regression",              # Stability, 1 label (numeric)
+    "Task_2": "classification"           # HLA-MHC, 2 labels (binary classification)
 }
 
 class ModelsWrapper(nn.Module):
