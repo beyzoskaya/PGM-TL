@@ -9,6 +9,7 @@ import numpy as np
 import yaml
 from easydict import EasyDict
 import time
+import glob
 
 import torch
 import torch.nn as nn
@@ -23,8 +24,7 @@ from collections import defaultdict
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="yaml configuration file",
-                        default="config_hf.yaml")
+    parser.add_argument("-c", "--config", help="yaml configuration file", default="config_hf.yaml")
     parser.add_argument("--seed", help="random seed", type=int, default=0)
     parser.add_argument("--use_contrastive", help="use contrastive loss", action="store_true")
     parser.add_argument("--contrastive_weight", help="contrastive loss weight", type=float, default=0.1)
@@ -34,6 +34,9 @@ def parse_args():
     parser.add_argument("--limit_train", type=int, default=None, help="Limit training samples per dataset")
     parser.add_argument("--limit_valid", type=int, default=None, help="Limit validation samples per dataset")
     parser.add_argument("--limit_test", type=int, default=None, help="Limit test samples per dataset")
+   
+    parser.add_argument("--resume", help="path to checkpoint to resume from", type=str, default=None)
+    parser.add_argument("--resume_auto", help="auto-resume from latest checkpoint in output dir", action="store_true")
 
     return parser.parse_known_args()[0]
 
@@ -327,14 +330,59 @@ def build_solver(cfg, logger, limit_samples=None):
     
     return solver
 
+def find_latest_checkpoint(output_dir):
+    checkpoint_pattern = os.path.join(output_dir, "baseline_model_epoch_*.pth")
+    checkpoints = glob.glob(checkpoint_pattern)
+    
+    if not checkpoints:
+        return None, 0
+
+    epochs = []
+    for cp in checkpoints:
+        try:
+            epoch_num = int(cp.split('_epoch_')[1].split('.pth')[0])
+            epochs.append((epoch_num, cp))
+        except:
+            continue
+    
+    if not epochs:
+        return None, 0
+    
+    latest_epoch, latest_checkpoint = max(epochs, key=lambda x: x[0])
+    return latest_checkpoint, latest_epoch
+
 def train_and_validate(cfg, solver, logger):
-    step = 1
+    step = 1  
     best_score = float("-inf")
     best_epoch = -1
 
-    if not cfg.train.num_epoch > 0:
+    args = parse_args() 
+    start_epoch = 0
+    
+    if args.resume:
+        logger.info(f"Resuming from checkpoint: {args.resume}")
+        if os.path.exists(args.resume):
+            solver.load(args.resume, load_optimizer=True)
+            start_epoch = solver.epoch
+            logger.info(f"Resumed from epoch {start_epoch}")
+        else:
+            logger.error(f"Resume checkpoint not found: {args.resume}")
+            logger.info("Starting fresh training")
+    elif args.resume_auto:
+        checkpoint_path, start_epoch = find_latest_checkpoint(".")
+        if checkpoint_path:
+            logger.info(f"Auto-resuming from checkpoint: {checkpoint_path}")
+            solver.load(checkpoint_path, load_optimizer=True)
+            start_epoch = solver.epoch
+            logger.info(f"Resumed from epoch {start_epoch}")
+        else:
+            logger.info("No checkpoint found for auto-resume, starting fresh")
+
+    if cfg.train.num_epoch <= start_epoch:
+        logger.info("Training already completed or no epochs remaining")
         return solver, best_epoch
 
+    remaining_epochs = cfg.train.num_epoch - start_epoch
     total_train_samples = sum(len(ts) for ts in solver.train_sets)
     batches_per_epoch = total_train_samples // (solver.batch_size * solver.gradient_interval)
     estimated_time_per_epoch = batches_per_epoch * 0.5 / 60  # Rough estimate: 0.5 sec per batch
@@ -342,15 +390,19 @@ def train_and_validate(cfg, solver, logger):
     logger.info("=" * 80)
     logger.info("TRAINING PHASE STARTED")
     logger.info("=" * 80)
+    if start_epoch > 0:
+        logger.info(f"RESUMING from epoch: {start_epoch}")
+    logger.info(f"Target total epochs: {cfg.train.num_epoch}")
+    logger.info(f"Remaining epochs: {remaining_epochs}")
     logger.info(f"Total training samples: {total_train_samples:,}")
     logger.info(f"Effective batch size: {solver.batch_size * solver.gradient_interval}")
     logger.info(f"Batches per epoch: ~{batches_per_epoch:,}")
     logger.info(f"Estimated time per epoch: ~{estimated_time_per_epoch:.1f} minutes")
-    logger.info(f"Total estimated training time: ~{estimated_time_per_epoch * cfg.train.num_epoch:.1f} minutes")
+    logger.info(f"Estimated remaining time: ~{estimated_time_per_epoch * remaining_epochs:.1f} minutes")
     logger.info(f"Tradeoff weight for auxiliary tasks: {cfg.train.get('tradeoff', 1.0)}")
     logger.info("=" * 80)
 
-    for i in range(0, cfg.train.num_epoch, step):
+    for i in range(start_epoch, cfg.train.num_epoch, step):
         # Training
         num_epoch = min(step, cfg.train.num_epoch - i)
         logger.info(f"\nTraining epochs {i+1}-{i+num_epoch} of {cfg.train.num_epoch}...")
@@ -363,6 +415,19 @@ def train_and_validate(cfg, solver, logger):
         checkpoint_path = f"baseline_model_epoch_{solver.epoch}.pth"
         solver.save(checkpoint_path)
         logger.info(f"Saved checkpoint: {checkpoint_path}")
+        
+        latest_path = "latest_checkpoint.pth"
+        solver.save(latest_path)
+        
+        progress_info = {
+            'epoch': solver.epoch,
+            'total_epochs': cfg.train.num_epoch,
+            'completed': solver.epoch >= cfg.train.num_epoch
+        }
+        with open('training_progress.txt', 'w') as f:
+            f.write(f"Completed epoch: {solver.epoch}/{cfg.train.num_epoch}\n")
+            f.write(f"Last checkpoint: {checkpoint_path}\n")
+            f.write(f"Training completed: {'Yes' if progress_info['completed'] else 'No'}\n")
         
         logger.info("Running validation...")
         metrics = solver.evaluate("valid")
@@ -380,8 +445,7 @@ def train_and_validate(cfg, solver, logger):
             else:
                 logger.info(f"  {k}: {v:.4f}")
         logger.info("=" * 60)
-        
-        # score for early stopping (focus on center task)
+
         score = []
         for k, v in metrics.items():
             if ("Task_0" in k or "Center" in k) and cfg.eval_metric in k.lower():
@@ -396,7 +460,7 @@ def train_and_validate(cfg, solver, logger):
                 best_score = current_score
                 best_epoch = solver.epoch
                 logger.info(f"NEW BEST CENTER TASK SCORE: {best_score:.4f} at epoch {best_epoch}")
-        
+
                 best_model_path = f"best_baseline_model_epoch_{best_epoch}.pth"
                 solver.save(best_model_path)
                 logger.info(f"Saved best model: {best_model_path}")
@@ -410,9 +474,22 @@ def train_and_validate(cfg, solver, logger):
             current_lr = solver.optimizer.param_groups[0]['lr']
             logger.info(f"Current learning rate: {current_lr:.2e}")
 
+        remaining = cfg.train.num_epoch - solver.epoch
+        logger.info(f"Progress: {solver.epoch}/{cfg.train.num_epoch} epochs completed, {remaining} remaining")
+
     if best_epoch > 0:
         logger.info(f"\nLoading best model from epoch {best_epoch}")
-        solver.load(f"best_baseline_model_epoch_{best_epoch}.pth")
+        best_model_path = f"best_baseline_model_epoch_{best_epoch}.pth"
+        if os.path.exists(best_model_path):
+            solver.load(best_model_path)
+        else:
+            logger.warning(f"Best model checkpoint not found: {best_model_path}")
+
+    with open('training_completed.txt', 'w') as f:
+        f.write(f"Training completed successfully\n")
+        f.write(f"Total epochs: {cfg.train.num_epoch}\n")
+        f.write(f"Best epoch: {best_epoch}\n")
+        f.write(f"Best score: {best_score:.4f}\n")
     
     return solver, best_epoch
 
@@ -512,43 +589,60 @@ if __name__ == "__main__":
     set_seed(args.seed)
     
     cfg = load_config(args.config)
-    
+
     limit_samples = None
+    phase_name = "Custom"
+    
     if args.phase1:
+        phase_name = "PHASE 1 (Limited)"
         print("PHASE 1: Quick validation with limited data")
         cfg.train.num_epoch = 2
         limit_samples = {'train': 2000, 'valid': 500, 'test': 500}
     elif args.phase2 or args.full:
-        print("PHASE 2: Full baseline training")
+        phase_name = "PHASE 2 (Balanced)"
+        print("PHASE 2: Balanced baseline training")
+
         limit_samples = {'train': 15000, 'valid': 2000, 'test': 2000}
-        cfg.train.num_epoch = 6
+        cfg.train.num_epoch = 6  
     elif args.limit_train or args.limit_valid or args.limit_test:
+        phase_name = "Custom Limited"
         limit_samples = {
             'train': args.limit_train,
             'valid': args.limit_valid,
             'test': args.limit_test
         }
+    
+    if args.resume or args.resume_auto:
 
+        output_dir = os.getcwd()
+        print(f"Resuming training in: {output_dir}")
+        
+        if not os.path.exists('config_used.yaml'):
+            print("Warning: config_used.yaml not found in current directory")
+            print("Make sure you're in the correct output directory")
+        
+        logger = get_root_logger()
+        logger.info(f"RESUME: {phase_name} SHARED BACKBONE multi-task protein training")
+        logger.info(f"Resume directory: {output_dir}")
+    else:
+        output_dir = create_working_directory(cfg)
+        logger = get_root_logger()
+        logger.info(f"NEW TRAINING: {phase_name} SHARED BACKBONE multi-task protein training")
+        logger.info(f"Output directory: {output_dir}")
+    
+    logger.info(f"Using device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
+    if limit_samples:
+        logger.info(f"Dataset limits: {limit_samples}")
+    
     if args.use_contrastive:
         cfg.use_contrastive = True
         cfg.contrastive_weight = args.contrastive_weight
         print("Note: Contrastive learning not yet implemented with shared backbone")
     
-    output_dir = create_working_directory(cfg)
-    
-    logger = get_root_logger()
-    
-    phase_name = "PHASE 1 (Limited)" if args.phase1 else "PHASE 2 (Full)" if (args.phase2 or args.full) else "Custom"
-    logger.info(f"Starting {phase_name} SHARED BACKBONE multi-task protein training")
-    logger.info(f"Configuration: {pprint.pformat(dict(cfg))}")
-    logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Using device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
-    
-    if limit_samples:
-        logger.info(f"Dataset limits: {limit_samples}")
-
-    with open("config_used.yaml", "w") as f:
-        yaml.dump(dict(cfg), f, default_flow_style=False)
+    if not (args.resume or args.resume_auto):
+        with open("config_used.yaml", "w") as f:
+            yaml.dump(dict(cfg), f, default_flow_style=False)
+        logger.info("Configuration saved")
     
     try:
         logger.info("Building shared backbone solver...")
@@ -557,7 +651,7 @@ if __name__ == "__main__":
         logger.info("Starting training with shared backbone...")
         solver, best_epoch = train_and_validate(cfg, solver, logger)
         logger.info(f"Training completed. Best epoch: {best_epoch}")
-
+        
         test(cfg, solver, logger)
         
         logger.info("SHARED BACKBONE training and evaluation completed successfully!")
@@ -570,7 +664,16 @@ if __name__ == "__main__":
         logger.info("✓ Efficient memory usage")
         logger.info("✓ True multi-task representation learning")
         
+        logger.info("Training session completed successfully!")
+        
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
         import traceback
         traceback.print_exc()
+        
+        with open('error_log.txt', 'w') as f:
+            f.write(f"Error: {str(e)}\n")
+            f.write("Traceback:\n")
+            f.write(traceback.format_exc())
+        
+        raise
