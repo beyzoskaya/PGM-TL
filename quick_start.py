@@ -307,6 +307,8 @@ def debug_batch_processing(engine, train_sets):
             
             metrics = engine.models.compute_default_metrics(outputs, batch_device)
             print(f"    Metrics: {metrics}")
+            if task_id == 2:  
+                print(f"    [TASK 2 CHECK] Should show accuracy, not mse: {list(metrics.keys())}")
             
         except Exception as e:
             print(f"    [FAILED] Forward pass failed: {str(e)}")
