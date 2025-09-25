@@ -50,8 +50,8 @@ def set_seed(seed):
 
 def create_default_config():
     config = {
-        'output_dir': './baseline_outputs',
-     
+        'output_dir': './outputs',
+        
         'model': {
             'type': 'shared_lora',
             'model_name': 'Rostlab/prot_bert_bfd',
@@ -64,68 +64,68 @@ def create_default_config():
         
         'datasets': [
             {
-                'type': 'SecondaryStructure',  # CENTER TASK
+                'type': 'SecondaryStructure',    # CENTER TASK (Task 0)
                 'path': './data',
                 'center': True
             },
             {
-                'type': 'Thermostability', 
+                'type': 'Thermostability',       # AUX TASK (Task 1)
                 'path': './data',
                 'split': 'human_cell',
                 'center': False
             },
             {
-                'type': 'PeptideHLAMHCAffinity',
-                'path': './data', 
+                'type': 'PeptideHLAMHCAffinity', # AUX TASK (Task 2)
+                'path': './data',
                 'center': False
             }
         ],
         
         'tasks': [
             {
-                'type': 'token_classification',
+                'type': 'token_classification',  # Task 0: SecondaryStructure
                 'num_labels': 8,
                 'loss': 'cross_entropy'
             },
             {
-                'type': 'regression',
+                'type': 'regression',            # Task 1: Thermostability
                 'num_labels': 1,
                 'loss': 'mse'
             },
             {
-                'type': 'binary_classification',
+                'type': 'binary_classification', # Task 2: PeptideHLA
                 'num_labels': 1,
                 'loss': 'cross_entropy'
             }
         ],
         
         'train': {
-            'num_epoch': 8,        
-            'batch_size': 12,         # Larger batch for stability
-            'gradient_interval': 4,   # Effective batch_size = 48
+            'num_epoch': 8,
+            'batch_size': 8,
+            'gradient_interval': 4,
             'tradeoff': 0.5
         },
         
         'optimizer': {
             'type': 'AdamW',
-            'lr': 2e-5,              # Conservative LR for stability
+            'lr': 2e-5,
             'weight_decay': 0.01
         },
         
         'scheduler': {
             'type': 'StepLR',
-            'step_size': 3,          # Decay every 3 epochs
-            'gamma': 0.8
+            'step_size': 3,
+            'gamma': 0.5
         },
         
         'engine': {
-            'batch_size': 12,        # Match train batch_size
-            'num_worker': 2,         # Some parallelism
-            'log_interval': 100    
+            'batch_size': 8,
+            'num_worker': 2,
+            'log_interval': 50
         },
         
         'eval_metric': 'accuracy',
-        'test_batch_size': 24
+        'test_batch_size': 16
     }
     
     return EasyDict(config)
