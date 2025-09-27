@@ -286,6 +286,8 @@ class ProtBertWithLoRA(nn.Module):
         # Compute logits according to task type
         if self.task_type == "classification":
             logits = self.head(graph_feature)
+        elif self.task_type == "binary_classification":
+            logits = self.head(graph_feature).squeeze(-1)
         elif self.task_type == "token_classification":
             # residue_feature expected shape: [batch, seq_len, hidden]
             logits = self.head(residue_feature)
@@ -302,6 +304,7 @@ class ProtBertWithLoRA(nn.Module):
 
         # IMPORTANT: include attention_mask when available so engine can mask padding
         if attention_mask is not None:
+            print("DEBUG: Including attention_mask in output with shape:", attention_mask.shape)
             out["attention_mask"] = attention_mask
 
         return out

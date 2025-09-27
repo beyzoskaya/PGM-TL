@@ -99,7 +99,7 @@ def create_default_config():
             {
                 'type': 'binary_classification', # Task 2: PeptideHLA
                 'num_labels': 1,
-                'loss': 'cross_entropy'
+                'loss': 'bce_with_logits'
             }
         ],
         
