@@ -135,18 +135,17 @@ def create_default_config():
     return EasyDict(config)
 
 def setup_drive_output(cfg):
-    from google.colab import drive
     import time
-
-    print("Mounting Google Drive...")
-    drive.mount('/content/drive')
-
+    
+    if not os.path.exists('/content/drive/MyDrive'):
+        raise RuntimeError("Google Drive not mounted. Please run 'drive.mount('/content/drive')' in a Colab cell first.")
+    
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     base_drive_path = "/content/drive/MyDrive/protein_multitask_outputs"
     
     import sys
-    if "--phase2" in sys.argv or "--full" in sys.argv:
-        output_dir = f"{base_drive_path}/phase2_full_baseline_{timestamp}"
+    if "--full" in sys.argv:
+        output_dir = f"{base_drive_path}/full_baseline_{timestamp}"
     else:
         output_dir = f"{base_drive_path}/baseline_multitask_{timestamp}"
     
