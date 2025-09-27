@@ -660,13 +660,14 @@ if __name__ == "__main__":
     phase_name = "Full Baseline"
     print("FULL BASELINE: Using all dataset instances")
     
-    cfg.train.num_epoch = 6 
-    cfg.train.batch_size = 12  
-    cfg.train.gradient_interval = 4 
-    
-    cfg.engine.batch_size = 12
-    cfg.engine.num_worker = 0  
-    cfg.engine.log_interval = 100 
+    cfg.train.num_epoch = 4
+    cfg.train.batch_size = 8
+    cfg.train.gradient_interval = 6
+
+    cfg.optimizer.lr = 3e-5 
+
+    cfg.engine.batch_size = 8  
+    cfg.engine.log_interval = 50
     
     print(f"Configuration: {cfg.train.num_epoch} epochs, batch_size={cfg.train.batch_size}")
     
