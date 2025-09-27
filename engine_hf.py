@@ -778,8 +778,30 @@ class SharedBackboneModelsWrapper(nn.Module):
         t = torch.tensor(target, device=logits.device, dtype=torch.float)
 
         if task_type == 'binary_classification':
-            logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
-            return F.binary_cross_entropy_with_logits(logits_, t.float())
+            #logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
+            #return F.binary_cross_entropy_with_logits(logits_, t.float())
+
+            print(f"[DEBUG] BCE logits mean={logits.mean().item():.4f}, target mean={t.mean().item():.4f}")
+            print(f"Shape of logits for binary classifcation: {logits.shape}")
+            print(f"Shape of targets for binary classifcation: {t.shape}")
+            if not torch.is_tensor(target):
+                t = torch.tensor(target, device=logits.device, dtype=torch.float)
+            else:
+                t = target.to(logits.device, dtype=torch.float)
+
+            logits_ = logits.view(-1)
+            t = t.view(-1)
+
+            pos_count = (t == 1).sum().item()
+            neg_count = (t == 0).sum().item()
+            pos_weight = None
+            if pos_count > 0 and neg_count > 0:
+                pos_weight = torch.tensor([neg_count / pos_count], device=logits.device)
+
+            return F.binary_cross_entropy_with_logits(
+                logits_, t, pos_weight=pos_weight
+            )
+
 
         elif task_type == 'regression':
             if logits.numel() == t.numel():
