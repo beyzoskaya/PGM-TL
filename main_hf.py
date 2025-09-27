@@ -134,6 +134,28 @@ def create_default_config():
     
     return EasyDict(config)
 
+def setup_drive_output(cfg):
+    from google.colab import drive
+    import time
+
+    print("Mounting Google Drive...")
+    drive.mount('/content/drive')
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    base_drive_path = "/content/drive/MyDrive/protein_multitask_outputs"
+    
+    import sys
+    if "--phase2" in sys.argv or "--full" in sys.argv:
+        output_dir = f"{base_drive_path}/phase2_full_baseline_{timestamp}"
+    else:
+        output_dir = f"{base_drive_path}/baseline_multitask_{timestamp}"
+    
+    os.makedirs(output_dir, exist_ok=True)
+    os.chdir(output_dir)
+    
+    print(f"Output directory (in Drive): {output_dir}")
+    return output_dir
+
 def load_config(config_file):
     if os.path.exists(config_file):
         with open(config_file, 'r') as f:
@@ -143,7 +165,7 @@ def load_config(config_file):
         print(f"Config file {config_file} not found. Using default configuration.")
         return create_default_config()
 
-def create_datasets(dataset_configs, limit_samples=None):
+def create_datasets_limit_option(dataset_configs, limit_samples=None):
 
     train_sets, valid_sets, test_sets = [], [], []
     
@@ -208,6 +230,52 @@ def create_datasets(dataset_configs, limit_samples=None):
     total_test = sum(len(ts) for ts in test_sets)
     
     print(f"\n[SUMMARY] Total samples - Train: {total_train}, Valid: {total_valid}, Test: {total_test}")
+    
+    return train_sets, valid_sets, test_sets
+
+def create_datasets(dataset_configs, limit_samples=None):
+    train_sets, valid_sets, test_sets = [], [], []
+    
+    print("=" * 60)
+    print("LOADING FULL DATASETS (NO LIMITING)")
+    print("=" * 60)
+    
+    for i, dataset_config in enumerate(dataset_configs):
+        config_copy = dataset_config.copy()
+        dataset_type = config_copy.pop('type')
+        is_center = config_copy.pop('center', False)
+        
+        print(f"\n[Dataset {i}] Loading {dataset_type}...")
+        print(f"  Center task: {is_center}")
+        
+        if dataset_type == 'Thermostability':
+            dataset = Thermostability(**config_copy)
+        elif dataset_type == 'SecondaryStructure':
+            dataset = SecondaryStructure(**config_copy)
+        elif dataset_type == 'PeptideHLAMHCAffinity':
+            dataset = PeptideHLAMHCAffinity(**config_copy)
+        else:
+            raise ValueError(f"Unknown dataset type: {dataset_type}")
+        
+        train_set, valid_set, test_set = dataset.split()
+        print(f"  Using FULL dataset - Train: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
+        
+        if is_center:
+            train_sets = [train_set] + train_sets
+            valid_sets = [valid_set] + valid_sets
+            test_sets = [test_set] + test_sets
+            print("  Added as CENTER task")
+        else:
+            train_sets.append(train_set)
+            valid_sets.append(valid_set)
+            test_sets.append(test_set)
+            print("  Added as auxiliary task")
+    
+    total_train = sum(len(ts) for ts in train_sets)
+    total_valid = sum(len(vs) for vs in valid_sets)
+    total_test = sum(len(ts) for ts in test_sets)
+    
+    print(f"\n[SUMMARY] FULL DATASETS - Train: {total_train}, Valid: {total_valid}, Test: {total_test}")
     
     return train_sets, valid_sets, test_sets
 
@@ -589,91 +657,66 @@ if __name__ == "__main__":
     set_seed(args.seed)
     
     cfg = load_config(args.config)
-
-    limit_samples = None
-    phase_name = "Custom"
     
-    if args.phase1:
-        phase_name = "PHASE 1 (Limited)"
-        print("PHASE 1: Quick validation with limited data")
-        cfg.train.num_epoch = 2
-        limit_samples = {'train': 2000, 'valid': 500, 'test': 500}
-    elif args.phase2 or args.full:
-        phase_name = "PHASE 2 (Balanced)"
-        print("PHASE 2: Balanced baseline training")
-
-        limit_samples = {'train': 15000, 'valid': 2000, 'test': 2000}
-        cfg.train.num_epoch = 6  
-    elif args.limit_train or args.limit_valid or args.limit_test:
-        phase_name = "Custom Limited"
-        limit_samples = {
-            'train': args.limit_train,
-            'valid': args.limit_valid,
-            'test': args.limit_test
-        }
+    phase_name = "Full Baseline"
+    print("FULL BASELINE: Using all dataset instances")
+    
+    cfg.train.num_epoch = 6 
+    cfg.train.batch_size = 12  
+    cfg.train.gradient_interval = 4 
+    
+    cfg.engine.batch_size = 12
+    cfg.engine.num_worker = 0  
+    cfg.engine.log_interval = 100 
+    
+    print(f"Configuration: {cfg.train.num_epoch} epochs, batch_size={cfg.train.batch_size}")
     
     if args.resume or args.resume_auto:
-
         output_dir = os.getcwd()
         print(f"Resuming training in: {output_dir}")
-        
-        if not os.path.exists('config_used.yaml'):
-            print("Warning: config_used.yaml not found in current directory")
-            print("Make sure you're in the correct output directory")
-        
         logger = get_root_logger()
-        logger.info(f"RESUME: {phase_name} SHARED BACKBONE multi-task protein training")
-        logger.info(f"Resume directory: {output_dir}")
+        logger.info(f"RESUME: {phase_name} training")
     else:
-        output_dir = create_working_directory(cfg)
+        output_dir = setup_drive_output(cfg)
         logger = get_root_logger()
-        logger.info(f"NEW TRAINING: {phase_name} SHARED BACKBONE multi-task protein training")
-        logger.info(f"Output directory: {output_dir}")
+        logger.info(f"NEW FULL BASELINE training")
+        logger.info(f"Drive output directory: {output_dir}")
     
     logger.info(f"Using device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
-    if limit_samples:
-        logger.info(f"Dataset limits: {limit_samples}")
-    
-    if args.use_contrastive:
-        cfg.use_contrastive = True
-        cfg.contrastive_weight = args.contrastive_weight
-        print("Note: Contrastive learning not yet implemented with shared backbone")
+    logger.info("Using FULL datasets - no limiting applied")
     
     if not (args.resume or args.resume_auto):
         with open("config_used.yaml", "w") as f:
             yaml.dump(dict(cfg), f, default_flow_style=False)
-        logger.info("Configuration saved")
+        logger.info("Configuration saved to Drive")
     
     try:
-        logger.info("Building shared backbone solver...")
-        solver = build_solver(cfg, logger, limit_samples)
+        logger.info("Building solver with full datasets...")
+        solver = build_solver(cfg, logger, limit_samples=None)
+
+        total_samples = sum(len(ts) for ts in solver.train_sets)
+        est_time_per_epoch = (total_samples // (cfg.train.batch_size * cfg.train.gradient_interval)) * 0.4 / 60
+        est_total_time = est_time_per_epoch * cfg.train.num_epoch
         
-        logger.info("Starting training with shared backbone...")
+        logger.info(f"Estimated training time: {est_total_time:.1f} hours total")
+        logger.info(f"Colab Pro 24h limit: {'SAFE' if est_total_time < 20 else 'RISKY'}")
+
+        logger.info("Starting FULL BASELINE training...")
         solver, best_epoch = train_and_validate(cfg, solver, logger)
         logger.info(f"Training completed. Best epoch: {best_epoch}")
         
         test(cfg, solver, logger)
         
-        logger.info("SHARED BACKBONE training and evaluation completed successfully!")
+        logger.info("FULL BASELINE training completed successfully!")
+        logger.info(f"All checkpoints saved to: {output_dir}")
         
         if torch.cuda.is_available():
             logger.info(f"Peak GPU memory usage: {torch.cuda.max_memory_allocated() / 1e9:.2f}GB")
         
-        logger.info("Benefits achieved:")
-        logger.info("✓ Single shared ProtBert backbone for all tasks")
-        logger.info("✓ Efficient memory usage")
-        logger.info("✓ True multi-task representation learning")
-        
-        logger.info("Training session completed successfully!")
-        
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        
         with open('error_log.txt', 'w') as f:
             f.write(f"Error: {str(e)}\n")
-            f.write("Traceback:\n")
+            import traceback
             f.write(traceback.format_exc())
-        
         raise
