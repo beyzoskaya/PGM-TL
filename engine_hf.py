@@ -566,7 +566,6 @@ class SharedBackboneMultiTaskModel(nn.Module):
                  readout="pooler", freeze_bert=False, lora_config=None):
         super().__init__()
         
-        # Single shared backbone
         self.shared_backbone = ProtBert(
             model_name=model_name, 
             readout=readout, 
@@ -598,6 +597,14 @@ class SharedBackboneMultiTaskModel(nn.Module):
                     raise ValueError(f"Unsupported task type: {task_config['type']}")
                 
                 self.task_heads[task_name] = head
+
+        for task_name, head in self.task_heads.items():
+            if isinstance(head, nn.Sequential):
+                for layer in head:
+                    if isinstance(layer, nn.Linear):
+                        nn.init.xavier_uniform_(layer.weight)
+                        if layer.bias is not None:
+                            nn.init.zeros_(layer.bias)
     
     def add_lora_adapters(self, rank=16, alpha=32, dropout=0.1):
         from protbert_hf import LoRALinear
@@ -706,39 +713,21 @@ class SharedBackboneModelsWrapper(nn.Module):
         return all_loss, all_metric
     
     def compute_default_loss(self, outputs, batch, task_type=None):
-        logits = outputs["logits"]  # raw outputs of the final layer before softmax/sigmoid
+        logits = outputs["logits"]
 
         # Extract targets
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                #print("Targets is a dict, using the first key for loss computation.")
-                #print("Available keys:", list(targets.keys()))
                 target_key = list(targets.keys())[0]
-                target = targets[target_key]  # pick first if multiple
-                #print("Using target key:", target_key)
-                #print("Targets example:", target if isinstance(target, (int, float, list)) else str(target)[:100])
+                target = targets[target_key]
             else:
-                #print("Targets is not a dict, using it directly for loss computation.")
-                #print("Targets type:", type(targets))
-                #print("Targets example:", targets if isinstance(targets, (int, float, list)) else str(targets)[:100])
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
 
-        #print("\n[DEBUG] ====== New Batch ======")
-        #if "sequence" in batch:
-        #    print("Example sequence:", batch["sequence"][0][:50], "...")
-        #print("Targets (first item):", target[0] if isinstance(target, (list, torch.Tensor)) else target)
-        #print("Logits shape:", logits.shape)
-
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
-       
-        # Special case: force Task_2 to multi-class classification
-        #if hasattr(self, 'names') and "Task_2" in self.names:
-        #    task_type = "multi_class"
-        #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification (sequence labeling) ---
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
@@ -772,36 +761,26 @@ class SharedBackboneModelsWrapper(nn.Module):
             if active_logits.numel() == 0:
                 return torch.tensor(0.0, device=logits.device, requires_grad=True)
 
-            return F.cross_entropy(active_logits, active_labels)  # token-level classification loss
+            return F.cross_entropy(active_logits, active_labels)
 
         # --- Sequence-level tasks ---
-        t = torch.tensor(target, device=logits.device, dtype=torch.float)
+        if not torch.is_tensor(target):
+            t = torch.tensor(target, device=logits.device, dtype=torch.float)
+        else:
+            t = target.to(device=logits.device, dtype=torch.float)
 
         if task_type == 'binary_classification':
-            #logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
-            #return F.binary_cross_entropy_with_logits(logits_, t.float())
-
-            print(f"[DEBUG] BCE logits mean={logits.mean().item():.4f}, target mean={t.mean().item():.4f}")
-            print(f"Shape of logits for binary classifcation: {logits.shape}")
-            print(f"Shape of targets for binary classifcation: {t.shape}")
-            if not torch.is_tensor(target):
-                t = torch.tensor(target, device=logits.device, dtype=torch.float)
+            # Ensure logits are properly shaped for binary classification
+            if logits.dim() > 1 and logits.size(-1) == 1:
+                logits_flat = logits.squeeze(-1)  # [batch_size, 1] -> [batch_size]
             else:
-                t = target.to(logits.device, dtype=torch.float)
-
-            logits_ = logits.view(-1)
-            t = t.view(-1)
-
-            pos_count = (t == 1).sum().item()
-            neg_count = (t == 0).sum().item()
-            pos_weight = None
-            if pos_count > 0 and neg_count > 0:
-                pos_weight = torch.tensor([neg_count / pos_count], device=logits.device)
-
-            return F.binary_cross_entropy_with_logits(
-                logits_, t, pos_weight=pos_weight
-            )
-
+                logits_flat = logits.view(-1)     # Flatten to [batch_size]
+            
+            # Ensure targets are properly shaped
+            t_flat = t.view(-1)  # Flatten to [batch_size]
+            
+            # Use standard BCE loss without pos_weight to avoid complications
+            return F.binary_cross_entropy_with_logits(logits_flat, t_flat)
 
         elif task_type == 'regression':
             if logits.numel() == t.numel():
@@ -812,7 +791,7 @@ class SharedBackboneModelsWrapper(nn.Module):
                 logits_flat = logits.mean(dim=1)
             return F.mse_loss(logits_flat, t.float())
 
-        else:  # multi-class
+        else:  # multi-class classification
             if logits.dim() == 1 or logits.size(-1) == 1:
                 if logits.numel() == t.numel():
                     logits_flat = logits.view_as(t)
@@ -827,30 +806,20 @@ class SharedBackboneModelsWrapper(nn.Module):
 
     def compute_default_metrics(self, outputs, batch, task_type=None):
         logits = outputs["logits"]
-        #print("[DEBUG] logits shape:", logits.shape)
-        #print("[DEBUG] batch keys:", batch.keys())
 
         # Extract targets
         if isinstance(batch, dict) and 'targets' in batch:
             targets = batch['targets']
             if isinstance(targets, dict):
-                #print("Targets is a dict, using the first key for metric computation.")
                 target_key = list(targets.keys())[0]
                 target = targets[target_key]
             else:
-                #print("Targets is not a dict, using it directly for metric computation.")
                 target = targets
         else:
             raise ValueError("Cannot find targets in batch")
 
-        #print("[DEBUG] raw targets type:", type(target))
-
         # Determine task type
         task_type = task_type or getattr(self, 'task_type', None) or batch.get('task_type', 'regression')
-        # Force Task_2 as multi-class
-        #if hasattr(self, 'names') and "Task_2" in self.names:
-        #    task_type = "multi_class"
-        #print("[DEBUG] task_type detected:", task_type)
 
         # --- Token-level classification ---
         if (isinstance(target, list) and len(target) > 0 and isinstance(target[0], list)) or \
@@ -881,22 +850,23 @@ class SharedBackboneModelsWrapper(nn.Module):
             active_labels = target_tensor.reshape(-1)[active]
 
             acc = (active_preds == active_labels).float().mean().item() if active_preds.numel() > 0 else 0.0
-            #print("[DEBUG] Token-level task")
-            #print("[DEBUG] target_tensor shape:", target_tensor.shape)
-            #print("[DEBUG] mask shape:", mask.shape)
-            #print("[DEBUG] pred shape:", pred.shape)
-            #print("[DEBUG] active_preds size:", active_preds.size())
-            #print("[DEBUG] active_labels size:", active_labels.size())
             return {"accuracy": acc}
 
         # --- Sequence-level tasks ---
         t = torch.tensor(target, device=logits.device, dtype=torch.float)
 
         if task_type == 'binary_classification':
-            logits_ = logits.squeeze(-1) if logits.dim() > 1 and logits.size(-1) == 1 else logits
-            pred = (torch.sigmoid(logits_) > 0.5).long()
-            #print("[DEBUG] Binary classification")
-            return {"accuracy": (pred == t.long()).float().mean().item()}
+            # Properly handle binary classification logits
+            if logits.dim() > 1 and logits.size(-1) == 1:
+                logits_flat = logits.squeeze(-1)
+            else:
+                logits_flat = logits.view(-1)
+            
+            # Apply sigmoid and threshold at 0.5
+            pred = (torch.sigmoid(logits_flat) > 0.5).long()
+            t_long = t.long()
+            
+            return {"accuracy": (pred == t_long).float().mean().item()}
 
         elif task_type == 'regression':
             if logits.numel() == t.numel():
@@ -906,7 +876,6 @@ class SharedBackboneModelsWrapper(nn.Module):
             else:
                 logits_flat = logits.mean(dim=1)
             mse = F.mse_loss(logits_flat, t.float()).item()
-            #print("[DEBUG] Regression")
             return {"mse": mse}
 
         else:  # multi-class classification
@@ -915,7 +884,6 @@ class SharedBackboneModelsWrapper(nn.Module):
             t = torch.clamp(t, 0, logits.size(-1)-1)
             pred = logits.argmax(dim=-1)
             acc = (pred == t).float().mean().item()
-            #print("[DEBUG] Multi-class classification")
             return {"accuracy": acc}
     
     def __getitem__(self, idx):
