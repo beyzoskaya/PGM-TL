@@ -97,14 +97,29 @@ def test_forward_pass(model, dataset, batch_size=2):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     print("\n[INFO] Running dummy forward pass with batch_size=", batch_size)
+
     sample = dataset[0]
-    # Assuming dataset returns dict with 'input_ids' and 'labels' like HF datasets
-    input_ids = sample['input_ids'].unsqueeze(0).to(device)
-    labels = sample['labels'].unsqueeze(0).to(device)
-    model.eval()
-    with torch.no_grad():
-        outputs = model(input_ids, labels=labels)
-    print("  Forward pass successful. Output keys:", outputs.keys())
+    print("  Sample type:", type(sample))
+    print("  Sample content:", sample) 
+
+    if isinstance(sample, dict):
+        inputs = {k: torch.tensor(v).unsqueeze(0).to(device) for k,v in sample.items()}
+        outputs = model(**inputs)
+    elif isinstance(sample, tuple) or isinstance(sample, list):
+        inputs, labels = sample
+        if not torch.is_tensor(inputs):
+            inputs = torch.tensor(inputs).unsqueeze(0).to(device)
+        else:
+            inputs = inputs.unsqueeze(0).to(device)
+        if not torch.is_tensor(labels):
+            labels = torch.tensor(labels).unsqueeze(0).to(device)
+        else:
+            labels = labels.unsqueeze(0).to(device)
+        outputs = model(inputs, labels=labels)
+    else:
+        raise ValueError(f"Unknown sample type: {type(sample)}")
+
+    print("  Forward pass successful. Output keys:", outputs.keys() if isinstance(outputs, dict) else "output tensor")
 
 def test_checkpoint(model, filename="test_checkpoint.pth"):
     print("\n[INFO] Testing checkpoint save/load...")
