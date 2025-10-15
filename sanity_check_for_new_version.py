@@ -100,26 +100,24 @@ def test_forward_pass(model, dataset, batch_size=2):
 
     sample = dataset[0]
     print("  Sample type:", type(sample))
-    print("  Sample content:", sample) 
+    print("  Keys in sample:", sample.keys())
 
-    if isinstance(sample, dict):
-        inputs = {k: torch.tensor(v).unsqueeze(0).to(device) for k,v in sample.items()}
-        outputs = model(**inputs)
-    elif isinstance(sample, tuple) or isinstance(sample, list):
-        inputs, labels = sample
-        if not torch.is_tensor(inputs):
-            inputs = torch.tensor(inputs).unsqueeze(0).to(device)
-        else:
-            inputs = inputs.unsqueeze(0).to(device)
-        if not torch.is_tensor(labels):
-            labels = torch.tensor(labels).unsqueeze(0).to(device)
-        else:
-            labels = labels.unsqueeze(0).to(device)
-        outputs = model(inputs, labels=labels)
+    # sequence to tensor via tokenizer
+    sequence = sample['sequence']
+    if hasattr(model, 'tokenizer'):
+        input_ids = model.tokenizer(sequence, return_tensors='pt')['input_ids'].to(device)
     else:
-        raise ValueError(f"Unknown sample type: {type(sample)}")
+        print("[WARN] No tokenizer found in model. Using dummy integer tensor.")
+        input_ids = torch.randint(0, 20, (1, len(sequence))).to(device)
 
-    print("  Forward pass successful. Output keys:", outputs.keys() if isinstance(outputs, dict) else "output tensor")
+    targets = sample['targets']
+    labels = torch.tensor(targets.get('label', targets.get('target'))).unsqueeze(0).to(device)
+
+    try:
+        outputs = model(input_ids=input_ids, labels=labels)
+        print("  Forward pass successful. Output:", outputs if isinstance(outputs, torch.Tensor) else outputs.keys())
+    except Exception as e:
+        print("[ERROR] Forward pass failed:", e)
 
 def test_checkpoint(model, filename="test_checkpoint.pth"):
     print("\n[INFO] Testing checkpoint save/load...")
