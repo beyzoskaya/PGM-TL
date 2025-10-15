@@ -310,17 +310,25 @@ class ProtBertWithLoRA(nn.Module):
         return out
 
 
-def create_protbert_model(model_type="base", **kwargs):
-    """Factory function to create ProtBert models"""
+def create_protbert_model(model_type="base", task_type=None, **kwargs):
+    """Factory function to create ProtBert models, supporting regression tasks"""
+
     models = {
         "base": ProtBert,
         "classification": ProtBertForSequenceClassification,
         "token_classification": ProtBertForTokenClassification,
         "lora": ProtBertWithLoRA
     }
-    
+
     if model_type not in models:
         raise ValueError(f"Unknown model type: {model_type}")
-    
+
+    # If regression, ensure the model head matches regression task
+    if task_type == "regression":
+        kwargs["task_type"] = "regression"
+        # For LoRA or sequence classification, regression uses same head
+        if model_type in ["classification", "lora"]:
+            return ProtBertWithLoRA(**kwargs)
+
     return models[model_type](**kwargs)
 
