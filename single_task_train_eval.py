@@ -1,17 +1,13 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 import os
 import sys
-import time
 import yaml
 import torch
 import logging
 from easydict import EasyDict
 from torch.utils.data import Subset
 
-from flip_hf import create_dataset, Thermostability, SecondaryStructure, CloningCLF
-from engine_hf import MultiTaskEngine, create_shared_multitask_model, SharedBackboneModelsWrapper
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF
+from engine_hf import MultiTaskEngine, create_shared_multitask_model
 
 def parse_args():
     import argparse
@@ -48,7 +44,6 @@ def load_config(config_file="config_hf.yaml"):
         with open(config_file, 'r') as f:
             return EasyDict(yaml.safe_load(f))
     else:
-   
         cfg = {
             'output_dir': './single_task_outputs',
             'model': {
@@ -95,9 +90,9 @@ if __name__ == "__main__":
     cfg.optimizer.weight_decay = float(cfg.optimizer.weight_decay)
 
     tasks = [
-    {"name": "SecondaryStructure", "type": "token_classification", "num_labels": 8, "loss": "cross_entropy"},
-    {"name": "Thermostability", "type": "regression", "num_labels": 1, "loss": "mse"},
-    {"name": "CloningCLF", "type": "binary_classification", "num_labels": 1, "loss": "binary_cross_entropy"}
+        {"name": "SecondaryStructure", "type": "token_classification", "num_labels": 8, "loss": "cross_entropy"},
+        {"name": "Thermostability", "type": "regression", "num_labels": 1, "loss": "mse"},
+        {"name": "CloningCLF", "type": "binary_classification", "num_labels": 1, "loss": "binary_cross_entropy"}
     ]
 
     os.makedirs(cfg.output_dir, exist_ok=True)
@@ -112,18 +107,18 @@ if __name__ == "__main__":
         train_set, valid_set, test_set = create_single_task_dataset(task_name)
         logger.info(f"Train samples: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
 
-        shared_model = create_shared_multitask_model(
+        # Create model for this single task
+        model = create_shared_multitask_model(
             tasks_config=[task_cfg],
             model_config=cfg.model
         )
 
-        optimizer = torch.optim.AdamW(shared_model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
         scheduler = None  # optional: StepLR(optimizer, step_size=3, gamma=0.5)
 
-        models_wrapper = SharedBackboneModelsWrapper(shared_model, task_names=[f"Task_0"])
-
+        # Initialize MultiTaskEngine with a single model in a list
         solver = MultiTaskEngine(
-            model=shared_model,  
+            tasks=[model],  
             train_sets=[train_set],
             valid_sets=[valid_set],
             test_sets=[test_set],
