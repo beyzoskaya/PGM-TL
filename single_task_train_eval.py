@@ -121,8 +121,9 @@ if __name__ == "__main__":
         scheduler = None  # optional: StepLR(optimizer, step_size=3, gamma=0.5)
 
         models_wrapper = SharedBackboneModelsWrapper(shared_model, task_names=[f"Task_0"])
+
         solver = MultiTaskEngine(
-            shared_model=shared_model,
+            model=shared_model,  
             train_sets=[train_set],
             valid_sets=[valid_set],
             test_sets=[test_set],
