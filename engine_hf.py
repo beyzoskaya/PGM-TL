@@ -892,7 +892,7 @@ class SharedBackboneModelsWrapper(nn.Module):
 
 def create_shared_multitask_model(tasks_config, model_config):
     lora_config = None
-    if model_config.get('type') == 'lora':
+    if model_config.get('type') in ['lora', 'shared_lora']:
         lora_config = {
             'rank': model_config.get('lora_rank', 16),
             'alpha': model_config.get('lora_alpha', 32),

@@ -190,6 +190,10 @@ def build_solver(cfg, logger, limit_samples=None):
     logger.info("=" * 60)
 
     shared_model = create_shared_multitask_model(cfg.tasks, cfg.model)
+    print("===== Checking LoRA Layers =====")
+    for name, param in shared_model.named_parameters():
+        if "lora" in name.lower():
+            print(name, param.shape, param.requires_grad)
 
     total_params = sum(p.numel() for p in shared_model.parameters())
     trainable_params = sum(p.numel() for p in shared_model.parameters() if p.requires_grad)
