@@ -91,6 +91,8 @@ if __name__ == "__main__":
     set_seed(args.seed)
     logger = get_logger()
     cfg = load_config(args.config)
+    cfg.optimizer.lr = float(cfg.optimizer.lr)
+    cfg.optimizer.weight_decay = float(cfg.optimizer.weight_decay)
 
     tasks = [
     {"name": "SecondaryStructure", "type": "token_classification", "num_labels": 8, "loss": "cross_entropy"},
