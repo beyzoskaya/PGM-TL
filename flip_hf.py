@@ -238,17 +238,15 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
                 splits.append(Subset(self, []))
         return splits
 
-class ContactPredictionBinary(HuggingFaceDataset):
-  
-    target_fields = ["label"] 
+class CloningCLF(HuggingFaceDataset):
+    target_fields = ["label"]
 
     def __init__(self, path=None, verbose=1, **kwargs):
         super().__init__()
 
         try:
-            dataset_name = "proteinglm/contact_prediction_binary"
-            
-            # Load dataset; sequence_column is 'seq', target_columns is 'label'
+            dataset_name = "proteinglm/cloning_clf"
+
             self.load_hf_dataset(
                 dataset_name,
                 sequence_column='seq',
@@ -260,8 +258,8 @@ class ContactPredictionBinary(HuggingFaceDataset):
                 self.targets['target'] = self.targets['label']
 
         except Exception as e:
-            print(f"Error loading proteinglm/contact_prediction_binary dataset: {e}")
-            raise ValueError("Contact prediction dataset not available")
+            print(f"Error loading proteinglm/cloning_clf dataset: {e}")
+            raise ValueError("Cloning CLF dataset not available")
 
     def split(self):
         offset = 0
@@ -279,10 +277,11 @@ def create_dataset(dataset_type, **kwargs):
     datasets = {
         'Thermostability': Thermostability,
         'SecondaryStructure': SecondaryStructure,
-        'BindingAffinityRegression': ContactPredictionBinary  
+        'CloningCLF': CloningCLF  
     }
     
     if dataset_type not in datasets:
         raise ValueError(f"Unknown dataset type: {dataset_type}")
     
     return datasets[dataset_type](**kwargs)
+

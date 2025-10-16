@@ -7,7 +7,7 @@ import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 import yaml
-from flip_hf import Thermostability, SecondaryStructure, PeptideHLAMHCAffinity
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf import SharedBackboneModelsWrapper, MultiTaskEngine
 
 def check_requirements():
@@ -39,7 +39,7 @@ def test_proteinglm_datasets():
     datasets_to_test = [
         "proteinglm/ssp_q8",
         "proteinglm/stability_prediction", 
-        "proteinglm/peptide_HLA_MHC_affinity"
+        "proteinglm/cloning_clf"
     ]
     
     working_datasets = []
@@ -75,7 +75,7 @@ def create_minimal_config(working_datasets):
     dataset_mapping = {
         "proteinglm/stability_prediction": "Thermostability",
         "proteinglm/ssp_q8": "SecondaryStructure", 
-        "proteinglm/peptide_HLA_MHC_affinity": "PeptideHLAMHCAffinity"
+        "proteinglm/cloning_clf": "CloningCLF"
     }
     
     config = {
@@ -141,9 +141,9 @@ def create_minimal_config(working_datasets):
                 'loss': 'cross_entropy'
             }
             
-        elif dataset_type == 'PeptideHLAMHCAffinity':
+        elif dataset_type == 'CloningCLF':
             task_config = {
-                'type': 'binary_classification',
+                'type': 'binary_classification',  
                 'num_labels': 1, 
                 'loss': 'binary_cross_entropy'
             }
@@ -177,8 +177,8 @@ def debug_dataset_loading(config):
             dataset = Thermostability(**config_copy)
         elif dataset_type == 'SecondaryStructure':
             dataset = SecondaryStructure(**config_copy)
-        elif dataset_type == 'PeptideHLAMHCAffinity':
-            dataset = PeptideHLAMHCAffinity(**config_copy)
+        elif dataset_type == 'CloningCLF':
+            dataset = CloningCLF(**config_copy)
  
         train_set, valid_set, test_set = dataset.split()
         
