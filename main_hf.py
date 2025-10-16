@@ -17,7 +17,7 @@ from torch.optim import Adam, AdamW
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 from torch.utils.data import Subset
 
-from flip_hf import create_dataset, Thermostability, SecondaryStructure, PeptideHLAMHCAffinity, ContactPredictionBinary
+from flip_hf import create_dataset, Thermostability, SecondaryStructure, CloningCLF
 from engine_hf import MultiTaskEngine
 from engine_hf import create_shared_multitask_model, SharedBackboneModelsWrapper
 from collections import defaultdict
@@ -61,13 +61,14 @@ def create_default_config():
         'datasets': [
             {'type': 'SecondaryStructure', 'path': './data', 'center': True},
             {'type': 'Thermostability', 'path': './data', 'split': 'human_cell', 'center': False},
-            {'type': 'ContactPredictionBinary', 'path': './data', 'center': False}
+            {'type': 'CloningCLF', 'path': './data', 'center': False}  # updated
         ],
         'tasks': [
             {'type': 'token_classification', 'num_labels': 8, 'loss': 'cross_entropy'},
             {'type': 'regression', 'num_labels': 1, 'loss': 'mse'},
-            {'type': 'binary_classification', 'num_labels': 1, 'loss': 'bce_with_logits'}
+            {'type': 'binary_classification', 'num_labels': 1, 'loss': 'binary_cross_entropy'}  # updated
         ],
+
         'train': {'num_epoch': 6, 'batch_size': 8, 'gradient_interval': 4, 'tradeoff': 0.5},
         'optimizer': {'type': 'AdamW', 'lr': 2e-5, 'weight_decay': 0.01},
         'scheduler': {'type': 'StepLR', 'step_size': 3, 'gamma': 0.5},
@@ -119,8 +120,8 @@ def create_datasets(dataset_configs, limit_samples=None):
             dataset = Thermostability(**cfg_copy)
         elif dtype == 'SecondaryStructure':
             dataset = SecondaryStructure(**cfg_copy)
-        elif dtype == 'ContactPredictionBinary':
-            dataset = ContactPredictionBinary(**cfg_copy)
+        elif dtype == 'CloningCLF':
+            dataset = CloningCLF(**cfg_copy)
         else:
             raise ValueError(f"Unknown dataset type: {dtype}")
 
