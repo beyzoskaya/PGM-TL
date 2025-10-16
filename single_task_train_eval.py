@@ -93,9 +93,9 @@ if __name__ == "__main__":
     cfg = load_config(args.config)
 
     tasks = [
-        {"name": "SecondaryStructure", "task_type": "token_classification", "num_labels": 8, "loss": "cross_entropy"},
-        {"name": "Thermostability", "task_type": "regression", "num_labels": 1, "loss": "mse"},
-        {"name": "CloningCLF", "task_type": "binary_classification", "num_labels": 1, "loss": "binary_cross_entropy"}
+    {"name": "SecondaryStructure", "type": "token_classification", "num_labels": 8, "loss": "cross_entropy"},
+    {"name": "Thermostability", "type": "regression", "num_labels": 1, "loss": "mse"},
+    {"name": "CloningCLF", "type": "binary_classification", "num_labels": 1, "loss": "binary_cross_entropy"}
     ]
 
     os.makedirs(cfg.output_dir, exist_ok=True)
