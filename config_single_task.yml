@@ -32,6 +32,6 @@ engine:
 eval_metric: accuracy
 
 limits:
-  train: None
-  valid: None
-  test: None
+  train: null
+  valid: null
+  test: null
