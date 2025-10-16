@@ -238,7 +238,7 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
                 splits.append(Subset(self, []))
         return splits
 
-class BindingAffinityRegression(HuggingFaceDataset):
+class ContactPredictionBinary(HuggingFaceDataset):
   
     target_fields = ["label"] 
 
@@ -279,7 +279,7 @@ def create_dataset(dataset_type, **kwargs):
     datasets = {
         'Thermostability': Thermostability,
         'SecondaryStructure': SecondaryStructure,
-        'BindingAffinityRegression': BindingAffinityRegression  
+        'BindingAffinityRegression': ContactPredictionBinary  
     }
     
     if dataset_type not in datasets:

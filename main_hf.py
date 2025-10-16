@@ -61,7 +61,7 @@ def create_default_config():
         'datasets': [
             {'type': 'SecondaryStructure', 'path': './data', 'center': True},
             {'type': 'Thermostability', 'path': './data', 'split': 'human_cell', 'center': False},
-            {'type': 'PeptideHLAMHCAffinity', 'path': './data', 'center': False}
+            {'type': 'ContactPredictionBinary', 'path': './data', 'center': False}
         ],
         'tasks': [
             {'type': 'token_classification', 'num_labels': 8, 'loss': 'cross_entropy'},
@@ -119,8 +119,8 @@ def create_datasets(dataset_configs, limit_samples=None):
             dataset = Thermostability(**cfg_copy)
         elif dtype == 'SecondaryStructure':
             dataset = SecondaryStructure(**cfg_copy)
-        elif dtype == 'PeptideHLAMHCAffinity':
-            dataset = PeptideHLAMHCAffinity(**cfg_copy)
+        elif dtype == 'ContactPredictionBinary':
+            dataset = ContactPredictionBinary(**cfg_copy)
         else:
             raise ValueError(f"Unknown dataset type: {dtype}")
 
