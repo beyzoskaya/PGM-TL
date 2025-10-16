@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# coding: utf-8
+
 import os
 import yaml
 import torch
@@ -44,7 +47,8 @@ def load_config(config_file="config_hf.yaml"):
             return EasyDict(yaml.safe_load(f))
     else:
         cfg = {
-            'output_dir': './single_task_outputs',
+            # UPDATED output directory in Drive
+            'output_dir': '/content/drive/MyDrive/protein_multitask_outputs/single_task_training',
             'model': {
                 'type': 'shared_lora',
                 'model_name': 'Rostlab/prot_bert_bfd',
@@ -90,8 +94,14 @@ class SingleTaskWrapper(torch.nn.Module):
 if __name__ == "__main__":
     args = parse_args()
     set_seed(args.seed)
-    logger = get_logger()
     cfg = load_config(args.config)
+
+    # Make sure output directory exists
+    os.makedirs(cfg.output_dir, exist_ok=True)
+    os.chdir(cfg.output_dir)
+
+    logger = get_logger(os.path.join(cfg.output_dir, "single_task_training.log"))
+
     cfg.optimizer.lr = float(cfg.optimizer.lr)
     cfg.optimizer.weight_decay = float(cfg.optimizer.weight_decay)
 
@@ -100,9 +110,6 @@ if __name__ == "__main__":
         {"name": "Thermostability", "type": "regression", "num_labels": 1, "loss": "mse"},
         {"name": "CloningCLF", "type": "binary_classification", "num_labels": 1, "loss": "binary_cross_entropy"}
     ]
-
-    os.makedirs(cfg.output_dir, exist_ok=True)
-    os.chdir(cfg.output_dir)
 
     results = {}
 
@@ -118,14 +125,13 @@ if __name__ == "__main__":
             model_config=cfg.model
         )
 
-        # Wrap to fix task_id
         wrapped_model = SingleTaskWrapper(shared_model)
 
         optimizer = torch.optim.AdamW(wrapped_model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
-        scheduler = None  # optional: StepLR(optimizer, step_size=3, gamma=0.5)
+        scheduler = None
 
         solver = MultiTaskEngine(
-            tasks=[wrapped_model],  # list of one model
+            tasks=[wrapped_model],
             train_sets=[train_set],
             valid_sets=[valid_set],
             test_sets=[test_set],
@@ -151,10 +157,10 @@ if __name__ == "__main__":
             "best_epoch": best_epoch
         }
 
-        solver.save(f"{task_name}_best_model.pth")
+        solver.save(os.path.join(cfg.output_dir, f"{task_name}_best_model.pth"))
 
     import json
-    with open("single_task_results.json", "w") as f:
+    with open(os.path.join(cfg.output_dir, "single_task_results.json"), "w") as f:
         json.dump(results, f, indent=2)
 
     logger.info("Single-task training completed for all tasks!")
