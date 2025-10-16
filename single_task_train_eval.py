@@ -27,7 +27,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 def get_logger(log_file="single_task_training.log"):
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)  # ensure folder exists
+    os.makedirs(os.path.dirname(log_file), exist_ok=True) 
     logger = logging.getLogger("")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -94,13 +94,18 @@ class SingleTaskWrapper(torch.nn.Module):
         return self.model(batch, task_id=0)  # Always task_id=0 for single-task
 
 if __name__ == "__main__":
+    try:
+        from google.colab import drive
+        drive.mount('/content/drive')
+    except:
+        pass
+
     args = parse_args()
     set_seed(args.seed)
     cfg = load_config(args.config)
     cfg.optimizer.lr = float(cfg.optimizer.lr)
     cfg.optimizer.weight_decay = float(cfg.optimizer.weight_decay)
 
-    # Ensure output folder exists
     os.makedirs(cfg.output_dir, exist_ok=True)
 
     logger = get_logger(os.path.join(cfg.output_dir, "single_task_training.log"))
@@ -143,8 +148,9 @@ if __name__ == "__main__":
             log_interval=cfg.engine.log_interval
         )
 
-        solver, best_epoch = solver.train(num_epoch=cfg.train.num_epoch)
-        logger.info(f"Completed training for {task_name}, best epoch: {best_epoch}")
+        solver.train(num_epoch=cfg.train.num_epoch)
+        best_epoch = solver.epoch
+        logger.info(f"Completed training for {task_name}, last epoch: {best_epoch}")
 
         metrics_valid = solver.evaluate("valid")
         metrics_test = solver.evaluate("test")
