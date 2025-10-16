@@ -1,0 +1,37 @@
+output_dir: ./single_task_outputs
+
+model:
+  type: shared_lora
+  model_name: Rostlab/prot_bert_bfd
+  readout: pooler
+  freeze_bert: true
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+
+train:
+  num_epoch: 4
+  batch_size: 8
+  gradient_interval: 1
+
+optimizer:
+  type: AdamW
+  lr: 3e-5
+  weight_decay: 0.01
+
+scheduler:
+  type: StepLR
+  step_size: 3
+  gamma: 0.5
+
+engine:
+  batch_size: 8
+  num_worker: 1
+  log_interval: 50
+
+eval_metric: accuracy
+
+limits:
+  train: None
+  valid: None
+  test: None
