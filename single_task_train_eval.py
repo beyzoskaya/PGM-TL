@@ -27,15 +27,21 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 def get_logger(log_file="single_task_training.log"):
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)  # ensure folder exists
     logger = logging.getLogger("")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    
+    # Console handler
     ch = logging.StreamHandler()
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+    
+    # File handler
     fh = logging.FileHandler(log_file)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
+    
     return logger
 
 def load_config(config_file="config_hf.yaml"):
@@ -44,7 +50,6 @@ def load_config(config_file="config_hf.yaml"):
             return EasyDict(yaml.safe_load(f))
     else:
         cfg = {
-            # UPDATED output directory in Drive
             'output_dir': '/content/drive/MyDrive/protein_multitask_outputs/single_task_training',
             'model': {
                 'type': 'shared_lora',
@@ -92,15 +97,13 @@ if __name__ == "__main__":
     args = parse_args()
     set_seed(args.seed)
     cfg = load_config(args.config)
-
-    # Make sure output directory exists
-    os.makedirs(cfg.output_dir, exist_ok=True)
-    os.chdir(cfg.output_dir)
-
-    logger = get_logger(os.path.join(cfg.output_dir, "single_task_training.log"))
-
     cfg.optimizer.lr = float(cfg.optimizer.lr)
     cfg.optimizer.weight_decay = float(cfg.optimizer.weight_decay)
+
+    # Ensure output folder exists
+    os.makedirs(cfg.output_dir, exist_ok=True)
+
+    logger = get_logger(os.path.join(cfg.output_dir, "single_task_training.log"))
 
     tasks = [
         {"name": "SecondaryStructure", "type": "token_classification", "num_labels": 8, "loss": "cross_entropy"},
@@ -125,10 +128,10 @@ if __name__ == "__main__":
         wrapped_model = SingleTaskWrapper(shared_model)
 
         optimizer = torch.optim.AdamW(wrapped_model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
-        scheduler = None
+        scheduler = None  # optional: StepLR(optimizer, step_size=3, gamma=0.5)
 
         solver = MultiTaskEngine(
-            tasks=[wrapped_model],
+            tasks=[wrapped_model],  # list of one model
             train_sets=[train_set],
             valid_sets=[valid_set],
             test_sets=[test_set],
