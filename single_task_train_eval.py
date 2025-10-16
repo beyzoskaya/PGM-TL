@@ -111,9 +111,10 @@ if __name__ == "__main__":
         logger.info(f"Train samples: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
 
         shared_model = create_shared_multitask_model(
-            tasks=[task_cfg],
-            model_cfg=cfg.model
+            tasks_config=[task_cfg],
+            model_config=cfg.model
         )
+
         optimizer = torch.optim.AdamW(shared_model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
         scheduler = None  # optional: StepLR(optimizer, step_size=3, gamma=0.5)
 
