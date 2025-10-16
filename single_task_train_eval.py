@@ -1,5 +1,4 @@
 import os
-import sys
 import yaml
 import torch
 import logging
@@ -80,6 +79,13 @@ def create_single_task_dataset(task_type, path="./data", limit_samples=None):
         test_set = Subset(test_set, range(min(len(test_set), limit_samples.get('test', len(test_set)))))
     return train_set, valid_set, test_set
 
+# Wrapper to fix task_id for single-task models
+class SingleTaskWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+    def forward(self, batch):
+        return self.model(batch, task_id=0)  # Always task_id=0 for single-task
 
 if __name__ == "__main__":
     args = parse_args()
@@ -107,18 +113,19 @@ if __name__ == "__main__":
         train_set, valid_set, test_set = create_single_task_dataset(task_name)
         logger.info(f"Train samples: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
 
-        # Create model for this single task
-        model = create_shared_multitask_model(
+        shared_model = create_shared_multitask_model(
             tasks_config=[task_cfg],
             model_config=cfg.model
         )
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
+        # Wrap to fix task_id
+        wrapped_model = SingleTaskWrapper(shared_model)
+
+        optimizer = torch.optim.AdamW(wrapped_model.parameters(), lr=cfg.optimizer.lr, weight_decay=cfg.optimizer.weight_decay)
         scheduler = None  # optional: StepLR(optimizer, step_size=3, gamma=0.5)
 
-        # Initialize MultiTaskEngine with a single model in a list
         solver = MultiTaskEngine(
-            tasks=[model],  
+            tasks=[wrapped_model],  # list of one model
             train_sets=[train_set],
             valid_sets=[valid_set],
             test_sets=[test_set],
