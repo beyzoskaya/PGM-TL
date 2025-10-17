@@ -5,7 +5,7 @@ from easydict import EasyDict
 from flip_hf import CloningCLF
 from engine_hf import MultiTaskEngine, create_shared_multitask_model
 
-MODEL_PATH = "/content/drive/MyDrive/protein_multitask_outputs/single_task_training/CloningCLF_best_model.pth"
+MODEL_PATH = "/content/drive/MyDrive/protein_multitask_outputs/single_task_outputs/CloningCLF_best_model.pth"
 OUTPUT_DIR = os.path.dirname(MODEL_PATH)
 DATA_PATH = "./data"
 BATCH_SIZE = 8
