@@ -59,8 +59,8 @@ def create_default_config():
             'lora_dropout': 0.1
         },
         'datasets': [
-            {'type': 'SecondaryStructure', 'path': './data', 'center': True},
-            {'type': 'Thermostability', 'path': './data', 'split': 'human_cell', 'center': False},
+            {'type': 'SecondaryStructure', 'path': './data', 'center': False},
+            {'type': 'Thermostability', 'path': './data', 'split': 'human_cell', 'center': True},
             {'type': 'CloningCLF', 'path': './data', 'center': False}  # updated
         ],
         'tasks': [
@@ -331,7 +331,7 @@ def train_and_validate(cfg, solver, logger):
         # Track best center task
         score = []
         for k, v in metrics.items():
-            if ("Task_0" in k or "Center" in k) and cfg.eval_metric in k.lower():
+            if ("Task_1" in k or "Center" in k) and cfg.eval_metric in k.lower():
                 if "mse" in cfg.eval_metric or "rmse" in cfg.eval_metric:
                     score.append(-v)
                 else:
