@@ -616,7 +616,6 @@ class SharedBackboneMultiTaskModel(nn.Module):
                     setattr(attention, name, lora_layer)
     
     def forward(self, batch, task_id):
-
         task_name = f"task_{task_id}"
         task_type = self.task_types[task_name]
         head = self.task_heads[task_name]
@@ -632,30 +631,28 @@ class SharedBackboneMultiTaskModel(nn.Module):
 
         logits = head(features)
 
-        # Extract labels safely
-        labels_for_loss = batch.get('labels', batch.get('targets'))
-        if labels_for_loss is None:
-            raise ValueError(f"Batch missing 'labels' or 'targets' key for task {task_name}")
+        # Prepare labels for loss
+        if 'labels' not in batch:
+            raise ValueError(f"Batch missing 'labels' key for task {task_name}")
 
-        # If labels is a dict, pick the correct key
-        if isinstance(labels_for_loss, dict):
-            # Change 'main' to the actual key for your task
-            if 'main' in labels_for_loss:
-                labels_for_loss = labels_for_loss['main']
-            else:
-                # Pick the first key as a fallback
-                first_key = list(labels_for_loss.keys())[0]
-                labels_for_loss = labels_for_loss[first_key]
+        labels = batch['labels']
 
-        # Flatten labels if needed for token classification
+        print(f"DEBUG: task_id={task_id}, task_type={task_type}, batch keys={list(batch.keys())}, "
+            f"labels type={type(labels)}, labels shape={getattr(labels, 'shape', None)}, "
+            f"logits shape={logits.shape}")
+
         if task_type == 'token_classification':
+            if isinstance(labels, dict):
+                labels = labels['ids']  # optional if your labels are wrapped in dict
+            if labels.ndim != 2:
+                raise ValueError(f"Expected token labels of shape [B, L], got {labels.shape}")
             logits_for_loss = logits.view(-1, logits.size(-1))
-            labels_for_loss = labels_for_loss.view(-1)
-        else:
+            labels_for_loss = labels.view(-1)
+        else:  # sequence-level classification
+            if labels.ndim != 1:
+                raise ValueError(f"Expected sequence labels of shape [B], got {labels.shape}")
             logits_for_loss = logits
-
-        # Debug prints
-        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}, labels type={type(labels_for_loss)}, labels shape={getattr(labels_for_loss, 'shape', 'N/A')}")
+            labels_for_loss = labels
 
         return {
             "logits": logits,
@@ -665,6 +662,7 @@ class SharedBackboneMultiTaskModel(nn.Module):
             "residue_feature": backbone_outputs.get("residue_feature"),
             "attention_mask": backbone_outputs.get("attention_mask")
         }
+
 
     def get_task_model(self, task_id):
         return TaskModelWrapper(self, task_id)
