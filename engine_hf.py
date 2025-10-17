@@ -266,9 +266,8 @@ class ModelsWrapper(nn.Module):
 
     def __getitem__(self, id):
         return self.models[id]
-
+    
 class MultiTaskEngine:
-
     def __init__(self, tasks, train_sets, valid_sets, test_sets, optimizer, scheduler=None, 
                  batch_size=1, gradient_interval=1, num_worker=0, log_interval=100,
                  device='cuda' if torch.cuda.is_available() else 'cpu'):
@@ -297,11 +296,7 @@ class MultiTaskEngine:
         for i, (train_set, valid_set, test_set) in enumerate(zip(train_sets, valid_sets, test_sets)):
             logger.info(f"Task {i}: Train={len(train_set)}, Valid={len(valid_set)}, Test={len(test_set)}")
 
-    # collate keeps token-level labels as lists so that padding can be handled in compute_loss
-    # collate converts sequence-level labels into tensors assuming these are numeric
-    # collate does not tokenize or pad sequences - returns a list of raw sequences (tokenization and padding occur inside the backbone model)
     def collate_fn(self, batch):
-
         sequences = []
         targets_list = []
         
@@ -319,15 +314,11 @@ class MultiTaskEngine:
                 for key, value in targets.items():
                     combined_targets[key].append(value)
         
-        # TOKEN-LEVEL vs SEQUENCE-LEVEL
         target_tensors = {}
         for key, values in combined_targets.items():
-            # if this is token-level data (list of lists)
             if values and isinstance(values[0], list):
-                # Token-level: nested list
                 target_tensors[key] = values  
             else:
-                # Sequence-level: tensor
                 try:
                     target_tensors[key] = torch.tensor(values, dtype=torch.float)
                 except:
@@ -338,39 +329,90 @@ class MultiTaskEngine:
             'targets': target_tensors
         }
 
-    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0):
-      
-        logger.info(f"Starting training for {num_epoch} epochs")
+    def move_to_device(self, batch):
+        if isinstance(batch, dict):
+            moved_batch = {}
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor):
+                    moved_batch[key] = value.to(self.device)
+                elif isinstance(value, dict):
+                    moved_batch[key] = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                                        for k, v in value.items()}
+                else:
+                    moved_batch[key] = value
+            return moved_batch
+        else:
+            return batch
+
+    def compute_losses_and_metrics(self, batches):
+
+        losses = []
+        metrics = {}
+        for task_id, batch in enumerate(batches):
+            output = self.models.models[task_id](batch)
+            logits = output["logits"]
+            targets = batch["targets"].get(f"Task_{task_id}", None)
+            if targets is None:
+                targets = batch["targets"].get("labels", None)
+            
+            task_type = getattr(self.models.models[task_id], "task_type", "regression")
+            
+            if task_type == "binary_classification":
+                loss_fn = torch.nn.BCEWithLogitsLoss()
+                targets = targets.float().to(logits.device)
+                loss = loss_fn(logits.squeeze(), targets)
+                preds = torch.sigmoid(logits.squeeze()) > 0.5
+                acc = (preds == targets).float().mean().item()
+                task_metrics = {"accuracy": acc, "loss": loss.item()}
+            else:  # regression
+                loss_fn = torch.nn.MSELoss()
+                targets = targets.float().to(logits.device)
+                loss = loss_fn(logits.squeeze(), targets)
+                task_metrics = {"mse": loss.item()}
+            
+            losses.append(loss)
+            metrics[f"Task_{task_id}"] = task_metrics
         
+        return losses, metrics
+
+    def average_metrics(self, metrics_list):
+        if not metrics_list:
+            return {}
+        avg_metrics = defaultdict(float)
+        for metrics in metrics_list:
+            for task, values in metrics.items():
+                for key, value in values.items():
+                    avg_metrics[f"{task} {key}"] += value
+        for key in avg_metrics:
+            avg_metrics[key] /= len(metrics_list)
+        return dict(avg_metrics)
+
+    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0):
+        logger.info(f"Starting training for {num_epoch} epochs")
         self.models.train()
         
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
             
-            # creates one DataLoader per task and store iterator objects
             dataloaders = []
             for train_set in self.train_sets:
-                dataloader = DataLoader(
+                dataloaders.append(iter(DataLoader(
                     train_set,
                     batch_size=self.batch_size,
                     shuffle=True,
                     num_workers=self.num_worker,
                     collate_fn=self.collate_fn,
                     pin_memory=True
-                )
-                dataloaders.append(iter(dataloader))
+                )))
             
             batch_per_epoch_ = batch_per_epoch or min(len(dl) for dl in [DataLoader(ts, batch_size=self.batch_size) for ts in self.train_sets])
-            
             metrics = []
             start_id = 0
             gradient_interval = min(batch_per_epoch_ - start_id, self.gradient_interval)
-            
             progress_bar = tqdm(range(batch_per_epoch_), desc=f"Epoch {epoch + 1}")
             
             for batch_id in progress_bar:
                 batches = []
-                
                 for task_id, dataloader in enumerate(dataloaders):
                     try:
                         batch = next(dataloader)
@@ -389,82 +431,35 @@ class MultiTaskEngine:
                     batch = self.move_to_device(batch)
                     batches.append(batch)
                 
-                loss, metric = self.models(batches)
-                loss = loss / gradient_interval
+                losses, task_metrics = self.compute_losses_and_metrics(batches)
                 
-                # Weight losses (first task has weight 1, others have weight tradeoff)
-                # loss is a per-task vector; dividing by gradient_interval to average over steps
-                # center task strategy - first task is the main task with full weight
-                # Task 1,2 auxiliary tasks with reduced weight
-
-                # FIXME: Without weighting, one task could dominate training!
-                weights = [1.0 if i == 0 else tradeoff for i in range(len(dataloaders))]
-                all_loss = (loss * torch.tensor(weights, device=self.device)).sum()
+                weights = [1.0 if i == 0 else tradeoff for i in range(len(losses))]
+                total_loss = sum(l * w for l, w in zip(losses, weights)) / gradient_interval
+                total_loss.backward()
                 
-                if not all_loss.requires_grad:
-                    raise RuntimeError("Loss doesn't require grad. Check your model and loss computation.")
-                
-                all_loss.backward()
-                metrics.append(metric)
-
+                metrics.append(task_metrics)
                 if batch_id - start_id + 1 == gradient_interval:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-            
-                    if len(metrics) > 0:
+                    if metrics:
                         avg_metrics = self.average_metrics(metrics)
                         progress_bar.set_postfix(avg_metrics)
-                    
                     metrics = []
                     start_id = batch_id + 1
                     gradient_interval = min(batch_per_epoch_ - start_id, self.gradient_interval)
                     self.step += 1
             
             self.epoch += 1
-            
             if self.scheduler:
                 self.scheduler.step()
 
-    def average_metrics(self, metrics_list):
-        if not metrics_list:
-            return {}
-        
-        avg_metrics = defaultdict(float)
-        for metrics in metrics_list:
-            for key, value in metrics.items():
-                if isinstance(value, (int, float)):
-                    avg_metrics[key] += value
-        
-        for key in avg_metrics:
-            avg_metrics[key] /= len(metrics_list)
-        
-        return dict(avg_metrics)
-
-    def move_to_device(self, batch):
-        if isinstance(batch, dict):
-            moved_batch = {}
-            for key, value in batch.items():
-                if isinstance(value, torch.Tensor):
-                    moved_batch[key] = value.to(self.device)
-                elif isinstance(value, dict):
-                    moved_batch[key] = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
-                                      for k, v in value.items()}
-                else:
-                    moved_batch[key] = value
-            return moved_batch
-        else:
-            return batch
-
     @torch.no_grad()
     def evaluate(self, split, log=True):
-   
         logger.info(f"Evaluating on {split} set")
-
         test_sets = getattr(self, f"{split}_sets")
         self.models.eval()
-
         all_metrics = defaultdict(float)
-
+        
         for task_id, (test_set, model) in enumerate(zip(test_sets, self.models)):
             dataloader = DataLoader(
                 test_set,
@@ -473,52 +468,46 @@ class MultiTaskEngine:
                 num_workers=self.num_worker,
                 collate_fn=self.collate_fn
             )
-
-            task_metrics = defaultdict(list)
+            task_metrics_list = []
             total_samples = 0
-            total_correct = 0  # For accuracy debugging
+            total_correct = 0
 
             for batch in tqdm(dataloader, desc=f"Evaluating Task {task_id}"):
                 batch = self.move_to_device(batch)
-
-                # Forward pass
-                outputs = model(batch)
-                #print(f"[DEBUG] Eval Task {task_id} logits shape:", outputs["logits"].shape)
-
-                if hasattr(model, 'evaluate'):
-                    metrics = model.evaluate(outputs, batch)
+                output = model(batch)
+                
+                task_type = getattr(model, "task_type", "regression")
+                targets = batch["targets"].get(f"Task_{task_id}", None)
+                if targets is None:
+                    targets = batch["targets"].get("labels", None)
+                
+                if task_type == "binary_classification":
+                    preds = torch.sigmoid(output["logits"].squeeze()) > 0.5
+                    acc = (preds == targets.to(preds.device)).float().mean().item()
+                    task_metrics_list.append({"accuracy": acc})
+                    total_correct += acc * len(targets)
+                    total_samples += len(targets)
                 else:
-                    task_type = getattr(model, 'task_type', None)
-                    metrics = self.models.compute_default_metrics(outputs, batch, task_type=task_type)
+                    mse = torch.nn.functional.mse_loss(output["logits"].squeeze(), targets.to(output["logits"].device)).item()
+                    task_metrics_list.append({"mse": mse})
+                    total_samples += len(targets)
+            
+            # Average per-task metrics
+            avg_task_metrics = defaultdict(float)
+            for m in task_metrics_list:
+                for k, v in m.items():
+                    avg_task_metrics[k] += v
+            for k in avg_task_metrics:
+                avg_task_metrics[k] /= len(task_metrics_list)
+            
+            for key, value in avg_task_metrics.items():
+                name = f"Task_{task_id} {key}"
+                if task_id == 0:
+                    name = "Center - " + name
+                all_metrics[name] = value
 
-                if 'labels' in batch:
-                    batch_size = batch['labels'].shape[0] if isinstance(batch['labels'], torch.Tensor) else len(batch['labels'])
-                elif 'targets' in batch:
-                    batch_size = batch['targets'].shape[0] if isinstance(batch['targets'], torch.Tensor) else len(batch['targets'])
-                else:
-                    batch_size = 1  # fallback
-
-                total_samples += batch_size
-
-                if 'accuracy' in metrics:
-                    total_correct += metrics['accuracy'] * batch_size
-
-                for key, value in metrics.items():
-                    if isinstance(value, (int, float)):
-                        task_metrics[key].append(value)
-
-            # Average metrics for this task
-            for key, values in task_metrics.items():
-                if values:
-                    avg_value = sum(values) / len(values)
-                    metric_name = f"Task_{task_id} {key}"
-                    if task_id == 0:
-                        metric_name = "Center - " + metric_name
-                    all_metrics[metric_name] = avg_value
-
-            # Log task-level debug info
-            computed_accuracy = (total_correct / total_samples) if total_samples > 0 else 0.0
-            logger.info(f"Task {task_id}: Total samples = {total_samples}, Computed accuracy = {computed_accuracy:.4f}")
+            if total_samples > 0 and "accuracy" in avg_task_metrics:
+                logger.info(f"Task {task_id}: Computed accuracy = {total_correct/total_samples:.4f}")
 
         if log:
             logger.info("Evaluation Results:")
@@ -529,36 +518,25 @@ class MultiTaskEngine:
 
     def save(self, checkpoint_path):
         logger.info(f"Saving checkpoint to {checkpoint_path}")
-        
         state = {
             "epoch": self.epoch,
             "step": self.step,
             "optimizer": self.optimizer.state_dict(),
         }
-        
         for i, model in enumerate(self.models):
             state[f"model_{i}"] = model.state_dict()
-        
         torch.save(state, checkpoint_path)
 
     def load(self, checkpoint_path, load_optimizer=True):
         logger.info(f"Loading checkpoint from {checkpoint_path}")
-        
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        
-        # Load model states
         for i, model in enumerate(self.models):
             if f"model_{i}" in checkpoint:
                 model.load_state_dict(checkpoint[f"model_{i}"])
-        
-        # Load optimizer state
         if load_optimizer and "optimizer" in checkpoint:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
-        
-        # Load training state
         self.epoch = checkpoint.get("epoch", 0)
         self.step = checkpoint.get("step", 0)
-
 
 class SharedBackboneMultiTaskModel(nn.Module):
 
