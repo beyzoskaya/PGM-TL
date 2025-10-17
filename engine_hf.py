@@ -646,11 +646,21 @@ class SharedBackboneMultiTaskModel(nn.Module):
         else:
             raise KeyError("Batch must contain either 'labels' or 'targets'")
 
+        # If labels_for_loss is a dict, pick the right tensor
+        if isinstance(labels_for_loss, dict):
+            # Assume task_name is the key (adjust if your dataset uses a different key)
+            if task_name in labels_for_loss:
+                labels_for_loss = labels_for_loss[task_name]
+            else:
+                # fallback: take the first tensor in the dict
+                labels_for_loss = next(iter(labels_for_loss.values()))
+
         # Flatten labels if token classification
         if task_type == 'token_classification':
             labels_for_loss = labels_for_loss.view(-1)
 
-        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}") 
+        # Debug
+        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}, labels type={type(labels_for_loss)}") 
 
         return {
             "logits": logits,
@@ -660,7 +670,6 @@ class SharedBackboneMultiTaskModel(nn.Module):
             "residue_feature": backbone_outputs["residue_feature"],
             "attention_mask": backbone_outputs.get("attention_mask")
         }
-
 
     def get_task_model(self, task_id):
         return TaskModelWrapper(self, task_id)
