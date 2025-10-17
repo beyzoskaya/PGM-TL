@@ -628,48 +628,44 @@ class SharedBackboneMultiTaskModel(nn.Module):
         if task_type == 'token_classification':
             features = backbone_outputs["residue_feature"]  # [B, L, H]
         else:
-            features = backbone_outputs["graph_feature"]  # [B, H]
+            features = backbone_outputs["graph_feature"]    # [B, H]
 
+        # Forward through task head
         logits = head(features)
 
-        # Flatten logits for token classification if needed
+        # Extract labels
+        labels_for_loss = batch.get('labels')
+        if labels_for_loss is None:
+            raise ValueError(f"Batch missing 'labels' key for task {task_name}")
+        if isinstance(labels_for_loss, dict):
+            raise ValueError(f"Batch 'labels' should be a tensor, got dict: {labels_for_loss.keys()}")
+
+        # Prepare logits and labels for loss
         if task_type == 'token_classification':
-            logits_for_loss = logits.view(-1, logits.size(-1))
-        else:
+            # logits: [B, L, C], labels: [B, L]
+            if logits.ndim != 3 or labels_for_loss.ndim != 2:
+                print(f"DEBUG: token_classification shapes mismatch! logits={logits.shape}, labels={labels_for_loss.shape}")
+            logits_for_loss = logits.view(-1, logits.size(-1))          # [B*L, C]
+            labels_for_loss = labels_for_loss.view(-1)                  # [B*L]
+        else:  # sequence classification / regression
+            # logits: [B, C] or [B], labels: [B] or [B, 1]
+            if logits.ndim > 2:
+                logits = logits.view(logits.size(0), -1)
+            if labels_for_loss.ndim > 1 and labels_for_loss.size(1) == 1:
+                labels_for_loss = labels_for_loss.squeeze(1)
             logits_for_loss = logits
 
-        # Get labels or targets
-        if 'labels' in batch:
-            labels_for_loss = batch['labels']
-        elif 'targets' in batch:
-            labels_for_loss = batch['targets']
-        else:
-            raise KeyError("Batch must contain either 'labels' or 'targets'")
-
-        # If labels_for_loss is a dict, pick the right tensor
-        if isinstance(labels_for_loss, dict):
-            # Assume task_name is the key (adjust if your dataset uses a different key)
-            if task_name in labels_for_loss:
-                labels_for_loss = labels_for_loss[task_name]
-            else:
-                # fallback: take the first tensor in the dict
-                labels_for_loss = next(iter(labels_for_loss.values()))
-
-        # Flatten labels if token classification
-        if task_type == 'token_classification':
-            labels_for_loss = labels_for_loss.view(-1)
-
-        # Debug
-        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}, labels type={type(labels_for_loss)}") 
+        print(f"DEBUG: task_id={task_id}, task_type={task_type}, logits_for_loss={logits_for_loss.shape}, labels_for_loss={labels_for_loss.shape}")
 
         return {
             "logits": logits,
             "logits_for_loss": logits_for_loss,
             "labels_for_loss": labels_for_loss,
-            "graph_feature": backbone_outputs["graph_feature"],
-            "residue_feature": backbone_outputs["residue_feature"],
+            "graph_feature": backbone_outputs.get("graph_feature"),
+            "residue_feature": backbone_outputs.get("residue_feature"),
             "attention_mask": backbone_outputs.get("attention_mask")
         }
+
 
     def get_task_model(self, task_id):
         return TaskModelWrapper(self, task_id)
