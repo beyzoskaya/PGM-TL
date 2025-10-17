@@ -583,35 +583,24 @@ class SharedBackboneMultiTaskModel(nn.Module):
                 task_name = f"task_{task_id}"
                 self.task_types[task_name] = task_config['type']
                 
-                if task_config['type'] == 'token_classification':
-                    head = nn.Sequential(
-                        nn.Dropout(0.1),
-                        nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
-                    )
-                elif task_config['type'] in ['classification', 'binary_classification', 'regression']:
-                    head = nn.Sequential(
-                        nn.Dropout(0.1),
-                        nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
-                    )
-                else:
-                    raise ValueError(f"Unsupported task type: {task_config['type']}")
-                
+                head = nn.Sequential(
+                    nn.Dropout(0.1),
+                    nn.Linear(self.shared_backbone.output_dim, task_config['num_labels'])
+                )
                 self.task_heads[task_name] = head
 
-        for task_name, head in self.task_heads.items():
-            if isinstance(head, nn.Sequential):
-                for layer in head:
-                    if isinstance(layer, nn.Linear):
-                        nn.init.xavier_uniform_(layer.weight)
-                        if layer.bias is not None:
-                            nn.init.zeros_(layer.bias)
+        # Initialize weights
+        for head in self.task_heads.values():
+            for layer in head:
+                if isinstance(layer, nn.Linear):
+                    nn.init.xavier_uniform_(layer.weight)
+                    if layer.bias is not None:
+                        nn.init.zeros_(layer.bias)
     
     def add_lora_adapters(self, rank=16, alpha=32, dropout=0.1):
         from protbert_hf import LoRALinear
-        
         for layer in self.shared_backbone.model.encoder.layer:
             attention = layer.attention.self
-            
             for name in ['query', 'key', 'value']:
                 if hasattr(attention, name):
                     original_layer = getattr(attention, name)
@@ -626,37 +615,47 @@ class SharedBackboneMultiTaskModel(nn.Module):
                     setattr(attention, name, lora_layer)
     
     def forward(self, batch, task_id):
-        
+        """
+        batch: dict with input features + 'labels'
+        task_id: int
+        returns: dict with logits and features
+        """
         task_name = f"task_{task_id}"
-        
-        # Shared backbone forward pass
-        backbone_outputs = self.shared_backbone(batch)
-        
-        # Task-specific head
         task_type = self.task_types[task_name]
         head = self.task_heads[task_name]
-        
-        if task_type == 'token_classification':
-            # Use residue-level features
-            logits = head(backbone_outputs["residue_feature"])
-        else:
-            # Use graph-level features
-            logits = head(backbone_outputs["graph_feature"])
 
-        #print("\n[DEBUG-BACKBONE] task_id:", task_id)
-        #print("residue_feature shape:", backbone_outputs["residue_feature"].shape)
-        #print("graph_feature shape:", backbone_outputs["graph_feature"].shape)
-        #print("attention_mask shape:", backbone_outputs.get("attention_mask", None))
-        
+        # Shared backbone forward
+        backbone_outputs = self.shared_backbone(batch)
+
+        # Select correct features
+        if task_type == 'token_classification':
+            features = backbone_outputs["residue_feature"]  # [B, L, H]
+        else:
+            features = backbone_outputs["graph_feature"]  # [B, H]
+
+        logits = head(features)
+
+        # Optional: flatten logits for token classification
+        if task_type == 'token_classification':
+            # CrossEntropyLoss expects [B*L, C] vs [B*L]
+            logits_for_loss = logits.view(-1, logits.size(-1))
+            labels_for_loss = batch['labels'].view(-1)
+        else:
+            logits_for_loss = logits
+            labels_for_loss = batch['labels']
+
         return {
             "logits": logits,
+            "logits_for_loss": logits_for_loss,
+            "labels_for_loss": labels_for_loss,
             "graph_feature": backbone_outputs["graph_feature"],
             "residue_feature": backbone_outputs["residue_feature"],
             "attention_mask": backbone_outputs.get("attention_mask")
         }
-    
+
     def get_task_model(self, task_id):
         return TaskModelWrapper(self, task_id)
+
 
 
 class TaskModelWrapper(nn.Module):
@@ -891,6 +890,16 @@ class SharedBackboneModelsWrapper(nn.Module):
 
 
 def create_shared_multitask_model(tasks_config, model_config):
+ 
+    readout = 'pooler'
+    for task_cfg in tasks_config:
+        if task_cfg['type'] == 'token_classification':
+            readout = 'per_token'
+            break
+
+    readout = model_config.get('readout', readout)
+
+    # LoRA config if applicable
     lora_config = None
     if model_config.get('type') in ['lora', 'shared_lora']:
         lora_config = {
@@ -898,13 +907,13 @@ def create_shared_multitask_model(tasks_config, model_config):
             'alpha': model_config.get('lora_alpha', 32),
             'dropout': model_config.get('lora_dropout', 0.1)
         }
-    
+
     shared_model = SharedBackboneMultiTaskModel(
         model_name=model_config['model_name'],
         tasks_config=tasks_config,
-        readout=model_config['readout'],
+        readout=readout,
         freeze_bert=model_config.get('freeze_bert', False),
         lora_config=lora_config
     )
-    
+
     return shared_model
