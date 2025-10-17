@@ -616,11 +616,7 @@ class SharedBackboneMultiTaskModel(nn.Module):
                     setattr(attention, name, lora_layer)
     
     def forward(self, batch, task_id):
-        """
-        batch: dict with input features + 'labels'
-        task_id: int
-        returns: dict with logits and features
-        """
+
         task_name = f"task_{task_id}"
         task_type = self.task_types[task_name]
         head = self.task_heads[task_name]
@@ -636,16 +632,25 @@ class SharedBackboneMultiTaskModel(nn.Module):
 
         logits = head(features)
 
-        # Optional: flatten logits for token classification
+        # Flatten logits for token classification if needed
         if task_type == 'token_classification':
-            # CrossEntropyLoss expects [B*L, C] vs [B*L]
             logits_for_loss = logits.view(-1, logits.size(-1))
-            print("DEBUG: batch keys =", batch.keys()) 
-            labels_for_loss = batch['labels'].view(-1)
         else:
             logits_for_loss = logits
-            print("DEBUG: batch keys =", batch.keys()) 
+
+        # Get labels or targets
+        if 'labels' in batch:
             labels_for_loss = batch['labels']
+        elif 'targets' in batch:
+            labels_for_loss = batch['targets']
+        else:
+            raise KeyError("Batch must contain either 'labels' or 'targets'")
+
+        # Flatten labels if token classification
+        if task_type == 'token_classification':
+            labels_for_loss = labels_for_loss.view(-1)
+
+        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}") 
 
         return {
             "logits": logits,
@@ -656,10 +661,9 @@ class SharedBackboneMultiTaskModel(nn.Module):
             "attention_mask": backbone_outputs.get("attention_mask")
         }
 
+
     def get_task_model(self, task_id):
         return TaskModelWrapper(self, task_id)
-
-
 
 class TaskModelWrapper(nn.Module):
     
