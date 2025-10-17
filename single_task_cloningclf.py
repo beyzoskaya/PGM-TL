@@ -60,11 +60,18 @@ if __name__ == "__main__":
     }
     shared_model = create_shared_multitask_model(tasks_config=[task_cfg], model_config=cfg.model)
     wrapped_model = SingleTaskWrapper(shared_model, task_id=0, task_type="binary_classification")
-
-    print(f">>> Loading weights from {MODEL_PATH}")
-    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
-    wrapped_model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
     wrapped_model.to(DEVICE)
+
+    print(f">>> Loading CloningCLF head from {MODEL_PATH}")
+    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
+
+    # Load only the task head (model_0) to avoid backbone mismatch
+    if "model_0" in checkpoint:
+        wrapped_model.shared_model.task_heads.task_0.load_state_dict(checkpoint["model_0"])
+        print("Task head loaded successfully.")
+    else:
+        print("Warning: 'model_0' not found in checkpoint, trying full state_dict load...")
+        wrapped_model.load_state_dict(checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint)
 
     print(">>> Initializing engine for evaluation...")
     solver = MultiTaskEngine(
