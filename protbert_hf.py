@@ -215,8 +215,7 @@ class LoRALinear(nn.Module):
 
 
 class ProtBertWithLoRA(nn.Module):
-    """ProtBert model with LoRA adapters"""
-    
+
     def __init__(self, model_name="Rostlab/prot_bert_bfd", num_labels=1, readout="pooler",
                  lora_rank=16, lora_alpha=32, lora_dropout=0.1, task_type="classification"):
         super().__init__()
@@ -232,6 +231,11 @@ class ProtBertWithLoRA(nn.Module):
                 nn.Dropout(lora_dropout),
                 nn.Linear(self.protbert.output_dim, num_labels)
             )
+        elif task_type == "binary_classification":
+            self.head = nn.Sequential(
+                nn.Dropout(lora_dropout),
+                nn.Linear(self.protbert.output_dim, 1)
+            )
         elif task_type == "token_classification":
             self.head = nn.Sequential(
                 nn.Dropout(lora_dropout),
@@ -246,7 +250,7 @@ class ProtBertWithLoRA(nn.Module):
             raise ValueError(f"Unsupported task type: {task_type}")
     
     def add_lora_adapters(self, rank, alpha, dropout):
-        """Add LoRA adapters to BERT attention layers"""
+
         for layer in self.protbert.model.encoder.layer:
             # Replace query, key, value projections with LoRA versions
             attention = layer.attention.self
@@ -267,15 +271,7 @@ class ProtBertWithLoRA(nn.Module):
                     setattr(attention, name, lora_layer)
     
     def forward(self, batch):
-        """
-        Forward for ProtBertWithLoRA.
-
-        Returns a dict containing:
-        - "logits": model outputs (seq-level or token-level depending on task_type)
-        - "graph_feature": pooled/graph-level features
-        - "residue_feature": per-residue features (if available)
-        - "attention_mask": residue-level attention mask (if available) <-- ADDED
-        """
+      
         outputs = self.protbert(batch)
 
         # Extract common outputs
@@ -287,7 +283,7 @@ class ProtBertWithLoRA(nn.Module):
         if self.task_type == "classification":
             logits = self.head(graph_feature)
         elif self.task_type == "binary_classification":
-            logits = self.head(graph_feature).squeeze(-1)
+            logits = self.head(graph_feature)  # shape: [batch_size, 1]
         elif self.task_type == "token_classification":
             # residue_feature expected shape: [batch, seq_len, hidden]
             logits = self.head(residue_feature)
