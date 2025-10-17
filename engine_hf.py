@@ -632,29 +632,37 @@ class SharedBackboneMultiTaskModel(nn.Module):
 
         logits = head(features)
 
-        # Get labels from batch (supports 'labels' or 'targets')
+        # Extract labels safely
         labels_for_loss = batch.get('labels', batch.get('targets'))
         if labels_for_loss is None:
             raise ValueError(f"Batch missing 'labels' or 'targets' key for task {task_name}")
 
-        # Optional: flatten logits for token classification
+        # If labels is a dict, pick the correct key
+        if isinstance(labels_for_loss, dict):
+            # Change 'main' to the actual key for your task
+            if 'main' in labels_for_loss:
+                labels_for_loss = labels_for_loss['main']
+            else:
+                # Pick the first key as a fallback
+                first_key = list(labels_for_loss.keys())[0]
+                labels_for_loss = labels_for_loss[first_key]
+
+        # Flatten labels if needed for token classification
         if task_type == 'token_classification':
-            # CrossEntropyLoss expects [B*L, C] vs [B*L]
             logits_for_loss = logits.view(-1, logits.size(-1))
             labels_for_loss = labels_for_loss.view(-1)
         else:
             logits_for_loss = logits
 
-        # DEBUG prints
-        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}, "
-            f"logits shape={logits.shape}, labels shape={labels_for_loss.shape}")
+        # Debug prints
+        print(f"DEBUG: task_id={task_id}, batch keys={batch.keys()}, labels type={type(labels_for_loss)}, labels shape={getattr(labels_for_loss, 'shape', 'N/A')}")
 
         return {
             "logits": logits,
             "logits_for_loss": logits_for_loss,
             "labels_for_loss": labels_for_loss,
-            "graph_feature": backbone_outputs["graph_feature"],
-            "residue_feature": backbone_outputs["residue_feature"],
+            "graph_feature": backbone_outputs.get("graph_feature"),
+            "residue_feature": backbone_outputs.get("residue_feature"),
             "attention_mask": backbone_outputs.get("attention_mask")
         }
 
