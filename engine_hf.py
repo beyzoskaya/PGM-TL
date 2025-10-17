@@ -69,6 +69,7 @@ class ModelsWrapper(nn.Module):
     """
 
     def compute_default_loss(self, outputs, batch, task_type=None):
+        #print("[DEBUG] batch keys in loss computation:", batch.keys())
         logits = outputs["logits"]  # raw outputs of the final layer before softmax/sigmoid
 
         # Extract targets
@@ -639,9 +640,11 @@ class SharedBackboneMultiTaskModel(nn.Module):
         if task_type == 'token_classification':
             # CrossEntropyLoss expects [B*L, C] vs [B*L]
             logits_for_loss = logits.view(-1, logits.size(-1))
+            print("DEBUG: batch keys =", batch.keys()) 
             labels_for_loss = batch['labels'].view(-1)
         else:
             logits_for_loss = logits
+            print("DEBUG: batch keys =", batch.keys()) 
             labels_for_loss = batch['labels']
 
         return {
