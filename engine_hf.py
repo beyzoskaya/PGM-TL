@@ -631,11 +631,13 @@ class SharedBackboneMultiTaskModel(nn.Module):
 
         logits = head(features)
 
-        # Prepare labels for loss
-        if 'labels' not in batch:
-            raise ValueError(f"Batch missing 'labels' key for task {task_name}")
+        if 'labels' in batch:
+            labels = batch['labels']
+        elif 'targets' in batch:
+            labels = batch['targets']   # fallback to 'targets'
+        else:
+            raise ValueError(f"Batch missing 'labels' or 'targets' key for task {task_name}")
 
-        labels = batch['labels']
 
         print(f"DEBUG: task_id={task_id}, task_type={task_type}, batch keys={list(batch.keys())}, "
             f"labels type={type(labels)}, labels shape={getattr(labels, 'shape', None)}, "
