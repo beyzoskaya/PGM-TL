@@ -1,17 +1,34 @@
 import os
-import yaml
-import torch
+import sys
 import logging
+import argparse
+import numpy as np
+import yaml
 from easydict import EasyDict
-from torch.utils.data import Subset
-from flip_hf import CloningCLF
-from engine_hf import MultiTaskEngine, create_shared_multitask_model
-import json
+import time
 
-def set_seed(seed=42):
-    import numpy as np
-    import random
-    random.seed(seed)
+import torch
+import torch.nn as nn
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import DataLoader, Subset
+
+from flip_hf import CloningCLF
+from protbert_hf import ProtBertWithLoRA
+from engine_hf import ModelsWrapper
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=42, help="random seed")
+    parser.add_argument("--batch_size", type=int, default=8, help="batch size")
+    parser.add_argument("--num_epoch", type=int, default=4, help="number of epochs")
+    parser.add_argument("--lr", type=float, default=2e-5, help="learning rate")
+    parser.add_argument("--device", type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    parser.add_argument("--use_drive", action="store_true", help="save outputs to Google Drive")
+    parser.add_argument("--output_dir", type=str, default="./binary_clf_outputs")
+    return parser.parse_args()
+
+def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -19,139 +36,258 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def get_logger(log_file):
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    logger = logging.getLogger("")
+def setup_logger(output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-
-    if logger.hasHandlers():
-        logger.handlers.clear()
-
+    
     ch = logging.StreamHandler()
     ch.setFormatter(formatter)
     logger.addHandler(ch)
-
-    fh = logging.FileHandler(log_file)
+    
+    fh = logging.FileHandler(os.path.join(output_dir, "training.log"))
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-
+    
     return logger
 
-def load_config():
-    cfg = {
-        'output_dir': '/content/drive/MyDrive/protein_multitask_outputs/single_task_outputs',
-        'model': {
-            'type': 'shared_lora',
-            'model_name': 'Rostlab/prot_bert_bfd',
-            'readout': 'pooler',
-            'freeze_bert': True,
-            'lora_rank': 16,
-            'lora_alpha': 32,
-            'lora_dropout': 0.1
-        },
-        'train': {'num_epoch': 4, 'batch_size': 8, 'gradient_interval': 1},
-        'optimizer': {'type': 'AdamW', 'lr': 3e-5, 'weight_decay': 0.01},
-        'scheduler': {'type': 'StepLR', 'step_size': 3, 'gamma': 0.5},
-        'engine': {'batch_size': 8, 'num_worker': 1, 'log_interval': 50},
-        'eval_metric': 'accuracy'
-    }
-    return EasyDict(cfg)
+def setup_drive_output():
+    base_path = "/content/drive/MyDrive/protein_multitask_outputs/single_task_outputs"
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(base_path, f"run_{timestamp}")
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Output directory created on Drive: {output_dir}")
+    return output_dir
 
-def create_dataset(path="./data", limit_samples=None):
-    dataset = CloningCLF(path=path)
-   
-    train_set, valid_set, test_set = dataset.split()
+def collate_fn(batch):
 
-    if limit_samples:
-        train_set = Subset(train_set, range(min(len(train_set), limit_samples.get('train', len(train_set)))))
-        valid_set = Subset(valid_set, range(min(len(valid_set), limit_samples.get('valid', len(valid_set)))))
-        test_set = Subset(test_set, range(min(len(test_set), limit_samples.get('test', len(test_set)))))
-
-    return train_set, valid_set, test_set
-
-
-class SingleTaskWrapper(torch.nn.Module):
-    def __init__(self, model):
-        super().__init__()
-        self.model = model
+    sequences = []
+    targets = []
     
-    def forward(self, batch):
-        return self.model(batch, task_id=0)
+    for item in batch:
+        sequences.append(item['sequence'])
+        if isinstance(item['targets'], dict):
+            targets.append(item['targets'].get('target', 0.0))
+        else:
+            targets.append(item['targets'])
+    
+    return {
+        'sequence': sequences,
+        'targets': torch.tensor(targets, dtype=torch.float),
+        'task_type': 'binary_classification'
+    }
+
+def train_epoch(model, train_loader, optimizer, device, logger):
+    model.train()
+    total_loss = 0.0
+    total_samples = 0
+    
+    for batch_idx, batch in enumerate(train_loader):
+        # Move batch to device
+        sequences = batch['sequence']
+        targets = batch['targets'].to(device)
+        
+        # Forward pass
+        outputs = model({
+            'sequence': sequences,
+            'targets': {'target': targets.cpu()},
+            'task_type': 'binary_classification'
+        })
+        
+        logits = outputs['logits']
+        
+        # Compute loss
+        if logits.dim() > 1 and logits.size(-1) == 1:
+            logits_flat = logits.squeeze(-1)
+        else:
+            logits_flat = logits.view(-1)
+        
+        loss = nn.functional.binary_cross_entropy_with_logits(logits_flat, targets)
+        
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item() * targets.size(0)
+        total_samples += targets.size(0)
+        
+        if (batch_idx + 1) % 10 == 0:
+            logger.info(f"  Batch {batch_idx + 1}/{len(train_loader)}: Loss = {loss.item():.4f}")
+    
+    avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+    return avg_loss
+
+@torch.no_grad()
+def evaluate(model, eval_loader, device, logger, split_name="Validation"):
+
+    model.eval()
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    all_preds = []
+    all_targets = []
+    
+    for batch in eval_loader:
+        sequences = batch['sequence']
+        targets = batch['targets'].to(device)
+        
+        outputs = model({
+            'sequence': sequences,
+            'targets': {'target': targets.cpu()},
+            'task_type': 'binary_classification'
+        })
+        
+        logits = outputs['logits']
+        
+        # Compute loss
+        if logits.dim() > 1 and logits.size(-1) == 1:
+            logits_flat = logits.squeeze(-1)
+        else:
+            logits_flat = logits.view(-1)
+        
+        loss = nn.functional.binary_cross_entropy_with_logits(logits_flat, targets)
+        total_loss += loss.item() * targets.size(0)
+        
+        # Compute predictions
+        preds = (torch.sigmoid(logits_flat) > 0.5).long()
+        targets_long = targets.long()
+        
+        total_correct += (preds == targets_long).sum().item()
+        total_samples += targets.size(0)
+        
+        all_preds.extend(preds.cpu().numpy())
+        all_targets.extend(targets_long.cpu().numpy())
+    
+    avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+    accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+    
+    logger.info(f"{split_name} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f} ({total_correct}/{total_samples})")
+    
+    return {
+        'loss': avg_loss,
+        'accuracy': accuracy,
+        'preds': all_preds,
+        'targets': all_targets
+    }
+
+def main():
+    args = parse_args()
+    set_seed(args.seed)
+    
+    device = torch.device(args.device)
+    
+    if args.use_drive:
+        output_dir = setup_drive_output()
+    else:
+        output_dir = args.output_dir
+    
+    logger = setup_logger(output_dir)
+    os.chdir(output_dir) 
+    
+    logger.info("="*80)
+    logger.info("BINARY CLASSIFICATION BASELINE - ProtBert on Cloning Dataset")
+    logger.info("="*80)
+    logger.info(f"Device: {device}")
+    logger.info(f"Batch size: {args.batch_size}, Learning rate: {args.lr}, Epochs: {args.num_epoch}")
+    
+    # Load dataset
+    logger.info("\nLoading CloningCLF dataset...")
+    dataset = CloningCLF(path="./data", verbose=1)
+    train_set, valid_set, test_set = dataset.split()
+    
+    logger.info(f"Dataset splits - Train: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
+    
+    # Example data point
+    example_idx = 0
+    if len(train_set) > example_idx:
+        example = train_set[example_idx]
+        logger.info(f"\nExample data point:")
+        logger.info(f"  Sequence: {example['sequence'][:60]}...")
+        logger.info(f"  Target: {example['targets']}")
+    
+    # Create data loaders
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, 
+                             collate_fn=collate_fn, num_workers=0)
+    valid_loader = DataLoader(valid_set, batch_size=args.batch_size, shuffle=False, 
+                             collate_fn=collate_fn, num_workers=0)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, 
+                            collate_fn=collate_fn, num_workers=0)
+    
+    # Create model
+    logger.info("\nCreating ProtBertWithLoRA model for binary classification...")
+    model = ProtBertWithLoRA(
+        model_name="Rostlab/prot_bert_bfd",
+        num_labels=1,
+        readout="pooler",
+        lora_rank=16,
+        lora_alpha=32,
+        lora_dropout=0.1,
+        task_type="binary_classification"
+    )
+    model.to(device)
+    
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Total parameters: {total_params:,}, Trainable: {trainable_params:,} "
+                f"({trainable_params/total_params*100:.2f}%)")
+    
+    # Create optimizer and scheduler
+    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
+    
+    # Training loop
+    logger.info("\n" + "="*80)
+    logger.info("TRAINING PHASE")
+    logger.info("="*80)
+    
+    best_val_acc = -1.0
+    best_epoch = -1
+    best_model_path = os.path.join(args.output_dir, "best_model.pth")
+    
+    for epoch in range(args.num_epoch):
+        logger.info(f"\nEpoch {epoch + 1}/{args.num_epoch}")
+        
+        # Train
+        train_loss = train_epoch(model, train_loader, optimizer, device, logger)
+        logger.info(f"Training - Loss: {train_loss:.4f}")
+        
+        # Validate
+        val_metrics = evaluate(model, valid_loader, device, logger, "Validation")
+        
+        # Update scheduler
+        scheduler.step()
+        
+        # Save best model
+        if val_metrics['accuracy'] > best_val_acc:
+            best_val_acc = val_metrics['accuracy']
+            best_epoch = epoch + 1
+            torch.save(model.state_dict(), best_model_path)
+            logger.info(f"✓ New best model saved (accuracy: {best_val_acc:.4f})")
+    
+    # Load best model and evaluate on test
+    logger.info("\n" + "="*80)
+    logger.info("FINAL EVALUATION")
+    logger.info("="*80)
+    
+    model.load_state_dict(torch.load(best_model_path))
+    logger.info(f"Loaded best model from epoch {best_epoch}")
+    
+    val_metrics = evaluate(model, valid_loader, device, logger, "Validation (Best Model)")
+    test_metrics = evaluate(model, test_loader, device, logger, "Test (Best Model)")
+    
+    logger.info("\n" + "="*80)
+    logger.info("FINAL RESULTS")
+    logger.info("="*80)
+    logger.info(f"Best epoch: {best_epoch}")
+    logger.info(f"Validation Accuracy: {val_metrics['accuracy']:.4f}")
+    logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
+    logger.info(f"Test Loss: {test_metrics['loss']:.4f}")
+    logger.info(f"Model saved to: {best_model_path}")
+    
+    return model, test_metrics
 
 if __name__ == "__main__":
-    try:
-        from google.colab import drive
-        drive.mount('/content/drive')
-    except:
-        pass
-    
-    set_seed(42)
-    cfg = load_config()
-
-    os.makedirs(cfg.output_dir, exist_ok=True)
-    log_file = os.path.join(cfg.output_dir, "single_task_cloningclf.log")
-    logger = get_logger(log_file)
-
-    task_cfg = {
-        "name": "CloningCLF",
-        "type": "binary_classification",
-        "num_labels": 1,
-        "loss": "binary_cross_entropy"
-    }
-
-    logger.info("===== Training Single Task: CloningCLF =====")
-    train_set, valid_set, test_set = create_dataset()
-
-    shared_model = create_shared_multitask_model(
-        tasks_config=[task_cfg],
-        model_config=cfg.model
-    )
-
-    wrapped_model = SingleTaskWrapper(shared_model)
-
-    optimizer = torch.optim.AdamW(
-        wrapped_model.parameters(),
-        lr=cfg.optimizer.lr,
-        weight_decay=cfg.optimizer.weight_decay
-    )
-
-    solver = MultiTaskEngine(
-        tasks=[wrapped_model],
-        train_sets=[train_set],
-        valid_sets=[valid_set],
-        test_sets=[test_set],
-        optimizer=optimizer,
-        scheduler=None,
-        batch_size=cfg.engine.batch_size,
-        num_worker=cfg.engine.num_worker,
-        gradient_interval=cfg.train.gradient_interval,
-        log_interval=cfg.engine.log_interval
-    )
-
-    solver.train(num_epoch=cfg.train.num_epoch)
-    best_epoch = solver.epoch
-    logger.info(f"Training complete at epoch {best_epoch}")
-
-    metrics_valid = solver.evaluate("valid")
-    metrics_test = solver.evaluate("test")
-
-    logger.info(f"Validation metrics: {metrics_valid}")
-    logger.info(f"Test metrics: {metrics_test}")
-
-    model_path = os.path.join(cfg.output_dir, "CloningCLF_best_model.pth")
-    solver.save(model_path)
-    logger.info(f"Model saved to {model_path}")
-
-    results = {
-        "CloningCLF": {
-            "valid": metrics_valid,
-            "test": metrics_test,
-            "best_epoch": best_epoch
-        }
-    }
-    with open(os.path.join(cfg.output_dir, "single_task_cloningclf_results.json"), "w") as f:
-        json.dump(results, f, indent=2)
-
-    logger.info("CloningCLF single-task training completed successfully!")
-
+    model, metrics = main()
