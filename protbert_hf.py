@@ -331,4 +331,3 @@ def create_protbert_model(model_type="base", task_type=None, **kwargs):
             return ProtBertWithLoRA(**kwargs)
 
     return models[model_type](**kwargs)
-
