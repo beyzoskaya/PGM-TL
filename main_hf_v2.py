@@ -44,14 +44,14 @@ def create_default_config():
             'lora_dropout': 0.1
         },
         'datasets': [
-        {'type': 'SecondaryStructure', 'path': './data', 'center': True},
-        {'type': 'Thermostability', 'path': './data', 'center': False},
-        {'type': 'CloningCLF', 'path': './data', 'center': False}
+            {'type': 'CloningCLF', 'path': './data', 'center': True},
+            {'type': 'SecondaryStructure', 'path': './data', 'center': False},
+            {'type': 'Thermostability', 'path': './data', 'center': False}
         ],
         'tasks': [
+            {'type': 'binary_classification', 'num_labels': 1},
             {'type': 'token_classification', 'num_labels': 8},
-            {'type': 'regression', 'num_labels': 1},
-            {'type': 'binary_classification', 'num_labels': 1}
+            {'type': 'regression', 'num_labels': 1}
         ],
         'train': {'num_epoch': 4, 'batch_size': 8, 'gradient_interval': 6, 'tradeoff': 0.5},
         'optimizer': {'type': 'AdamW', 'lr': 3e-5, 'weight_decay': 0.01},
