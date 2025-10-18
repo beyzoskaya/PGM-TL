@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import ProtBert, ProtBertWithLoRA
-from engine_hf_v2 import MultiTaskEngine
+from loss_norm_engine import MultiTaskEngine
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -262,10 +262,15 @@ if __name__ == "__main__":
         logger.info(f"Epoch {epoch + 1}/{cfg.train.num_epoch}")
         logger.info(f"{'='*60}")
         
-        # Train
+        # Train for center task weightining
         #solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
-        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
-        
+
+        # Train for equal weightining of downstream tasks
+        #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
+
+        # Train for loss normalization weighting
+        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='loss_norm')
+      
         # Validate
         val_metrics = solver.evaluate(split='valid', log=True)
         
