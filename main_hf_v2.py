@@ -14,7 +14,7 @@ from main_hf import train_and_validate, test, find_latest_checkpoint
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import ProtBert
-from engine_hf_v2 import MultiTaskEngine, create_shared_multitask_model, SharedBackboneModelsWrapper
+from engine_hf_v2 import MultiTaskEngine
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -215,9 +215,13 @@ def create_scheduler(optimizer, cfg):
 def build_solver(cfg, logger):
     train_sets, valid_sets, test_sets = create_datasets(cfg.datasets)
     
+    # 'mean' produces graph_feature (sequence-level) AND residue_feature (token-level)
+    readout = 'mean' 
+    
+    # Create shared backbone ONCE
     backbone = ProtBert(
         model_name=cfg.model.model_name,
-        readout='per_token' if any(t['type'] == 'token_classification' for t in cfg.tasks) else 'pooler',
+        readout=readout,
         freeze_bert=cfg.model.get('freeze_bert', False)
     )
     
@@ -225,10 +229,13 @@ def build_solver(cfg, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     backbone.to(device)
     
+    logger.info(f"Backbone readout: {readout}")
+    
     # Create optimizer/scheduler
     optimizer = create_optimizer(backbone, cfg.optimizer)
     scheduler = create_scheduler(optimizer, cfg.get('scheduler'))
-
+    
+    # Create engine (task models created inside)
     engine = MultiTaskEngine(
         backbone=backbone,
         task_configs=cfg.tasks,
@@ -244,12 +251,16 @@ def build_solver(cfg, logger):
         device=device
     )
     
+    # Log model info
     total_params = sum(p.numel() for p in backbone.parameters())
     trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-    logger.info(f"Backbone: Total params={total_params}, Trainable={trainable_params} ({trainable_params/total_params*100:.1f}%)")
+    frozen_params = total_params - trainable_params
+    logger.info(f"Backbone: Total params={total_params}, Trainable={trainable_params} ({trainable_params/total_params*100:.1f}%), Frozen={frozen_params}")
     
     task_head_params = sum(p.numel() for model in engine.models.task_models for p in model.head.parameters())
     logger.info(f"Task heads total params: {task_head_params}")
+    
+    logger.info(f"Task configs: {[(cfg['type'], cfg['num_labels']) for cfg in cfg.tasks]}")
     
     return engine
 
