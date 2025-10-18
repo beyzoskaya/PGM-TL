@@ -55,10 +55,6 @@ class HuggingFaceDataset(ProteinDataset):
 
     def load_hf_dataset(self, dataset_name, split_column='split', sequence_column='sequence', 
                        target_columns=None, verbose=1, valid_ratio=0.1):
-        #if verbose:
-            #print(f"Loading dataset: {dataset_name}")
-            #for key, values in self.targets.items():
-                #print(f"DEBUG: First 2 target values for {key}:", values[:2])
         
         # Load the dataset
         dataset = load_dataset(dataset_name)
@@ -104,14 +100,8 @@ class HuggingFaceDataset(ProteinDataset):
                             value = item[col]
                             if value == "" or value is None:
                                 value = float('nan')
-                            # Handle different target types properly
-                            if isinstance(value, list):
-                                all_targets[col].append(value)
-                            else:
-                                try:
-                                    all_targets[col].append(float(value))
-                                except (ValueError, TypeError):
-                                    all_targets[col].append(float('nan'))
+                            # Keep targets as-is: lists stay lists, scalars stay scalars
+                            all_targets[col].append(value)
                         else:
                             all_targets[col].append(float('nan'))
         
@@ -123,23 +113,38 @@ class HuggingFaceDataset(ProteinDataset):
             print(f"Loaded {len(all_sequences)} sequences")
             print(f"Splits - Train: {self.num_samples[0]}, Valid: {self.num_samples[1]}, Test: {self.num_samples[2]}")
 
-class Thermostability(HuggingFaceDataset):
 
-    target_fields = ["target"]
+class Thermostability(HuggingFaceDataset):
+    """
+    Regression task: predict protein thermostability
+    
+    Data format from HuggingFace:
+    {'seq': 'MEHVIDNFDNIDKCLKCGK...', 'label': 0.17}
+    
+    Output targets: {'target': [0.17, ...]}  (sequence-level scalars)
+    """
+
+    target_fields = ["label"]
     
     def __init__(self, path, split="human_cell", verbose=1, **kwargs):
         super().__init__()
 
         try:
             dataset_name = "proteinglm/stability_prediction"
-            self.load_hf_dataset(dataset_name, 
-                               sequence_column='seq',
-                               target_columns=['label'],  
-                               verbose=verbose)
+            self.load_hf_dataset(
+                dataset_name, 
+                sequence_column='seq',
+                target_columns=self.target_fields,
+                verbose=verbose
+            )
             
-            # Map stability_score to target for compatibility
-            if 'stability_score' in self.targets:
-                self.targets['target'] = self.targets['stability_score']
+            # Standardize to 'target' key
+            if 'label' in self.targets:
+                self.targets['target'] = self.targets.pop('label')
+            
+            if verbose:
+                print(f"Thermostability - Task: Regression")
+                print(f"  Sample targets: {self.targets['target'][:3]}")
                 
         except Exception as e:
             print(f"Error loading thermostability dataset: {e}")
@@ -159,8 +164,16 @@ class Thermostability(HuggingFaceDataset):
 
 
 class SecondaryStructure(HuggingFaceDataset):
+    """
+    Token-level classification task: predict secondary structure per residue (8 classes)
+    
+    Data format from HuggingFace:
+    {'seq': 'GKITFYEDRGFQGRH...', 'label': [7, 4, 4, 4, 4, ...]}
+    
+    Output targets: {'target': [[7, 4, 4, ...], ...]}  (token-level lists)
+    """
 
-    target_fields = ["label"] 
+    target_fields = ["label"]
     
     def __init__(self, path=None, verbose=1, **kwargs):
         super().__init__()
@@ -168,7 +181,7 @@ class SecondaryStructure(HuggingFaceDataset):
         try:
             dataset_name = "proteinglm/ssp_q8"
             
-            # Load dataset with auto-validation split
+            # Load dataset
             self.load_hf_dataset(
                 dataset_name,
                 sequence_column='seq',
@@ -176,17 +189,26 @@ class SecondaryStructure(HuggingFaceDataset):
                 verbose=verbose
             )
             
-            if self.target_fields[0] in self.targets:
+            # Convert labels to list format if they're strings
+            if 'label' in self.targets:
                 processed_targets = []
-                for item in self.targets[self.target_fields[0]]:
+                for item in self.targets['label']:
                     if isinstance(item, str):
-                        processed_targets.append(list(item))
-                    else:
+                        # Convert string to list of integers
+                        processed_targets.append([int(x) for x in list(item)])
+                    elif isinstance(item, list):
                         processed_targets.append(item)
+                    else:
+                        processed_targets.append([])
+                
                 self.targets['target'] = processed_targets
-                #print("DEBUG: First 2 token labels:", self.targets[self.target_fields[0]][:2])
+                
+                if verbose:
+                    print(f"SecondaryStructure - Task: Token Classification (8 classes)")
+                    print(f"  Sample sequence length: {len(self.sequences[0])}")
+                    print(f"  Sample target: {self.targets['target'][0][:20]}...")  # First 20 tokens
             else:
-                print("Warning: 'label' field not found in dataset. Setting empty targets.")
+                print("Warning: 'label' field not found in dataset.")
                 self.targets['target'] = [[] for _ in range(len(self.sequences))]
         
         except Exception as e:
@@ -205,7 +227,16 @@ class SecondaryStructure(HuggingFaceDataset):
                 splits.append(Subset(self, []))
         return splits
 
+
 class PeptideHLAMHCAffinity(HuggingFaceDataset):
+    """
+    Binary classification task: peptide-HLA/MHC affinity prediction
+    
+    Data format from HuggingFace:
+    {'seq': 'MEHVIDNFDNIDKCLKCGK...', 'label': 1}
+    
+    Output targets: {'target': [1, 0, 1, ...]}  (sequence-level binary)
+    """
 
     target_fields = ["label"]
     
@@ -214,16 +245,23 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
         
         try:
             dataset_name = "proteinglm/peptide_HLA_MHC_affinity"
-            self.load_hf_dataset(dataset_name, 
-                               sequence_column='seq',
-                               target_columns=['label'],
-                               verbose=verbose)
+            self.load_hf_dataset(
+                dataset_name, 
+                sequence_column='seq',
+                target_columns=self.target_fields,
+                verbose=verbose
+            )
             
+            # Standardize to 'target' key
             if 'label' in self.targets:
-                self.targets['target'] = self.targets['label']
+                self.targets['target'] = self.targets.pop('label')
+            
+            if verbose:
+                print(f"PeptideHLAMHCAffinity - Task: Binary Classification")
+                print(f"  Sample targets: {self.targets['target'][:5]}")
                 
         except Exception as e:
-            print(f"Error loading proteinglm/peptide_HLA_MHC_affinity dataset: {e}")
+            print(f"Error loading peptide HLA MHC affinity dataset: {e}")
             raise ValueError("Peptide HLA MHC affinity dataset not available")
     
     def split(self):
@@ -238,7 +276,17 @@ class PeptideHLAMHCAffinity(HuggingFaceDataset):
                 splits.append(Subset(self, []))
         return splits
 
+
 class CloningCLF(HuggingFaceDataset):
+    """
+    Binary classification task: predict successful cloning
+    
+    Data format from HuggingFace:
+    {'seq': 'MEHVIDNFDNIDKCLKCGK...', 'label': 1}
+    
+    Output targets: {'target': [1, 0, 1, ...]}  (sequence-level binary)
+    """
+
     target_fields = ["label"]
 
     def __init__(self, path=None, verbose=1, **kwargs):
@@ -254,8 +302,13 @@ class CloningCLF(HuggingFaceDataset):
                 verbose=verbose
             )
 
+            # Standardize to 'target' key
             if 'label' in self.targets:
-                self.targets['target'] = self.targets['label']
+                self.targets['target'] = self.targets.pop('label')
+            
+            if verbose:
+                print(f"CloningCLF - Task: Binary Classification")
+                print(f"  Sample targets: {self.targets['target'][:5]}")
 
         except Exception as e:
             print(f"Error loading proteinglm/cloning_clf dataset: {e}")
@@ -273,14 +326,17 @@ class CloningCLF(HuggingFaceDataset):
                 splits.append(Subset(self, []))
         return splits
 
+
 def create_dataset(dataset_type, **kwargs):
+    """Create dataset by type"""
     datasets = {
         'Thermostability': Thermostability,
         'SecondaryStructure': SecondaryStructure,
+        'PeptideHLAMHCAffinity': PeptideHLAMHCAffinity,
         'CloningCLF': CloningCLF  
     }
     
     if dataset_type not in datasets:
-        raise ValueError(f"Unknown dataset type: {dataset_type}")
+        raise ValueError(f"Unknown dataset type: {dataset_type}. Available: {list(datasets.keys())}")
     
     return datasets[dataset_type](**kwargs)

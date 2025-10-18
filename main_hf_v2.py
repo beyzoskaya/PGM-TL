@@ -13,7 +13,8 @@ from torch.utils.data import DataLoader
 from main_hf import train_and_validate, test, find_latest_checkpoint
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
-from engine_hf import MultiTaskEngine, create_shared_multitask_model, SharedBackboneModelsWrapper
+from protbert_hf import ProtBert
+from engine_hf_v2 import MultiTaskEngine, create_shared_multitask_model, SharedBackboneModelsWrapper
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -213,43 +214,44 @@ def create_scheduler(optimizer, cfg):
 
 def build_solver(cfg, logger):
     train_sets, valid_sets, test_sets = create_datasets(cfg.datasets)
-    shared_model = create_shared_multitask_model(cfg.tasks, cfg.model)
-
-    print("===== Checking LoRA Layers =====")
-    for name, param in shared_model.named_parameters():
-        if "lora" in name.lower():
-            print(name, param.shape, param.requires_grad)
-
-    total_params = sum(p.numel() for p in shared_model.parameters())
-    trainable_params = sum(p.numel() for p in shared_model.parameters() if p.requires_grad)
-    frozen_params = total_params - trainable_params
-    logger.info(f"Model Analysis: Total params={total_params}, Trainable={trainable_params} ({trainable_params/total_params*100:.1f}%), Frozen={frozen_params}")
-
-    optimizer = create_optimizer(shared_model, cfg.optimizer)
+    
+    backbone = ProtBert(
+        model_name=cfg.model.model_name,
+        readout='per_token' if any(t['type'] == 'token_classification' for t in cfg.tasks) else 'pooler',
+        freeze_bert=cfg.model.get('freeze_bert', False)
+    )
+    
+    # Optimize: backbone should be on device early
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    backbone.to(device)
+    
+    # Create optimizer/scheduler
+    optimizer = create_optimizer(backbone, cfg.optimizer)
     scheduler = create_scheduler(optimizer, cfg.get('scheduler'))
 
-    task_names = [f"Task_{i}" for i in range(len(cfg.tasks))]
-    models_wrapper = SharedBackboneModelsWrapper(shared_model, task_names)
-
-    class SharedBackboneMultiTaskEngine(MultiTaskEngine):
-        def __init__(self):
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            self.batch_size = cfg.engine.batch_size
-            self.gradient_interval = cfg.train.gradient_interval
-            self.num_worker = cfg.engine.num_worker
-            self.log_interval = cfg.engine.log_interval
-            self.models = models_wrapper
-            self.models.to(self.device)
-            self.train_sets = train_sets
-            self.valid_sets = valid_sets
-            self.test_sets = test_sets
-            self.optimizer = optimizer
-            self.scheduler = scheduler
-            self.epoch = 0
-            self.step = 0
-            logger.info(f"Initialized MultiTaskEngine with {len(cfg.tasks)} tasks, device={self.device}")
-
-    return SharedBackboneMultiTaskEngine()
+    engine = MultiTaskEngine(
+        backbone=backbone,
+        task_configs=cfg.tasks,
+        train_sets=train_sets,
+        valid_sets=valid_sets,
+        test_sets=test_sets,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        batch_size=cfg.engine.batch_size,
+        gradient_interval=cfg.train.gradient_interval,
+        num_worker=cfg.engine.num_worker,
+        log_interval=cfg.engine.log_interval,
+        device=device
+    )
+    
+    total_params = sum(p.numel() for p in backbone.parameters())
+    trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
+    logger.info(f"Backbone: Total params={total_params}, Trainable={trainable_params} ({trainable_params/total_params*100:.1f}%)")
+    
+    task_head_params = sum(p.numel() for model in engine.models.task_models for p in model.head.parameters())
+    logger.info(f"Task heads total params: {task_head_params}")
+    
+    return engine
 
 if __name__ == "__main__":
     args = parse_args()
@@ -264,6 +266,9 @@ if __name__ == "__main__":
 
     solver = build_solver(cfg, logger)
 
+    best_metrics = {}
+    best_epoch = 0
+    
     start_epoch = 0
     if args.resume and os.path.exists(args.resume):
         logger.info(f"Resuming from checkpoint: {args.resume}")
@@ -274,9 +279,45 @@ if __name__ == "__main__":
         if checkpoint_path:
             logger.info(f"Auto-resuming from latest checkpoint: {checkpoint_path}")
             solver.load(checkpoint_path, load_optimizer=True)
-        else:
-            logger.info("No checkpoint found for auto-resume. Starting fresh.")
 
-    solver, best_epoch = train_and_validate(cfg, solver, logger)
-    test(cfg, solver, logger)
-    logger.info(f"Training completed. Best epoch: {best_epoch}")
+    for epoch in range(start_epoch, cfg.train.num_epoch):
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Epoch {epoch + 1}/{cfg.train.num_epoch}")
+        logger.info(f"{'='*60}")
+        
+        # Train
+        solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
+        
+        # Validate
+        val_metrics = solver.evaluate(split='valid', log=True)
+        
+        # Save checkpoint
+        checkpoint_path = f"checkpoint_epoch_{epoch:03d}.pt"
+        solver.save(checkpoint_path)
+        
+        logger.info(f"Checkpoint saved: {checkpoint_path}")
+        
+        # Track best epoch based on center task (Task_0)
+        center_task_metric = None
+        for key in val_metrics:
+            if key.startswith('Task_0'):
+                center_task_metric = val_metrics[key]
+                break
+        
+        if center_task_metric is not None:
+            if epoch == 0 or center_task_metric < best_metrics.get('Task_0', float('inf')):
+                best_metrics = val_metrics.copy()
+                best_epoch = epoch
+                logger.info(f"✓ New best validation metrics (epoch {epoch + 1})")
+        
+        logger.info(f"Metrics: {val_metrics}")
+    
+    # Test on best epoch
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Testing on best epoch {best_epoch + 1}")
+    logger.info(f"{'='*60}")
+    
+    test_metrics = solver.evaluate(split='test', log=True)
+    
+    logger.info(f"\nFinal Test Results: {test_metrics}")
+    logger.info("Training completed successfully!")

@@ -142,7 +142,7 @@ def run_multiscale_training(config):
     try:
         from flip_hf import Thermostability, SecondaryStructure, PeptideHLAMHCAffinity
         # CHANGED: Import from engine_multiscale instead of engine_hf
-        from engine_multiscale import create_multiscale_shared_model, MultiScaleModelsWrapper
+        from multiscale.engine_multiscale import create_multiscale_shared_model, MultiScaleModelsWrapper
         from engine_hf import MultiTaskEngine  # Keep the engine from engine_hf
         from torch.utils.data import DataLoader
         
