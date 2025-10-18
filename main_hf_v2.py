@@ -263,7 +263,8 @@ if __name__ == "__main__":
         logger.info(f"{'='*60}")
         
         # Train
-        solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
+        #solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
+        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
         
         # Validate
         val_metrics = solver.evaluate(split='valid', log=True)

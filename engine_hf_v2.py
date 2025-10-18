@@ -380,9 +380,14 @@ class MultiTaskEngine:
             return moved_batch
         return batch
     
-    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0):
-        """Train for multiple epochs"""
-        logger.info(f"Starting training for {num_epoch} epochs with tradeoff={tradeoff}")
+    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='center_task'):
+
+        logger.info(f"Starting training for {num_epoch} epochs with strategy={weighting_strategy}")
+        if weighting_strategy == 'center_task':
+            logger.info(f"  Center task weight: 1.0, Auxiliary weight: {tradeoff}")
+        elif weighting_strategy == 'equal':
+            logger.info(f"  All tasks equally weighted: 1.0")
+        
         self.models.train()
         
         for epoch in range(num_epoch):
@@ -434,8 +439,16 @@ class MultiTaskEngine:
                 # Forward and compute loss
                 per_task_loss, metric = self.models(batches)
                 
-                # Apply task weighting
-                weights = [1.0 if i == 0 else tradeoff for i in range(len(batches))]
+                # Apply task weighting based on strategy
+                if weighting_strategy == 'center_task':
+                    # Center task (task 0) gets weight 1.0, others get weight tradeoff
+                    weights = [1.0 if i == 0 else tradeoff for i in range(len(batches))]
+                elif weighting_strategy == 'equal':
+                    # All tasks equally weighted
+                    weights = [1.0 for i in range(len(batches))]
+                else:
+                    raise ValueError(f"Unknown weighting strategy: {weighting_strategy}")
+                
                 weights_tensor = torch.tensor(weights, device=self.device, dtype=torch.float)
                 
                 weighted_loss = (per_task_loss * weights_tensor).sum()
