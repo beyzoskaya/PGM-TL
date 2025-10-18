@@ -615,69 +615,64 @@ class SharedBackboneMultiTaskModel(nn.Module):
                     setattr(attention, name, lora_layer)
     
     def forward(self, batch, task_id):
-
         task_name = f"task_{task_id}"
         task_type = self.task_types[task_name]
         head = self.task_heads[task_name]
-        
+
+        # Shared backbone forward
         backbone_outputs = self.shared_backbone(batch)
 
-        if task_type == "token_classification":
+        # correct features
+        if task_type == 'token_classification':
             features = backbone_outputs["residue_feature"]  # [B, L, H]
         else:
-            features = backbone_outputs["graph_feature"]    # [B, H]
+            features = backbone_outputs["graph_feature"]  # [B, H]
 
         logits = head(features)
 
-        labels = batch.get("labels") or batch.get("targets")
-        if labels is None:
-            raise ValueError(f"No labels or targets found in batch for {task_name}")
+        # labels from batch
+        if 'labels' in batch:
+            labels = batch['labels']
+        elif 'targets' in batch:
+            labels = batch['targets']
+        else:
+            raise ValueError(f"Batch missing 'labels' or 'targets' for task {task_name}")
 
-        if isinstance(labels, dict):
-            if "label" in labels:
-                labels = labels["label"]
-            elif "target" in labels:
-                labels = labels["target"]
+        # token-level vs sequence-level
+        if task_type == 'token_classification':
+            # Labels may be lists of variable length -> pad to max length in batch
+            if isinstance(labels, list):
+                max_len = max(len(seq) for seq in labels)
+                padded_labels = []
+                for seq in labels:
+                    pad_len = max_len - len(seq)
+                    padded_seq = seq + [ -100 ] * pad_len  # -100 is ignored by nn.CrossEntropyLoss
+                    padded_labels.append(padded_seq)
+                labels_tensor = torch.tensor(padded_labels, dtype=torch.long, device=logits.device)
+            elif isinstance(labels, torch.Tensor):
+                labels_tensor = labels
             else:
-                raise ValueError(f"Unrecognized label keys in batch for {task_name}: {labels.keys()}")
+                raise TypeError(f"Unsupported token-level labels type: {type(labels)}")
 
-        if isinstance(labels, list):
-            # handle scalar vs sequence labels automatically
-            if isinstance(labels[0], (list, tuple)):
-                labels = torch.tensor(labels, dtype=torch.float32)
-            else:
-                labels = torch.tensor(labels, dtype=torch.float32)
-        if not torch.is_tensor(labels):
-            raise TypeError(f"Unexpected label type: {type(labels)} for {task_name}")
-
-        labels = labels.to(features.device)
-
-        print(
-            f"\nDEBUG Forward: task={task_name}, type={task_type}, "
-            f"logits={tuple(logits.shape)}, labels={tuple(labels.shape)}, "
-            f"batch_keys={list(batch.keys())}"
-        )
-
-        if task_type == "token_classification":
-            # [B, L, C] vs [B, L]
-            if labels.ndim == 1:
-                # may happen if collator flattened by mistake
-                raise ValueError(f"{task_name}: expected per-residue labels [B,L], got {labels.shape}")
             logits_for_loss = logits.view(-1, logits.size(-1))
-            labels_for_loss = labels.view(-1).long()
+            labels_for_loss = labels_tensor.view(-1)
 
-        elif task_type == "regression":
-            # [B,1] vs [B]
-            if labels.ndim > 1:
-                labels = labels.view(-1)
-            logits_for_loss = logits.squeeze()
-            labels_for_loss = labels.float()
+        else:  # sequence-level
+            if isinstance(labels, dict):
+                labels = labels.get('label', None)
+                if labels is None:
+                    raise ValueError(f"Sequence-level labels missing 'label' key for task {task_name}")
 
-        else:  # classification or binary
-            if labels.ndim > 1:
-                labels = labels.view(-1)
+            labels_tensor = torch.tensor(labels, dtype=torch.float32, device=logits.device) \
+                            if not isinstance(labels, torch.Tensor) else labels.to(logits.device)
+
             logits_for_loss = logits
-            labels_for_loss = labels.long() if logits.size(-1) > 1 else labels.float()
+            labels_for_loss = labels_tensor
+
+        # DEBUG logging
+        print(f"DEBUG Forward: task={task_name}, type={task_type}, "
+            f"logits={tuple(logits.shape)}, labels={tuple(labels_for_loss.shape)}, "
+            f"batch_keys={list(batch.keys())}")
 
         return {
             "logits": logits,
@@ -685,9 +680,8 @@ class SharedBackboneMultiTaskModel(nn.Module):
             "labels_for_loss": labels_for_loss,
             "graph_feature": backbone_outputs.get("graph_feature"),
             "residue_feature": backbone_outputs.get("residue_feature"),
-            "attention_mask": backbone_outputs.get("attention_mask"),
+            "attention_mask": backbone_outputs.get("attention_mask")
         }
-
 
     def get_task_model(self, task_id):
         return TaskModelWrapper(self, task_id)
