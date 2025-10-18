@@ -59,21 +59,20 @@ def create_default_config():
             'lora_dropout': 0.1
         },
         'datasets': [
-            {'type': 'SecondaryStructure', 'path': './data', 'center': False},
             {'type': 'Thermostability', 'path': './data', 'split': 'human_cell', 'center': True},
-            {'type': 'CloningCLF', 'path': './data', 'center': False}  # updated
+            {'type': 'SecondaryStructure', 'path': './data', 'center': False},
+            {'type': 'CloningCLF', 'path': './data', 'center': False}
         ],
         'tasks': [
-            {'type': 'token_classification', 'num_labels': 8, 'loss': 'cross_entropy'},
-            {'type': 'regression', 'num_labels': 1, 'loss': 'mse'},
-            {'type': 'binary_classification', 'num_labels': 1, 'loss': 'binary_cross_entropy'}  # updated
+            {'type': 'regression', 'num_labels': 1, 'loss': 'mse'},  # Thermostability
+            {'type': 'token_classification', 'num_labels': 8, 'loss': 'cross_entropy'},  # SecondaryStructure
+            {'type': 'binary_classification', 'num_labels': 1, 'loss': 'binary_cross_entropy'}  # CloningCLF
         ],
-
-        'train': {'num_epoch': 6, 'batch_size': 8, 'gradient_interval': 4, 'tradeoff': 0.5},
-        'optimizer': {'type': 'AdamW', 'lr': 2e-5, 'weight_decay': 0.01},
+        'train': {'num_epoch': 4, 'batch_size': 8, 'gradient_interval': 6, 'tradeoff': 0.5},
+        'optimizer': {'type': 'AdamW', 'lr': 3e-5, 'weight_decay': 0.01},
         'scheduler': {'type': 'StepLR', 'step_size': 3, 'gamma': 0.5},
         'engine': {'batch_size': 8, 'num_worker': 1, 'log_interval': 50},
-        'eval_metric': 'accuracy',
+        'eval_metric': 'rmse',
         'test_batch_size': 16
     }
     return EasyDict(config)
@@ -133,12 +132,12 @@ def create_datasets(dataset_configs, limit_samples=None):
             valid_limit = limit_samples.get('valid', len(valid_set))
             test_limit = limit_samples.get('test', len(test_set))
 
-            if len(train_set) > train_limit:
-                train_set = Subset(train_set, torch.randperm(len(train_set))[:train_limit])
-            if len(valid_set) > valid_limit:
-                valid_set = Subset(valid_set, torch.randperm(len(valid_set))[:valid_limit])
-            if len(test_set) > test_limit:
-                test_set = Subset(test_set, torch.randperm(len(test_set))[:test_limit])
+            #if len(train_set) > train_limit:
+            #    train_set = Subset(train_set, torch.randperm(len(train_set))[:train_limit])
+            #if len(valid_set) > valid_limit:
+            #    valid_set = Subset(valid_set, torch.randperm(len(valid_set))[:valid_limit])
+            #if len(test_set) > test_limit:
+            #    test_set = Subset(test_set, torch.randperm(len(test_set))[:test_limit])
 
         if is_center:
             train_sets = [train_set] + train_sets

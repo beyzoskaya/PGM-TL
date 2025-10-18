@@ -66,7 +66,7 @@ class ProtBert(nn.Module):
         encoded = {k: v.to(device) for k, v in encoded.items()}
 
         # after encoding the sequences
-        #print("DEBUG: tokenized input ids shape:", encoded['input_ids'].shape)
+        print("DEBUG: tokenized input ids shape:", encoded['input_ids'].shape) # --> [batch_size, max_seq_len]
         #print("DEBUG: attention mask shape:", encoded['attention_mask'].shape)
 
         # Forward pass through BERT
@@ -274,12 +274,10 @@ class ProtBertWithLoRA(nn.Module):
       
         outputs = self.protbert(batch)
 
-        # Extract common outputs
         graph_feature = outputs.get("graph_feature")
         residue_feature = outputs.get("residue_feature")
         attention_mask = outputs.get("attention_mask")  # may be None for some variants
 
-        # Compute logits according to task type
         if self.task_type == "classification":
             logits = self.head(graph_feature)
         elif self.task_type == "binary_classification":
@@ -298,7 +296,6 @@ class ProtBertWithLoRA(nn.Module):
             "residue_feature": residue_feature
         }
 
-        # IMPORTANT: include attention_mask when available so engine can mask padding
         if attention_mask is not None:
             print("DEBUG: Including attention_mask in output with shape:", attention_mask.shape)
             out["attention_mask"] = attention_mask
@@ -307,7 +304,6 @@ class ProtBertWithLoRA(nn.Module):
 
 
 def create_protbert_model(model_type="base", task_type=None, **kwargs):
-    """Factory function to create ProtBert models, supporting regression tasks"""
 
     models = {
         "base": ProtBert,
