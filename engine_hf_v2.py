@@ -4,22 +4,12 @@ import sys
 import logging
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.nn.utils.rnn import pad_sequence
-from copy import deepcopy
-from protbert_hf import ProtBert
-from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
-
-"""
-Fixed engine_hf: Clean separation of concerns
-- MultiTaskEngine: orchestrates training loop and data loading
-- ModelsWrapper: wraps task-specific models, computes per-task loss/metrics
-- Per-task models: own forward passes (no shared model confusion)
-"""
 
 class TaskModel(nn.Module):
     """Single task model: shared backbone + task-specific head"""
@@ -110,15 +100,7 @@ class ModelsWrapper(nn.Module):
         return all_loss, all_metric
     
     def _compute_loss(self, logits, batch, task_type):
-        """
-        Compute loss for a single task
-        
-        Args:
-            logits: model output [batch, ...] or [batch, seq_len, ...]
-            batch: {'sequence': [...], 'targets': {...}, 'attention_mask': [...]}
-            task_type: 'token_classification', 'regression', or 'binary_classification'
-        """
-        # Extract targets
+        """Compute loss for a single task"""
         if 'targets' not in batch:
             raise ValueError("Batch missing 'targets'")
         
@@ -126,21 +108,15 @@ class ModelsWrapper(nn.Module):
         if not isinstance(targets_dict, dict):
             raise ValueError(f"Expected targets to be dict, got {type(targets_dict)}")
         
-        # Get first (and should be only) target key
         target_key = list(targets_dict.keys())[0]
         target = targets_dict[target_key]
         
-        # Token-level classification
         if task_type == 'token_classification':
             return self._loss_token_classification(logits, target, batch)
-        
-        # Sequence-level tasks
         elif task_type == 'regression':
             return self._loss_regression(logits, target)
-        
         elif task_type == 'binary_classification':
             return self._loss_binary_classification(logits, target)
-        
         else:
             raise ValueError(f"Unknown task type: {task_type}")
     
@@ -184,10 +160,10 @@ class ModelsWrapper(nn.Module):
                              dtype=attention_mask.dtype, device=device)
             attention_mask = torch.cat([attention_mask, pad], dim=1)
         
-        # Compute loss only on active positions
-        active = attention_mask.view(-1) == 1
-        active_logits = logits.view(-1, logits.size(-1))[active]
-        active_labels = target_tensor.view(-1)[active]
+        # Compute loss only on active positions - use reshape instead of view
+        active = attention_mask.reshape(-1) == 1
+        active_logits = logits.reshape(-1, logits.size(-1))[active]
+        active_labels = target_tensor.reshape(-1)[active]
         
         if active_logits.numel() == 0:
             return torch.tensor(0.0, device=device, requires_grad=True)
@@ -195,40 +171,28 @@ class ModelsWrapper(nn.Module):
         return F.cross_entropy(active_logits, active_labels)
     
     def _loss_regression(self, logits, target):
-        """
-        Regression loss: MSE
-        logits: [batch] or [batch, 1]
-        target: [batch] of float values
-        """
+        """Regression loss: MSE"""
         device = logits.device
         
-        # Convert target to tensor
         if isinstance(target, list):
             target_tensor = torch.tensor(target, dtype=torch.float, device=device)
         else:
             target_tensor = target.to(device).float()
         
-        # Squeeze logits if needed
         if logits.dim() > 1 and logits.size(-1) == 1:
             logits = logits.squeeze(-1)
         
         return F.mse_loss(logits, target_tensor)
     
     def _loss_binary_classification(self, logits, target):
-        """
-        Binary classification loss: BCE with logits
-        logits: [batch] or [batch, 1]
-        target: [batch] of 0/1 values
-        """
+        """Binary classification loss: BCE with logits"""
         device = logits.device
         
-        # Convert target to tensor
         if isinstance(target, list):
             target_tensor = torch.tensor(target, dtype=torch.float, device=device)
         else:
             target_tensor = target.to(device).float()
         
-        # Squeeze logits if needed
         if logits.dim() > 1 and logits.size(-1) == 1:
             logits = logits.squeeze(-1)
         
@@ -242,7 +206,6 @@ class ModelsWrapper(nn.Module):
         targets_dict = batch['targets']
         target_key = list(targets_dict.keys())[0]
         target = targets_dict[target_key]
-        device = logits.device
         
         if task_type == 'token_classification':
             return self._metrics_token_classification(logits, target, batch)
@@ -257,14 +220,12 @@ class ModelsWrapper(nn.Module):
         """Token-level accuracy"""
         device = logits.device
         
-        # Convert target to tensor
         if isinstance(target, list):
             tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
             target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(device)
         else:
             target_tensor = target.to(device)
         
-        # Get attention mask
         attention_mask = batch.get('attention_mask')
         if attention_mask is None:
             attention_mask = torch.ones((target_tensor.size(0), logits.size(1)), 
@@ -272,7 +233,6 @@ class ModelsWrapper(nn.Module):
         else:
             attention_mask = attention_mask.to(device)
         
-        # Align
         seq_len = logits.size(1)
         if target_tensor.size(1) > seq_len:
             target_tensor = target_tensor[:, :seq_len]
@@ -288,11 +248,10 @@ class ModelsWrapper(nn.Module):
                              dtype=attention_mask.dtype, device=device)
             attention_mask = torch.cat([attention_mask, pad], dim=1)
         
-        # Compute accuracy
         pred = logits.argmax(dim=-1)
-        active = attention_mask.view(-1) == 1
-        active_preds = pred.view(-1)[active]
-        active_labels = target_tensor.view(-1)[active]
+        active = attention_mask.reshape(-1) == 1
+        active_preds = pred.reshape(-1)[active]
+        active_labels = target_tensor.reshape(-1)[active]
         
         acc = (active_preds == active_labels).float().mean().item() if active_preds.numel() > 0 else 0.0
         return {"accuracy": acc}
@@ -389,7 +348,6 @@ class MultiTaskEngine:
         # Determine if token-level or sequence-level for each target
         processed_targets = {}
         for key, values in targets_dict.items():
-            # Check if token-level (list of lists) or sequence-level
             if values and isinstance(values[0], list):
                 # Token-level: keep as list of lists
                 processed_targets[key] = values
@@ -423,14 +381,7 @@ class MultiTaskEngine:
         return batch
     
     def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0):
-        """
-        Train for multiple epochs
-        
-        Args:
-            num_epoch: number of epochs
-            batch_per_epoch: if None, use minimum across tasks
-            tradeoff: weight for auxiliary tasks (center task has weight 1.0)
-        """
+        """Train for multiple epochs"""
         logger.info(f"Starting training for {num_epoch} epochs with tradeoff={tradeoff}")
         self.models.train()
         
@@ -466,7 +417,6 @@ class MultiTaskEngine:
                     try:
                         batch = next(dataloader)
                     except StopIteration:
-                        # Recreate dataloader for this task
                         dataloader = iter(DataLoader(
                             self.train_sets[task_id],
                             batch_size=self.batch_size,
@@ -485,13 +435,10 @@ class MultiTaskEngine:
                 per_task_loss, metric = self.models(batches)
                 
                 # Apply task weighting
-                # Center task (task 0) gets weight 1.0, others get weight tradeoff
                 weights = [1.0 if i == 0 else tradeoff for i in range(len(batches))]
                 weights_tensor = torch.tensor(weights, device=self.device, dtype=torch.float)
                 
                 weighted_loss = (per_task_loss * weights_tensor).sum()
-                
-                # Gradient accumulation
                 weighted_loss = weighted_loss / self.gradient_interval
                 weighted_loss.backward()
                 
@@ -502,7 +449,6 @@ class MultiTaskEngine:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     
-                    # Log metrics
                     if len(metrics_buffer) > 0:
                         avg_metrics = self._average_metrics(metrics_buffer)
                         progress_bar.set_postfix(avg_metrics)
@@ -533,16 +479,7 @@ class MultiTaskEngine:
     
     @torch.no_grad()
     def evaluate(self, split='valid', log=True):
-        """
-        Evaluate on validation or test set
-        
-        Args:
-            split: 'valid' or 'test'
-            log: whether to log results
-        
-        Returns:
-            dict of metrics
-        """
+        """Evaluate on validation or test set"""
         logger.info(f"Evaluating on {split} set")
         
         test_sets = getattr(self, f"{split}_sets")
@@ -564,23 +501,19 @@ class MultiTaskEngine:
             for batch in tqdm(dataloader, desc=f"Evaluating Task {task_id}"):
                 batch = self.move_to_device(batch)
                 
-                # Forward pass
                 outputs = model(batch)
                 logits = outputs['logits']
                 
-                # Compute metrics
                 metrics = self.models._compute_metrics(logits, batch, model.task_type)
                 
                 for key, value in metrics.items():
                     if isinstance(value, (int, float)):
                         task_metrics[key].append(value)
             
-            # Average metrics for this task
             for key, values in task_metrics.items():
                 if values:
                     avg_value = sum(values) / len(values)
                     metric_name = f"Task_{task_id} {key}"
-                    # Mark center task (task_id == 0)
                     if task_id == 0:
                         metric_name = f"Center - {metric_name}"
                     all_metrics[metric_name] = avg_value
@@ -613,15 +546,12 @@ class MultiTaskEngine:
         
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         
-        # Load task models
         for i, model in enumerate(self.models.task_models):
             if f"task_{i}" in checkpoint:
                 model.load_state_dict(checkpoint[f"task_{i}"])
         
-        # Load optimizer
         if load_optimizer and "optimizer" in checkpoint:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
         
-        # Load training state
         self.epoch = checkpoint.get("epoch", 0)
         self.step = checkpoint.get("step", 0)
