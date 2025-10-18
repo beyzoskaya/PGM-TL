@@ -34,7 +34,7 @@ def set_seed(seed):
 
 def create_default_config():
     config = {
-        'output_dir': './outputs',
+        'output_dir': '/content/drive/MyDrive/protein_multitask_outputs',
         'model': {
             'type': 'shared_lora',
             'model_name': 'Rostlab/prot_bert_bfd',
