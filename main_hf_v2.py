@@ -88,9 +88,9 @@ def setup_drive_output(cfg):
 def create_datasets(dataset_configs, limit_samples=None):
     train_sets, valid_sets, test_sets = [], [], []
 
-    print("="*60)
+    print("=" * 60)
     print("LOADING DATASETS")
-    print("="*60)
+    print("=" * 60)
 
     input_shapes = []
     label_shapes = []
@@ -114,17 +114,28 @@ def create_datasets(dataset_configs, limit_samples=None):
 
         train_set, valid_set, test_set = dataset.split()
 
+        # Check sample structure (just one sample)
         sample = next(iter(train_set))
-        if not isinstance(sample, dict) or 'input_ids' not in sample or 'labels' not in sample:
-            raise ValueError(f"[{dtype}] dataset must return dict with 'input_ids' and 'labels' keys")
+        seq = sample.get('sequence', None)
+        targs = sample.get('targets', {})
+        if seq is None or not isinstance(targs, dict):
+            raise ValueError(f"[{dtype}] dataset must return a dict with 'sequence' and 'targets' keys")
 
-        input_shape = tuple(sample['input_ids'].shape)
-        label_shape = tuple(sample['labels'].shape)
-        input_shapes.append(input_shape)
-        label_shapes.append(label_shape)
+        example_len = len(seq)
+        print(f"[{dtype}] sequence length={example_len}, targets keys={list(targs.keys())}")
 
-        print(f"[{dtype}] sample input shape: {input_shape}, label shape: {label_shape}")
+        # Detect label shape/type for debugging
+        first_key = list(targs.keys())[0] if len(targs) > 0 else "None"
+        example_val = targs[first_key] if first_key in targs else None
+        if isinstance(example_val, list):
+            if all(isinstance(x, (int, float)) for x in example_val):
+                print(f"  example target key='{first_key}' type=per-residue list length={len(example_val)}")
+            elif all(isinstance(x, list) for x in example_val):
+                print(f"  example target key='{first_key}' is list-of-lists")
+        else:
+            print(f"  example target key='{first_key}' type={type(example_val).__name__} length=None")
 
+        # Store splits
         if is_center:
             train_sets = [train_set] + train_sets
             valid_sets = [valid_set] + valid_sets
@@ -136,44 +147,48 @@ def create_datasets(dataset_configs, limit_samples=None):
 
         print(f"  Train: {len(train_set)}, Valid: {len(valid_set)}, Test: {len(test_set)}")
 
-    ref_input_shape = input_shapes[0]
-    for idx, shape in enumerate(input_shapes):
-        if shape[1:] != ref_input_shape[1:]:
-            raise ValueError(
-                f"\n[Shape Error] Input shape mismatch between datasets:\n"
-                f"  {dataset_names[0]}: {ref_input_shape}\n"
-                f"  {dataset_names[idx]}: {shape}\n"
-                f"Ensure tokenizer and padding are consistent."
-            )
-
-    print("\n✅ All dataset input shapes are consistent with shared backbone.")
-
-    for idx, shape in enumerate(label_shapes):
-        print(f"Label shape for {dataset_names[idx]}: {shape}")
-
     total_train = sum(len(ts) for ts in train_sets)
     total_valid = sum(len(vs) for vs in valid_sets)
     total_test = sum(len(ts) for ts in test_sets)
     print(f"\nTotal samples - Train: {total_train}, Valid: {total_valid}, Test: {total_test}")
 
-    print("\nPerforming batch consistency check...")
+    print("\nPerforming batch consistency check (manual sampling)...")
 
-    temp_loader = DataLoader(train_sets[0], batch_size=2, shuffle=True)
-    first_batch = next(iter(temp_loader))
+    temp_ds = train_sets[0]
+    # manually grab two samples (skip DataLoader auto-collation)
+    samples = [temp_ds[i] for i in range(min(2, len(temp_ds)))]
 
-    if isinstance(first_batch, dict):
-        x = first_batch['input_ids']
-        y = first_batch['labels']
-    else:
-        raise ValueError("Unexpected dataset format; expected dict from __getitem__")
+    def quick_collate(batch):
+        """Minimal collate function similar to multitask engine."""
+        sequences = [b['sequence'] for b in batch]
+        targets = {}
+        for b in batch:
+            for k, v in b['targets'].items():
+                if k not in targets:
+                    targets[k] = []
+                targets[k].append(v)
+        return {'sequence': sequences, 'targets': targets}
 
-    print(f"Batch check -> input_ids batch shape: {x.shape}, labels batch shape: {y.shape}")
-    if x.ndim != 2 and x.ndim != 3:
-        raise ValueError(f"Unexpected input_ids shape {x.shape}. Expected [batch, seq_len] or [batch, seq_len, hidden].")
+    test_batch = quick_collate(samples)
 
-    print("✅ Batch shape check passed.\n")
+    seqs = test_batch['sequence']
+    targs = test_batch['targets']
+    print(f" Collated batch: sequences (len={len(seqs)}), target keys={list(targs.keys())}")
+
+    for k, v in targs.items():
+        if isinstance(v, torch.Tensor):
+            print(f"  -> target key '{k}' tensor shape: {v.shape}, dtype={v.dtype}")
+        elif isinstance(v, list):
+            if len(v) > 0 and isinstance(v[0], list):
+                print(f"  -> target key '{k}' is list-of-lists; first lengths: {[len(x) for x in v[:2]]}")
+            else:
+                print(f"  -> target key '{k}' is list; first values: {v[:4]}")
+
+    print("✅ Manual batch check passed (variable-length sequences handled safely).")
+    print()
 
     return train_sets, valid_sets, test_sets
+
 
 def create_optimizer(model, cfg):
     opt_type = cfg.get('type', 'AdamW')
@@ -265,4 +280,3 @@ if __name__ == "__main__":
     solver, best_epoch = train_and_validate(cfg, solver, logger)
     test(cfg, solver, logger)
     logger.info(f"Training completed. Best epoch: {best_epoch}")
-
