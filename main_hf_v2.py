@@ -283,10 +283,10 @@ if __name__ == "__main__":
         #solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
 
         # Train for equal weightining of downstream tasks
-        #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
+        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
 
         # Train for loss normalization weighting
-        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='loss_norm')
+        #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='loss_norm')
       
         # Validate
         val_metrics = solver.evaluate(split='valid', log=True)
