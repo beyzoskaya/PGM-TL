@@ -13,7 +13,8 @@ from torch.utils.data import DataLoader
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import ProtBert, ProtBertWithLoRA
-from loss_norm_engine import MultiTaskEngine
+#from engine_hf_v2 import MultiTaskEngine
+from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -199,8 +200,8 @@ def build_solver(cfg, logger):
     optimizer = create_optimizer(backbone, cfg.optimizer)
     scheduler = create_scheduler(optimizer, cfg.get('scheduler'))
     
-    # Create engine
-    engine = MultiTaskEngine(
+    # Create engine with shared backbone + task specific encoders
+    engine_shared_backbone_only = MultiTaskEngine(
         backbone=backbone,
         task_configs=cfg.tasks,
         train_sets=train_sets,
@@ -214,8 +215,24 @@ def build_solver(cfg, logger):
         log_interval=cfg.engine.log_interval,
         device=device
     )
+
+    engine = MultiTaskEngine(
+    backbone=backbone,
+    task_configs=cfg.tasks,
+    train_sets=train_sets,
+    valid_sets=valid_sets,
+    test_sets=test_sets,
+    optimizer=optimizer,
+    scheduler=scheduler,
+    batch_size=cfg.engine.batch_size,
+    gradient_interval=cfg.train.gradient_interval,
+    num_worker=cfg.engine.num_worker,
+    log_interval=cfg.engine.log_interval,
+    device=device,
+    use_task_encoder=True,      # task-specific encoders
+    encoder_dim=512             # Encoder bottleneck dimension
+    )
     
-    # Log model info
     total_params = sum(p.numel() for p in backbone.parameters())
     trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
     frozen_params = total_params - trainable_params
