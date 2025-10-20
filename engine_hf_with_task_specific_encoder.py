@@ -25,16 +25,19 @@ class TaskModel(nn.Module):
 
         if use_task_encoder:
             self.task_encoder = nn.Sequential(
-                nn.Linear(hidden_dim, encoder_dim),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),  # Task-specific normalization
                 nn.ReLU(),
-                nn.Dropout(0.1),
-                nn.Linear(encoder_dim, hidden_dim),
-                nn.Dropout(0.1)
+                nn.Dropout(0.2),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.Dropout(0.2)
             )
+
+            self.encoder_norm = nn.LayerNorm(hidden_dim)
         else:
             self.task_encoder = None
+            self.encoder_norm = None
         
-        # Task head
         self.head = nn.Sequential(
             nn.Dropout(0.1),
             nn.Linear(hidden_dim, num_labels)
@@ -48,10 +51,9 @@ class TaskModel(nn.Module):
         Returns:
             {'logits': [...], 'attention_mask': [...]}
         """
-        # Shared backbone forward (tokenization + encoding)
+        # Shared backbone forward
         backbone_out = self.backbone(batch)
         
-        # Select features based on task type
         if self.task_type == 'token_classification':
             # Token-level: [batch, seq_len, hidden]
             features = backbone_out["residue_feature"]
@@ -59,19 +61,19 @@ class TaskModel(nn.Module):
             # Sequence-level: [batch, hidden]
             features = backbone_out["graph_feature"]
         
-        # Apply task-specific encoder if enabled
         if self.use_task_encoder and self.task_encoder is not None:
             if self.task_type == 'token_classification':
                 # For token-level, apply encoder to each token
                 batch_size, seq_len, hidden_dim = features.shape
                 features = features.reshape(-1, hidden_dim)  # [batch*seq_len, hidden]
                 features = self.task_encoder(features)
+                features = self.encoder_norm(features)  # Normalize after encoder
                 features = features.reshape(batch_size, seq_len, hidden_dim)  # [batch, seq_len, hidden]
             else:
                 # For sequence-level, apply encoder to pooled feature
                 features = self.task_encoder(features)  # [batch, hidden]
-        
-        # Task head
+                features = self.encoder_norm(features)  # Normalize after encoder
+
         logits = self.head(features)
         
         return {
@@ -81,12 +83,12 @@ class TaskModel(nn.Module):
 
 
 class ModelsWrapper(nn.Module):
-    """Wraps multiple task models, computes per-task loss and metrics"""
     
     def __init__(self, task_models, task_names):
         super().__init__()
         self.task_models = nn.ModuleList(task_models)
         self.task_names = task_names
+        self.loss_running_mean = [1.0] * len(task_models)
     
     def forward(self, batches):
         """
@@ -123,6 +125,12 @@ class ModelsWrapper(nn.Module):
         all_loss = torch.stack(all_loss)
         return all_loss, all_metric
     
+    def update_loss_statistics(self, losses):
+        for i, loss in enumerate(losses):
+            loss_val = loss.detach().item()
+            # Exponential moving average
+            self.loss_running_mean[i] = 0.9 * self.loss_running_mean[i] + 0.1 * loss_val
+    
     def _compute_loss(self, logits, batch, task_type):
         if 'targets' not in batch:
             raise ValueError("Batch missing 'targets'")
@@ -144,21 +152,15 @@ class ModelsWrapper(nn.Module):
             raise ValueError(f"Unknown task type: {task_type}")
     
     def _loss_token_classification(self, logits, target, batch):
-        """
-        Token-level loss: cross-entropy with attention mask
-        logits: [batch, seq_len, num_labels]
-        target: list of lists (variable-length token sequences)
-        """
+        """Token-level loss: cross-entropy with attention mask"""
         device = logits.device
         
-        # Convert target to tensor with padding
         if isinstance(target, list):
             tgt_tensors = [torch.tensor(t, dtype=torch.long) for t in target]
             target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100).to(device)
         else:
             target_tensor = target.to(device)
         
-        # Get attention mask
         attention_mask = batch.get('attention_mask')
         if attention_mask is None:
             attention_mask = torch.ones((target_tensor.size(0), logits.size(1)), 
@@ -166,7 +168,6 @@ class ModelsWrapper(nn.Module):
         else:
             attention_mask = attention_mask.to(device)
         
-        # Align mask and target to logits sequence length
         seq_len = logits.size(1)
         
         if target_tensor.size(1) > seq_len:
@@ -183,7 +184,6 @@ class ModelsWrapper(nn.Module):
                              dtype=attention_mask.dtype, device=device)
             attention_mask = torch.cat([attention_mask, pad], dim=1)
         
-        # Compute loss only on active positions - use reshape instead of view
         active = attention_mask.reshape(-1) == 1
         active_logits = logits.reshape(-1, logits.size(-1))[active]
         active_labels = target_tensor.reshape(-1)[active]
@@ -309,7 +309,7 @@ class MultiTaskEngine:
     
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets, 
                  optimizer, scheduler=None, batch_size=8, gradient_interval=1, 
-                 num_worker=0, log_interval=100, device='cuda' if torch.cuda.is_available() else 'cpu',
+                 num_worker=0, log_interval=100, device='cuda',
                  use_task_encoder=True, encoder_dim=512):
         
         self.device = torch.device(device)
@@ -317,6 +317,14 @@ class MultiTaskEngine:
         self.gradient_interval = gradient_interval
         self.num_worker = num_worker
         self.log_interval = log_interval
+        
+        # Compute task weights based on dataset size
+        self.task_dataset_sizes = [len(ts) for ts in train_sets]
+        self.task_size_weights = torch.tensor(
+            [1.0 / size for size in self.task_dataset_sizes],
+            dtype=torch.float
+        )
+        self.task_size_weights = self.task_size_weights / self.task_size_weights.sum()
         
         # Create task models with task-specific encoders
         task_models = []
@@ -345,10 +353,12 @@ class MultiTaskEngine:
         
         self.epoch = 0
         self.step = 0
-        self.current_weighting_strategy = 'center_task'
+        self.current_weighting_strategy = 'size_norm'
         
         logger.info(f"Initialized MultiTaskEngine with {len(task_configs)} tasks on device {self.device}")
-        logger.info(f"Task-specific encoders: {'enabled' if use_task_encoder else 'disabled'}")
+        logger.info(f"Task-specific encoders: {'enabled (no bottleneck)' if use_task_encoder else 'disabled'}")
+        logger.info(f"Task dataset sizes: {self.task_dataset_sizes}")
+        logger.info(f"Task size weights (normalized): {self.task_size_weights.tolist()}")
         for i, (train_set, valid_set, test_set) in enumerate(zip(train_sets, valid_sets, test_sets)):
             logger.info(f"Task {i}: Train={len(train_set)}, Valid={len(valid_set)}, Test={len(test_set)}")
     
@@ -366,14 +376,11 @@ class MultiTaskEngine:
             else:
                 sequences.append(getattr(item, 'sequence', ''))
         
-        # Determine if token-level or sequence-level for each target
         processed_targets = {}
         for key, values in targets_dict.items():
             if values and isinstance(values[0], list):
-                # Token-level: keep as list of lists
                 processed_targets[key] = values
             else:
-                # Sequence-level: convert to tensor
                 try:
                     processed_targets[key] = torch.tensor(values, dtype=torch.float)
                 except:
@@ -400,12 +407,14 @@ class MultiTaskEngine:
             return moved_batch
         return batch
     
-    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='center_task'):
+    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'):
         logger.info(f"Starting training for {num_epoch} epochs with strategy={weighting_strategy}")
-        if weighting_strategy == 'center_task':
-            logger.info(f"  Center task weight: 1.0, Auxiliary weight: {tradeoff}")
+        if weighting_strategy == 'size_norm':
+            logger.info(f"  Using dataset-size-normalized weighting: {self.task_size_weights.tolist()}")
         elif weighting_strategy == 'equal':
             logger.info(f"  All tasks equally weighted: 1.0")
+        elif weighting_strategy == 'center_task':
+            logger.info(f"  Center task weight: 1.0, Auxiliary weight: {tradeoff}")
         
         self.models.train()
         self.current_weighting_strategy = weighting_strategy
@@ -459,19 +468,29 @@ class MultiTaskEngine:
                 # Forward and compute loss
                 per_task_loss, metric = self.models(batches)
                 
+                # Update loss statistics for normalization
+                self.models.update_loss_statistics(per_task_loss)
+                
                 # Apply task weighting based on strategy
-                if weighting_strategy == 'center_task':
-                    weights = [1.0 if i == 0 else tradeoff for i in range(len(batches))]
+                if weighting_strategy == 'size_norm':
+                    # Use dataset size weights (prevents large datasets from dominating)
+                    weights = self.task_size_weights.to(self.device)
                 elif weighting_strategy == 'equal':
-                    weights = [1.0 for i in range(len(batches))]
+                    weights = torch.ones(len(batches), device=self.device) / len(batches)
+                elif weighting_strategy == 'center_task':
+                    weights = torch.tensor([1.0] + [tradeoff] * (len(batches) - 1), device=self.device)
+                    weights = weights / weights.sum()
                 else:
                     raise ValueError(f"Unknown weighting strategy: {weighting_strategy}")
                 
-                weights_tensor = torch.tensor(weights, device=self.device, dtype=torch.float)
-                
-                weighted_loss = (per_task_loss * weights_tensor).sum()
+                weighted_loss = (per_task_loss * weights).sum()
                 weighted_loss = weighted_loss / self.gradient_interval
                 weighted_loss.backward()
+                
+                # Gradient clipping per task to prevent interference
+                for model in self.models.task_models:
+                    torch.nn.utils.clip_grad_norm_(model.task_encoder.parameters() if model.task_encoder else [model.head.parameters()], max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(model.head.parameters(), max_norm=1.0)
                 
                 metrics_buffer.append(metric)
                 
@@ -493,7 +512,6 @@ class MultiTaskEngine:
                 self.scheduler.step()
     
     def _average_metrics(self, metrics_list):
-        """Average metrics across accumulation steps"""
         if not metrics_list:
             return {}
         
@@ -544,8 +562,6 @@ class MultiTaskEngine:
                 if values:
                     avg_value = sum(values) / len(values)
                     metric_name = f"Task_{task_id} {key}"
-                    if task_id == 0 and self.current_weighting_strategy == 'center_task':
-                        metric_name = f"Center - {metric_name}"
                     all_metrics[metric_name] = avg_value
         
         if log:
@@ -582,4 +598,4 @@ class MultiTaskEngine:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
         
         self.epoch = checkpoint.get("epoch", 0)
-        self.step = checkpoint.get("step", 0)
+        self.step = checkpoint.get("step", 0) 

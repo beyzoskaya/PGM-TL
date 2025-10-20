@@ -16,17 +16,23 @@ class ProtBert(nn.Module):
         self.output_dim = self.model.config.hidden_size  
         
         if freeze_bert:
+            # Freeze all layers
             for param in self.model.parameters():
                 param.requires_grad = False
-        
-        if readout == "pooler":
-            self.readout = "pooler"
-        elif readout == "sum":
-            self.readout = "sum"
-        elif readout == "mean":
-            self.readout = "mean"
+
+            # Unfreeze the last 2 transformer encoder layers
+            for layer in self.model.encoder.layer[-2:]:
+                for param in layer.parameters():
+                    param.requires_grad = True
+                    
+            if hasattr(self.model, "pooler"):
+                for param in self.model.pooler.parameters():
+                    param.requires_grad = True
+
+        if readout in ["pooler", "sum", "mean"]:
+            self.readout = readout
         else:
-            raise ValueError("Unknown readout `%s`" % readout)
+            raise ValueError(f"Unknown readout `{readout}`")
     
     def forward(self, batch):
         if isinstance(batch, dict) and 'sequence' in batch:
@@ -39,7 +45,6 @@ class ProtBert(nn.Module):
         if isinstance(sequences, str):
             sequences = [sequences]
         
-        # Tokenize sequences - ProtBert expects space-separated amino acids
         spaced_sequences = [' '.join(seq) for seq in sequences]
         
         encoded = self.tokenizer(
@@ -64,12 +69,10 @@ class ProtBert(nn.Module):
         if self.readout == "pooler" and hasattr(outputs, 'pooler_output'):
             graph_feature = outputs.pooler_output
         elif self.readout == "mean":
-            # Mean pooling over sequence length (excluding padding)
             attention_mask = encoded['attention_mask'].unsqueeze(-1)
             masked_hidden = last_hidden_state * attention_mask
             graph_feature = masked_hidden.sum(dim=1) / attention_mask.sum(dim=1)
         elif self.readout == "sum":
-            # Sum pooling over sequence length (excluding padding)
             attention_mask = encoded['attention_mask'].unsqueeze(-1)
             graph_feature = (last_hidden_state * attention_mask).sum(dim=1)
         else:
@@ -109,7 +112,6 @@ class ProtBert(nn.Module):
                 sequences.append(sequence)
             return sequences
 
-
 class LoRALinear(nn.Module):
     """LoRA (Low-Rank Adaptation) layer"""
     
@@ -145,6 +147,12 @@ class ProtBertWithLoRA(nn.Module):
         super().__init__()
         
         self.protbert = ProtBert(model_name, readout, freeze_bert=True)
+
+        trainable = [n for n, p in self.protbert.model.named_parameters() if p.requires_grad]
+        print(f"Trainable ProtBert parameters ({len(trainable)}):")
+        for n in trainable:
+            print("  ", n)
+            
         self.output_dim = self.protbert.output_dim  # Expose output_dim
         
         # Add LoRA adapters to attention layers
