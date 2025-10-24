@@ -438,6 +438,8 @@ class MultiTaskEngine:
             logger.info(f"  All tasks equally weighted: 1.0")
         elif weighting_strategy == 'center_task':
             logger.info(f"  Center task weight: 1.0, Auxiliary weight: {tradeoff}")
+        elif weighting_strategy == 'boosted':
+            logger.info("  Using dynamic task boosting based on latest performance metrics")
 
         self.models.train()
         self.current_weighting_strategy = weighting_strategy
@@ -449,12 +451,14 @@ class MultiTaskEngine:
             "weighted_loss": [],
             "grad_norm_head": [[] for _ in self.models.task_names],
             "grad_norm_shared": [],
+            "task_weights": [],  # log dynamic task weights
             "metrics": {}
         }
 
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
 
+            # Prepare dataloaders
             dataloaders = []
             for train_set in self.train_sets:
                 dataloader = DataLoader(
@@ -492,7 +496,6 @@ class MultiTaskEngine:
                         ))
                         dataloaders[task_id] = dataloader
                         batch = next(dataloader)
-
                     batch = self.move_to_device(batch)
                     batches.append(batch)
 
@@ -502,7 +505,7 @@ class MultiTaskEngine:
                 # Update running mean
                 self.models.update_loss_statistics(per_task_loss)
 
-                # Apply task weighting
+                # --- Task weighting ---
                 if weighting_strategy == 'size_norm':
                     weights = self.task_size_weights.to(self.device)
                 elif weighting_strategy == 'equal':
@@ -510,6 +513,20 @@ class MultiTaskEngine:
                 elif weighting_strategy == 'center_task':
                     weights = torch.tensor([1.0] + [tradeoff] * (len(batches) - 1), device=self.device)
                     weights = weights / weights.sum()
+                elif weighting_strategy == 'boosted':
+                    last_metrics = metrics_buffer[-1] if metrics_buffer else metric
+                    boost_factors = []
+                    for i, name in enumerate(self.models.task_names):
+                        val = last_metrics.get(f"{name} accuracy", None)
+                        if val is None:
+                            # fallback for regression or missing metric
+                            val = last_metrics.get(f"{name} mse", 1.0)
+                            boost = val  # higher loss → higher weight
+                        else:
+                            boost = 1.0 - val  # lower accuracy → higher weight
+                        boost_factors.append(boost + 1e-8)
+                    boost_tensor = torch.tensor(boost_factors, device=self.device)
+                    weights = boost_tensor / boost_tensor.sum()
                 else:
                     raise ValueError(f"Unknown weighting strategy: {weighting_strategy}")
 
@@ -532,6 +549,7 @@ class MultiTaskEngine:
                     normalized = loss / (self.models.loss_running_mean[i] + 1e-8)
                     train_logs["normalized_loss"][i].append(normalized.item())
                 train_logs["weighted_loss"].append(weighted_loss.item())
+                train_logs["task_weights"].append(weights.detach().cpu().tolist())
 
                 # Grad norms
                 for i, model in enumerate(self.models.task_models):
@@ -577,6 +595,7 @@ class MultiTaskEngine:
                     ema = [round(l, 4) for l in self.models.loss_running_mean]
                     tqdm.write(f"[Debug] Running mean losses: {ema}")
 
+            # --- Save plots per epoch ---
             plt.figure(figsize=(8,5))
             for i, name in enumerate(self.models.task_names):
                 plt.plot(train_logs["normalized_loss"][i], label=f"{name} norm loss")
@@ -585,7 +604,6 @@ class MultiTaskEngine:
             plt.legend()
             plt.title(f"Epoch {epoch+1} - Per-task normalized losses")
             plt.savefig(os.path.join(save_path, f"epoch{epoch+1}_norm_loss.png"))
-            #plt.show()
 
             plt.figure(figsize=(8,5))
             for i, name in enumerate(self.models.task_names):
@@ -596,7 +614,6 @@ class MultiTaskEngine:
             plt.legend()
             plt.title(f"Epoch {epoch+1} - Grad Norms")
             plt.savefig(os.path.join(save_path, f"epoch{epoch+1}_grad_norm.png"))
-            #plt.show()
 
             with open(os.path.join(save_path, f"train_logs_epoch{epoch+1}.pkl"), "wb") as f:
                 pickle.dump(train_logs, f)
@@ -605,7 +622,6 @@ class MultiTaskEngine:
             if self.scheduler:
                 self.scheduler.step()
 
-    
     def _average_metrics(self, metrics_list):
         if not metrics_list:
             return {}
