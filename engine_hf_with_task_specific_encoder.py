@@ -423,8 +423,14 @@ class MultiTaskEngine:
             return moved_batch
         return batch
     
-    def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'):
+    def train(self, num_epoch=4, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'):
         from tqdm import tqdm
+        import matplotlib.pyplot as plt
+        import pickle
+
+        save_path = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
+        os.makedirs(save_path, exist_ok=True)
+
         logger.info(f"Starting training for {num_epoch} epochs with strategy={weighting_strategy}")
         if weighting_strategy == 'size_norm':
             logger.info(f"  Using dataset-size-normalized weighting: {self.task_size_weights.tolist()}")
@@ -436,23 +442,31 @@ class MultiTaskEngine:
         self.models.train()
         self.current_weighting_strategy = weighting_strategy
 
+        # Initialize logging buffers
+        train_logs = {
+            "per_task_loss": [[] for _ in self.task_names],
+            "normalized_loss": [[] for _ in self.task_names],
+            "weighted_loss": [],
+            "grad_norm_head": [[] for _ in self.task_names],
+            "grad_norm_shared": [],
+            "metrics": {name: [] for name in self.task_names}
+        }
+
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
 
-            # Create iterators for all task dataloaders
-            dataloaders = [
-                iter(DataLoader(
+            dataloaders = []
+            for train_set in self.train_sets:
+                dataloader = DataLoader(
                     train_set,
                     batch_size=self.batch_size,
                     shuffle=True,
                     num_workers=self.num_worker,
                     collate_fn=self.collate_fn,
                     pin_memory=False
-                ))
-                for train_set in self.train_sets
-            ]
+                )
+                dataloaders.append(iter(dataloader))
 
-            # Determine batch_per_epoch if not set
             if batch_per_epoch is None:
                 lengths = [len(DataLoader(ts, batch_size=self.batch_size)) for ts in self.train_sets]
                 batch_per_epoch = min(lengths)
@@ -468,7 +482,7 @@ class MultiTaskEngine:
                     try:
                         batch = next(dataloader)
                     except StopIteration:
-                        dataloaders[task_id] = iter(DataLoader(
+                        dataloader = iter(DataLoader(
                             self.train_sets[task_id],
                             batch_size=self.batch_size,
                             shuffle=True,
@@ -476,15 +490,19 @@ class MultiTaskEngine:
                             collate_fn=self.collate_fn,
                             pin_memory=True
                         ))
-                        batch = next(dataloaders[task_id])
+                        dataloaders[task_id] = dataloader
+                        batch = next(dataloader)
 
-                    batches.append(self.move_to_device(batch))
+                    batch = self.move_to_device(batch)
+                    batches.append(batch)
 
-                # Forward pass with loss normalization
-                per_task_loss, metric = self.models(batches, normalize_losses=True)
+                # Forward pass
+                per_task_loss, metric = self.models(batches)
+
+                # Update running mean
                 self.models.update_loss_statistics(per_task_loss)
 
-                # Task weighting
+                # Apply task weighting
                 if weighting_strategy == 'size_norm':
                     weights = self.task_size_weights.to(self.device)
                 elif weighting_strategy == 'equal':
@@ -499,33 +517,41 @@ class MultiTaskEngine:
                 weighted_loss = weighted_loss / self.gradient_interval
                 weighted_loss.backward()
 
-                # --- Debug logging ---
+                # --- Debug prints ---
                 if batch_id % 100 == 0:
                     losses = [round(l.item(), 5) for l in per_task_loss]
-                    raw_losses = [round(l, 5) for l in self.models.loss_running_mean]
                     wts = [round(w.item(), 4) for w in weights]
                     tqdm.write(
                         f"[Debug][Epoch {epoch+1} | Batch {batch_id}] "
-                        f"Per-task losses={losses}, Weights={wts}, Weighted total={round(weighted_loss.item(),5)}, Raw losses={raw_losses}"
+                        f"Per-task losses={losses}, Weights={wts}, Weighted total={round(weighted_loss.item(),5)}"
                     )
 
-                # --- Gradient norms ---
-                with torch.no_grad():
-                    grad_norms = []
-                    for model in self.models.task_models:
-                        norms = [p.grad.norm().item() for p in model.head.parameters() if p.grad is not None]
-                        grad_norms.append(round(sum(norms) / len(norms), 4) if norms else 0.0)
-                    tqdm.write(f"[Debug] Grad norms per head: {grad_norms}")
+                # --- Log for plotting ---
+                for i, loss in enumerate(per_task_loss):
+                    train_logs["per_task_loss"][i].append(loss.item())
+                    normalized = loss / (self.models.loss_running_mean[i] + 1e-8)
+                    train_logs["normalized_loss"][i].append(normalized.item())
+                train_logs["weighted_loss"].append(weighted_loss.item())
 
-                    protbert_params = [
-                        p for p in self.models.task_models[0].backbone.protbert.model.parameters()
-                        if p.requires_grad and p.grad is not None
-                    ]
-                    if protbert_params:
-                        protbert_grad_norm = torch.norm(torch.stack([p.grad.norm() for p in protbert_params])).item()
-                        tqdm.write(f"[Debug] Shared ProtBERT grad norm: {protbert_grad_norm:.4f}")
+                # Grad norms
+                for i, model in enumerate(self.models.task_models):
+                    norms = [p.grad.norm().item() for p in model.head.parameters() if p.grad is not None]
+                    avg_norm = sum(norms)/len(norms) if norms else 0.0
+                    train_logs["grad_norm_head"][i].append(avg_norm)
 
-                # --- Gradient clipping ---
+                protbert_params = [
+                    p for p in self.models.task_models[0].backbone.protbert.model.parameters()
+                    if p.requires_grad and p.grad is not None
+                ]
+                if protbert_params:
+                    protbert_grad_norm = torch.norm(torch.stack([p.grad.norm() for p in protbert_params])).item()
+                    train_logs["grad_norm_shared"].append(protbert_grad_norm)
+
+                # Metrics
+                for name, val in metric.items():
+                    train_logs["metrics"][name].append(val)
+
+                # Gradient clipping
                 for model in self.models.task_models:
                     torch.nn.utils.clip_grad_norm_(
                         model.task_encoder.parameters() if model.task_encoder else [model.head.parameters()],
@@ -549,9 +575,34 @@ class MultiTaskEngine:
                     ema = [round(l, 4) for l in self.models.loss_running_mean]
                     tqdm.write(f"[Debug] Running mean losses: {ema}")
 
+            plt.figure(figsize=(8,5))
+            for i, name in enumerate(self.task_names):
+                plt.plot(train_logs["normalized_loss"][i], label=f"{name} norm loss")
+            plt.xlabel("Step")
+            plt.ylabel("Normalized Loss")
+            plt.legend()
+            plt.title(f"Epoch {epoch+1} - Per-task normalized losses")
+            plt.savefig(os.path.join(save_path, f"epoch{epoch+1}_norm_loss.png"))
+            #plt.show()
+
+            plt.figure(figsize=(8,5))
+            for i, name in enumerate(self.task_names):
+                plt.plot(train_logs["grad_norm_head"][i], label=f"{name} head grad norm")
+            plt.plot(train_logs["grad_norm_shared"], label="Shared ProtBERT grad norm", linestyle='--')
+            plt.xlabel("Step")
+            plt.ylabel("Grad Norm")
+            plt.legend()
+            plt.title(f"Epoch {epoch+1} - Grad Norms")
+            plt.savefig(os.path.join(save_path, f"epoch{epoch+1}_grad_norm.png"))
+            #plt.show()
+
+            with open(os.path.join(save_path, f"train_logs_epoch{epoch+1}.pkl"), "wb") as f:
+                pickle.dump(train_logs, f)
+
             self.epoch += 1
             if self.scheduler:
                 self.scheduler.step()
+
     
     def _average_metrics(self, metrics_list):
         if not metrics_list:
