@@ -94,37 +94,50 @@ class ModelsWrapper(nn.Module):
         """
         Args:
             batches: list of task-specific batches
-        
+
         Returns:
             all_loss: [num_tasks] - per-task losses
             all_metric: dict of per-task metrics
         """
         all_loss = []
         all_metric = {}
-        
+
         for task_id, batch in enumerate(batches):
             model = self.task_models[task_id]
             task_type = model.task_type
-            
+
             # Forward pass
             outputs = model(batch)
             logits = outputs['logits']
-            
+
             # Compute loss
             loss = self._compute_loss(logits, batch, task_type)
             all_loss.append(loss)
-            
+
             # Compute metrics
             metric = self._compute_metrics(logits, batch, task_type)
-            
+
             # Store with task name
             for k, v in metric.items():
                 metric_name = f"{self.task_names[task_id]} {k}"
                 all_metric[metric_name] = v
-        
+
         all_loss = torch.stack(all_loss)
+
+        # --- Debug: Raw per-task loss scales ---
+        if not hasattr(self, "_debug_counter"):
+            self._debug_counter = 0
+        self._debug_counter += 1
+        if self._debug_counter % 100 == 0:
+            loss_vals = [round(l.item(), 5) for l in all_loss]
+            try:
+                from tqdm import tqdm
+                tqdm.write(f"[Debug] Step {self._debug_counter}: Raw per-task losses {loss_vals}")
+            except Exception:
+                print(f"[Debug] Step {self._debug_counter}: Raw per-task losses {loss_vals}")
+
         return all_loss, all_metric
-    
+
     def update_loss_statistics(self, losses):
         for i, loss in enumerate(losses):
             loss_val = loss.detach().item()
@@ -415,14 +428,13 @@ class MultiTaskEngine:
             logger.info(f"  All tasks equally weighted: 1.0")
         elif weighting_strategy == 'center_task':
             logger.info(f"  Center task weight: 1.0, Auxiliary weight: {tradeoff}")
-        
+
         self.models.train()
         self.current_weighting_strategy = weighting_strategy
-        
+
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
-            
-            # Create dataloaders for this epoch
+
             dataloaders = []
             for train_set in self.train_sets:
                 dataloader = DataLoader(
@@ -434,18 +446,17 @@ class MultiTaskEngine:
                     pin_memory=True
                 )
                 dataloaders.append(iter(dataloader))
-            
-            # Determine batch_per_epoch
+
             if batch_per_epoch is None:
                 lengths = [len(DataLoader(ts, batch_size=self.batch_size)) for ts in self.train_sets]
                 batch_per_epoch = min(lengths)
-            
+
             metrics_buffer = []
             progress_bar = tqdm(range(batch_per_epoch), desc=f"Epoch {epoch + 1}")
-            
+
             for batch_id in progress_bar:
                 batches = []
-                
+
                 # Get one batch per task
                 for task_id, dataloader in enumerate(dataloaders):
                     try:
@@ -461,19 +472,16 @@ class MultiTaskEngine:
                         ))
                         dataloaders[task_id] = dataloader
                         batch = next(dataloader)
-                    
+
                     batch = self.move_to_device(batch)
                     batches.append(batch)
-                
-                # Forward and compute loss
+
                 per_task_loss, metric = self.models(batches)
-                
-                # Update loss statistics for normalization
+
                 self.models.update_loss_statistics(per_task_loss)
-                
-                # Apply task weighting based on strategy
+
+                # --- Apply task weighting ---
                 if weighting_strategy == 'size_norm':
-                    # Use dataset size weights (prevents large datasets from dominating)
                     weights = self.task_size_weights.to(self.device)
                 elif weighting_strategy == 'equal':
                     weights = torch.ones(len(batches), device=self.device) / len(batches)
@@ -482,32 +490,63 @@ class MultiTaskEngine:
                     weights = weights / weights.sum()
                 else:
                     raise ValueError(f"Unknown weighting strategy: {weighting_strategy}")
-                
+
                 weighted_loss = (per_task_loss * weights).sum()
                 weighted_loss = weighted_loss / self.gradient_interval
                 weighted_loss.backward()
-                
-                # Gradient clipping per task to prevent interference
+
+                if batch_id % 100 == 0:
+                    from tqdm import tqdm
+                    losses = [round(l.item(), 5) for l in per_task_loss]
+                    wts = [round(w.item(), 4) for w in weights]
+                    tqdm.write(
+                        f"[Debug][Epoch {epoch+1} | Batch {batch_id}] "
+                        f"Per-task losses={losses}, Weights={wts}, Weighted total={round(weighted_loss.item(),5)}"
+                    )
+
+                with torch.no_grad():
+                    grad_norms = []
+                    for model in self.models.task_models:
+                        norms = [p.grad.norm().item() for p in model.head.parameters() if p.grad is not None]
+                        grad_norms.append(round(sum(norms) / len(norms), 4) if norms else 0.0)
+                    tqdm.write(f"[Debug] Grad norms per head: {grad_norms}")
+
+                    # Shared ProtBERT gradient
+                    protbert_params = [
+                        p for p in self.models.task_models[0].backbone.protbert.model.parameters()
+                        if p.requires_grad and p.grad is not None
+                    ]
+                    if protbert_params:
+                        protbert_grad_norm = torch.norm(
+                            torch.stack([p.grad.norm() for p in protbert_params])
+                        ).item()
+                        tqdm.write(f"[Debug] Shared ProtBERT grad norm: {protbert_grad_norm:.4f}")
+
                 for model in self.models.task_models:
-                    torch.nn.utils.clip_grad_norm_(model.task_encoder.parameters() if model.task_encoder else [model.head.parameters()], max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(
+                        model.task_encoder.parameters() if model.task_encoder else [model.head.parameters()],
+                        max_norm=1.0
+                    )
                     torch.nn.utils.clip_grad_norm_(model.head.parameters(), max_norm=1.0)
-                
+
                 metrics_buffer.append(metric)
-                
-                # Optimizer step
+
                 if (batch_id + 1) % self.gradient_interval == 0:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-                    
+
                     if len(metrics_buffer) > 0:
                         avg_metrics = self._average_metrics(metrics_buffer)
                         progress_bar.set_postfix(avg_metrics)
-                    
                     metrics_buffer = []
                     self.step += 1
-            
+
+                if batch_id % 200 == 0:
+                    ema = [round(l, 4) for l in self.models.loss_running_mean]
+                    from tqdm import tqdm
+                    tqdm.write(f"[Debug] Running mean losses: {ema}")
+
             self.epoch += 1
-            
             if self.scheduler:
                 self.scheduler.step()
     
