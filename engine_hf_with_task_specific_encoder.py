@@ -5,8 +5,8 @@ import logging
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 from tqdm import tqdm
+import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
 logger = logging.getLogger(__name__)
@@ -421,6 +421,7 @@ class MultiTaskEngine:
         return batch
     
     def train(self, num_epoch=1, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'):
+        from tqdm import tqdm
         logger.info(f"Starting training for {num_epoch} epochs with strategy={weighting_strategy}")
         if weighting_strategy == 'size_norm':
             logger.info(f"  Using dataset-size-normalized weighting: {self.task_size_weights.tolist()}")
@@ -443,7 +444,7 @@ class MultiTaskEngine:
                     shuffle=True,
                     num_workers=self.num_worker,
                     collate_fn=self.collate_fn,
-                    pin_memory=True
+                    pin_memory=False
                 )
                 dataloaders.append(iter(dataloader))
 
