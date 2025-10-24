@@ -444,12 +444,12 @@ class MultiTaskEngine:
 
         # Initialize logging buffers
         train_logs = {
-            "per_task_loss": [[] for _ in self.task_names],
-            "normalized_loss": [[] for _ in self.task_names],
+            "per_task_loss": [[] for _ in self.models.task_names],
+            "normalized_loss": [[] for _ in self.models.task_names],
             "weighted_loss": [],
-            "grad_norm_head": [[] for _ in self.task_names],
+            "grad_norm_head": [[] for _ in self.models.task_names],
             "grad_norm_shared": [],
-            "metrics": {name: [] for name in self.task_names}
+            "metrics": {name: [] for name in self.models.task_names}
         }
 
         for epoch in range(num_epoch):
@@ -576,7 +576,7 @@ class MultiTaskEngine:
                     tqdm.write(f"[Debug] Running mean losses: {ema}")
 
             plt.figure(figsize=(8,5))
-            for i, name in enumerate(self.task_names):
+            for i, name in enumerate(self.models.task_names):
                 plt.plot(train_logs["normalized_loss"][i], label=f"{name} norm loss")
             plt.xlabel("Step")
             plt.ylabel("Normalized Loss")
@@ -586,7 +586,7 @@ class MultiTaskEngine:
             #plt.show()
 
             plt.figure(figsize=(8,5))
-            for i, name in enumerate(self.task_names):
+            for i, name in enumerate(self.models.task_names):
                 plt.plot(train_logs["grad_norm_head"][i], label=f"{name} head grad norm")
             plt.plot(train_logs["grad_norm_shared"], label="Shared ProtBERT grad norm", linestyle='--')
             plt.xlabel("Step")
