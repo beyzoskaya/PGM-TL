@@ -90,7 +90,7 @@ class ModelsWrapper(nn.Module):
         self.task_names = task_names
         self.loss_running_mean = [1.0] * len(task_models)
     
-    def forward(self, batches):
+    def forward(self, batches, normalize_losses=True):
         """
         Args:
             batches: list of task-specific batches
@@ -112,6 +112,10 @@ class ModelsWrapper(nn.Module):
 
             # Compute loss
             loss = self._compute_loss(logits, batch, task_type)
+
+            if normalize_losses:
+                loss = loss / (self.loss_running_mean[task_id] + 1e-8)
+
             all_loss.append(loss)
 
             # Compute metrics
@@ -141,7 +145,6 @@ class ModelsWrapper(nn.Module):
     def update_loss_statistics(self, losses):
         for i, loss in enumerate(losses):
             loss_val = loss.detach().item()
-            # Exponential moving average
             self.loss_running_mean[i] = 0.9 * self.loss_running_mean[i] + 0.1 * loss_val
     
     def _compute_loss(self, logits, batch, task_type):
@@ -436,18 +439,20 @@ class MultiTaskEngine:
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
 
-            dataloaders = []
-            for train_set in self.train_sets:
-                dataloader = DataLoader(
+            # Create iterators for all task dataloaders
+            dataloaders = [
+                iter(DataLoader(
                     train_set,
                     batch_size=self.batch_size,
                     shuffle=True,
                     num_workers=self.num_worker,
                     collate_fn=self.collate_fn,
                     pin_memory=False
-                )
-                dataloaders.append(iter(dataloader))
+                ))
+                for train_set in self.train_sets
+            ]
 
+            # Determine batch_per_epoch if not set
             if batch_per_epoch is None:
                 lengths = [len(DataLoader(ts, batch_size=self.batch_size)) for ts in self.train_sets]
                 batch_per_epoch = min(lengths)
@@ -463,7 +468,7 @@ class MultiTaskEngine:
                     try:
                         batch = next(dataloader)
                     except StopIteration:
-                        dataloader = iter(DataLoader(
+                        dataloaders[task_id] = iter(DataLoader(
                             self.train_sets[task_id],
                             batch_size=self.batch_size,
                             shuffle=True,
@@ -471,17 +476,15 @@ class MultiTaskEngine:
                             collate_fn=self.collate_fn,
                             pin_memory=True
                         ))
-                        dataloaders[task_id] = dataloader
-                        batch = next(dataloader)
+                        batch = next(dataloaders[task_id])
 
-                    batch = self.move_to_device(batch)
-                    batches.append(batch)
+                    batches.append(self.move_to_device(batch))
 
-                per_task_loss, metric = self.models(batches)
-
+                # Forward pass with loss normalization
+                per_task_loss, metric = self.models(batches, normalize_losses=True)
                 self.models.update_loss_statistics(per_task_loss)
 
-                # --- Apply task weighting ---
+                # Task weighting
                 if weighting_strategy == 'size_norm':
                     weights = self.task_size_weights.to(self.device)
                 elif weighting_strategy == 'equal':
@@ -496,15 +499,17 @@ class MultiTaskEngine:
                 weighted_loss = weighted_loss / self.gradient_interval
                 weighted_loss.backward()
 
+                # --- Debug logging ---
                 if batch_id % 100 == 0:
-                    from tqdm import tqdm
                     losses = [round(l.item(), 5) for l in per_task_loss]
+                    raw_losses = [round(l, 5) for l in self.models.loss_running_mean]
                     wts = [round(w.item(), 4) for w in weights]
                     tqdm.write(
                         f"[Debug][Epoch {epoch+1} | Batch {batch_id}] "
-                        f"Per-task losses={losses}, Weights={wts}, Weighted total={round(weighted_loss.item(),5)}"
+                        f"Per-task losses={losses}, Weights={wts}, Weighted total={round(weighted_loss.item(),5)}, Raw losses={raw_losses}"
                     )
 
+                # --- Gradient norms ---
                 with torch.no_grad():
                     grad_norms = []
                     for model in self.models.task_models:
@@ -512,17 +517,15 @@ class MultiTaskEngine:
                         grad_norms.append(round(sum(norms) / len(norms), 4) if norms else 0.0)
                     tqdm.write(f"[Debug] Grad norms per head: {grad_norms}")
 
-                    # Shared ProtBERT gradient
                     protbert_params = [
                         p for p in self.models.task_models[0].backbone.protbert.model.parameters()
                         if p.requires_grad and p.grad is not None
                     ]
                     if protbert_params:
-                        protbert_grad_norm = torch.norm(
-                            torch.stack([p.grad.norm() for p in protbert_params])
-                        ).item()
+                        protbert_grad_norm = torch.norm(torch.stack([p.grad.norm() for p in protbert_params])).item()
                         tqdm.write(f"[Debug] Shared ProtBERT grad norm: {protbert_grad_norm:.4f}")
 
+                # --- Gradient clipping ---
                 for model in self.models.task_models:
                     torch.nn.utils.clip_grad_norm_(
                         model.task_encoder.parameters() if model.task_encoder else [model.head.parameters()],
@@ -544,7 +547,6 @@ class MultiTaskEngine:
 
                 if batch_id % 200 == 0:
                     ema = [round(l, 4) for l in self.models.loss_running_mean]
-                    from tqdm import tqdm
                     tqdm.write(f"[Debug] Running mean losses: {ema}")
 
             self.epoch += 1
