@@ -449,7 +449,7 @@ class MultiTaskEngine:
             "weighted_loss": [],
             "grad_norm_head": [[] for _ in self.models.task_names],
             "grad_norm_shared": [],
-            "metrics": {name: [] for name in self.models.task_names}
+            "metrics": {}
         }
 
         for epoch in range(num_epoch):
@@ -548,8 +548,10 @@ class MultiTaskEngine:
                     train_logs["grad_norm_shared"].append(protbert_grad_norm)
 
                 # Metrics
-                for name, val in metric.items():
-                    train_logs["metrics"][name].append(val)
+                for metric_name, val in metric.items():
+                    if metric_name not in train_logs["metrics"]:
+                        train_logs["metrics"][metric_name] = []
+                    train_logs["metrics"][metric_name].append(val)
 
                 # Gradient clipping
                 for model in self.models.task_models:
