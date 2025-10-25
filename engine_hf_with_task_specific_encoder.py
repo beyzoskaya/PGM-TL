@@ -410,13 +410,17 @@ class MultiTaskEngine:
                 except:
                     processed_targets[key] = values
 
-        if 'task_0' in processed_targets and 'label' not in processed_targets:
-            processed_targets['label'] = processed_targets['task_0']
+        # --- Automatically add 'label' key for any sequence-level task ---
+        sequence_level_tasks = getattr(self, 'sequence_level_tasks', ['task_0'])
+        for task_key in sequence_level_tasks:
+            if task_key in processed_targets and 'label' not in processed_targets:
+                processed_targets['label'] = processed_targets[task_key]
 
         return {
             'sequence': sequences,
             'targets': processed_targets
         }
+
 
     def move_to_device(self, batch):
         if isinstance(batch, dict):
