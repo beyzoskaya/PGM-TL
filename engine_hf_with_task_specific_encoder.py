@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
+import matplotlib.pyplot as plt
+import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -99,51 +101,56 @@ class ModelsWrapper(nn.Module):
             all_loss: [num_tasks] - per-task losses
             all_metric: dict of per-task metrics
         """
-        all_loss = []
+        all_loss_raw = []
         all_metric = {}
 
         for task_id, batch in enumerate(batches):
             model = self.task_models[task_id]
             task_type = model.task_type
 
-            # Forward pass
             outputs = model(batch)
             logits = outputs['logits']
 
-            # Compute loss
-            loss = self._compute_loss(logits, batch, task_type)
+            # --- Compute raw loss (no normalization) ---
+            loss_raw = self._compute_loss(logits, batch, task_type)
+            all_loss_raw.append(loss_raw)
 
-            if normalize_losses:
-                loss = loss / (self.loss_running_mean[task_id] + 1e-8)
-
-            all_loss.append(loss)
-
-            # Compute metrics
+            # --- Compute metrics ---
             metric = self._compute_metrics(logits, batch, task_type)
-
-            # Store with task name
             for k, v in metric.items():
                 metric_name = f"{self.task_names[task_id]} {k}"
                 all_metric[metric_name] = v
 
-        all_loss = torch.stack(all_loss)
+        all_loss_raw = torch.stack(all_loss_raw)
 
-        # --- Debug: Raw per-task loss scales ---
+        if normalize_losses:
+            norm_losses = []
+            for i, lr in enumerate(all_loss_raw):
+                denom = self.loss_running_mean[i] + 1e-8
+                norm_losses.append(lr / denom)
+            all_loss_norm = torch.stack(norm_losses)
+        else:
+            all_loss_norm = all_loss_raw.clone()
+
+        loss_list = [round(l.item(), 4) for l in all_loss_raw]
+        norm_list = [round(l.item(), 4) for l in all_loss_norm]
+        logger.debug(f"[Forward] Raw losses={loss_list}, Normalized={norm_list}")
+
         if not hasattr(self, "_debug_counter"):
             self._debug_counter = 0
         self._debug_counter += 1
         if self._debug_counter % 100 == 0:
-            loss_vals = [round(l.item(), 5) for l in all_loss]
+            loss_vals = [round(l.item(), 5) for l in all_loss_raw]
             try:
                 from tqdm import tqdm
                 tqdm.write(f"[Debug] Step {self._debug_counter}: Raw per-task losses {loss_vals}")
             except Exception:
                 print(f"[Debug] Step {self._debug_counter}: Raw per-task losses {loss_vals}")
 
-        return all_loss, all_metric
+        return all_loss_norm, all_metric, all_loss_raw
 
-    def update_loss_statistics(self, losses):
-        for i, loss in enumerate(losses):
+    def update_loss_statistics(self, losses_raw):
+        for i, loss in enumerate(losses_raw):
             loss_val = loss.detach().item()
             self.loss_running_mean[i] = 0.9 * self.loss_running_mean[i] + 0.1 * loss_val
     
@@ -425,9 +432,7 @@ class MultiTaskEngine:
     
     def train(self, num_epoch=4, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'):
         from tqdm import tqdm
-        import matplotlib.pyplot as plt
-        import pickle
-
+        
         save_path = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
         os.makedirs(save_path, exist_ok=True)
 
@@ -439,26 +444,24 @@ class MultiTaskEngine:
         elif weighting_strategy == 'center_task':
             logger.info(f"  Center task weight: 1.0, Auxiliary weight: {tradeoff}")
         elif weighting_strategy == 'boosted':
-            logger.info("  Using dynamic task boosting based on latest performance metrics")
+            logger.info("  Using loss-based dynamic boosting strategy")
 
         self.models.train()
         self.current_weighting_strategy = weighting_strategy
 
-        # Initialize logging buffers
         train_logs = {
             "per_task_loss": [[] for _ in self.models.task_names],
             "normalized_loss": [[] for _ in self.models.task_names],
             "weighted_loss": [],
             "grad_norm_head": [[] for _ in self.models.task_names],
             "grad_norm_shared": [],
-            "task_weights": [],  # log dynamic task weights
+            "task_weights": [],
             "metrics": {}
         }
 
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
 
-            # Prepare dataloaders
             dataloaders = []
             for train_set in self.train_sets:
                 dataloader = DataLoader(
@@ -481,7 +484,7 @@ class MultiTaskEngine:
             for batch_id in progress_bar:
                 batches = []
 
-                # Get one batch per task
+                # --- Get one batch per task ---
                 for task_id, dataloader in enumerate(dataloaders):
                     try:
                         batch = next(dataloader)
@@ -499,59 +502,54 @@ class MultiTaskEngine:
                     batch = self.move_to_device(batch)
                     batches.append(batch)
 
-                # Forward pass
-                per_task_loss, metric = self.models(batches)
+                # --- Forward pass (returns normalized + raw losses) ---
+                per_task_loss_norm, metric, per_task_loss_raw = self.models(batches)
 
-                # Update running mean
-                self.models.update_loss_statistics(per_task_loss)
+                # --- Update running mean using RAW losses ---
+                self.models.update_loss_statistics(per_task_loss_raw)
 
-                # --- Task weighting ---
+                # --- Compute dynamic task weights ---
                 if weighting_strategy == 'size_norm':
                     weights = self.task_size_weights.to(self.device)
+
                 elif weighting_strategy == 'equal':
                     weights = torch.ones(len(batches), device=self.device) / len(batches)
+
                 elif weighting_strategy == 'center_task':
                     weights = torch.tensor([1.0] + [tradeoff] * (len(batches) - 1), device=self.device)
                     weights = weights / weights.sum()
+
                 elif weighting_strategy == 'boosted':
-                    last_metrics = metrics_buffer[-1] if metrics_buffer else metric
-                    boost_factors = []
-                    for i, name in enumerate(self.models.task_names):
-                        val = last_metrics.get(f"{name} accuracy", None)
-                        if val is None:
-                            # fallback for regression or missing metric
-                            val = last_metrics.get(f"{name} mse", 1.0)
-                            boost = val  # higher loss → higher weight
-                        else:
-                            boost = 1.0 - val  # lower accuracy → higher weight
-                        boost_factors.append(boost + 1e-8)
-                    boost_tensor = torch.tensor(boost_factors, device=self.device)
-                    weights = boost_tensor / boost_tensor.sum()
+                    raw = per_task_loss_raw.detach()
+                    T = 0.5  # smaller T => more aggressive boosting
+                    weights = torch.softmax(raw / T, dim=0)
+                    weights = weights.to(self.device)
+
                 else:
                     raise ValueError(f"Unknown weighting strategy: {weighting_strategy}")
 
-                weighted_loss = (per_task_loss * weights).sum()
+                # --- Weighted loss ( normalized losses for gradient stability) ---
+                weighted_loss = (per_task_loss_norm * weights).sum()
                 weighted_loss = weighted_loss / self.gradient_interval
                 weighted_loss.backward()
 
-                # --- Debug prints ---
                 if batch_id % 100 == 0:
-                    losses = [round(l.item(), 5) for l in per_task_loss]
-                    wts = [round(w.item(), 4) for w in weights]
+                    raw_vals = [round(x.item(), 5) for x in per_task_loss_raw]
+                    norm_vals = [round(x.item(), 5) for x in per_task_loss_norm]
+                    wts = [round(x.item(), 4) for x in weights]
                     tqdm.write(
                         f"[Debug][Epoch {epoch+1} | Batch {batch_id}] "
-                        f"Per-task losses={losses}, Weights={wts}, Weighted total={round(weighted_loss.item(),5)}"
+                        f"Raw={raw_vals}, Norm={norm_vals}, Weights={wts}, WeightedTotal={round(weighted_loss.item(),5)}"
                     )
 
-                # --- Log for plotting ---
-                for i, loss in enumerate(per_task_loss):
+                for i, loss in enumerate(per_task_loss_raw):
                     train_logs["per_task_loss"][i].append(loss.item())
-                    normalized = loss / (self.models.loss_running_mean[i] + 1e-8)
-                    train_logs["normalized_loss"][i].append(normalized.item())
+                    norm_val = per_task_loss_norm[i].item()
+                    train_logs["normalized_loss"][i].append(norm_val)
                 train_logs["weighted_loss"].append(weighted_loss.item())
                 train_logs["task_weights"].append(weights.detach().cpu().tolist())
 
-                # Grad norms
+                # --- Grad norms ---
                 for i, model in enumerate(self.models.task_models):
                     norms = [p.grad.norm().item() for p in model.head.parameters() if p.grad is not None]
                     avg_norm = sum(norms)/len(norms) if norms else 0.0
@@ -565,13 +563,13 @@ class MultiTaskEngine:
                     protbert_grad_norm = torch.norm(torch.stack([p.grad.norm() for p in protbert_params])).item()
                     train_logs["grad_norm_shared"].append(protbert_grad_norm)
 
-                # Metrics
+                # --- Metrics ---
                 for metric_name, val in metric.items():
                     if metric_name not in train_logs["metrics"]:
                         train_logs["metrics"][metric_name] = []
                     train_logs["metrics"][metric_name].append(val)
 
-                # Gradient clipping
+                # --- Gradient clipping ---
                 for model in self.models.task_models:
                     torch.nn.utils.clip_grad_norm_(
                         model.task_encoder.parameters() if model.task_encoder else [model.head.parameters()],
@@ -595,7 +593,6 @@ class MultiTaskEngine:
                     ema = [round(l, 4) for l in self.models.loss_running_mean]
                     tqdm.write(f"[Debug] Running mean losses: {ema}")
 
-            # --- Save plots per epoch ---
             plt.figure(figsize=(8,5))
             for i, name in enumerate(self.models.task_names):
                 plt.plot(train_logs["normalized_loss"][i], label=f"{name} norm loss")
