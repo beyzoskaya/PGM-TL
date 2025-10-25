@@ -386,6 +386,7 @@ class MultiTaskEngine:
             logger.info(f"Task {i}: Train={len(train_set)}, Valid={len(valid_set)}, Test={len(test_set)}")
     
     def collate_fn(self, batch):
+
         sequences = []
         targets_dict = defaultdict(list)
         
@@ -408,12 +409,15 @@ class MultiTaskEngine:
                     processed_targets[key] = torch.tensor(values, dtype=torch.float)
                 except:
                     processed_targets[key] = values
-        
+
+        if 'task_0' in processed_targets and 'label' not in processed_targets:
+            processed_targets['label'] = processed_targets['task_0']
+
         return {
             'sequence': sequences,
             'targets': processed_targets
         }
-    
+
     def move_to_device(self, batch):
         if isinstance(batch, dict):
             moved_batch = {}
