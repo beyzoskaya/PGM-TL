@@ -362,122 +362,122 @@ if __name__ == "__main__":
 
     solver = build_solver(cfg, logger)
 
-    print("\n🔍 [Pre-Run Check] Starting...")
-    drive_path = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
-    if os.path.exists(drive_path):
-        print(f"✅ Drive path exists: {drive_path}")
-    else:
-        os.makedirs(drive_path, exist_ok=True)
-        print(f"🆕 Created drive path: {drive_path}")
+    # print("\n🔍 [Pre-Run Check] Starting...")
+    # drive_path = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
+    # if os.path.exists(drive_path):
+    #     print(f"✅ Drive path exists: {drive_path}")
+    # else:
+    #     os.makedirs(drive_path, exist_ok=True)
+    #     print(f"🆕 Created drive path: {drive_path}")
 
-    try:
-        names = solver.models.task_names
-        means = solver.models.loss_running_mean
-        print(f"✅ Found {len(names)} task names: {names}")
-        print(f"✅ Running mean losses initialized: {means}")
-    except Exception as e:
-        print(f"⚠️ Task model check failed: {e}")
+    # try:
+    #     names = solver.models.task_names
+    #     means = solver.models.loss_running_mean
+    #     print(f"✅ Found {len(names)} task names: {names}")
+    #     print(f"✅ Running mean losses initialized: {means}")
+    # except Exception as e:
+    #     print(f"⚠️ Task model check failed: {e}")
 
-    try:
-        train_sets = solver.train_sets
-        dataloader = torch.utils.data.DataLoader(
-            train_sets[0],
-            batch_size=1,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=solver.collate_fn
-        )
-        batch = next(iter(dataloader))
-        batch = solver.move_to_device(batch)
-        losses_norm, metrics, losses_raw = solver.models([batch])
-        print(f"✅ Forward pass OK. Raw losses={losses_raw.tolist()}, Norm={losses_norm.tolist()}")
-    except Exception as e:
-        print(f"⚠️ Forward pass test failed: {e}")
+    # try:
+    #     train_sets = solver.train_sets
+    #     dataloader = torch.utils.data.DataLoader(
+    #         train_sets[0],
+    #         batch_size=1,
+    #         shuffle=True,
+    #         num_workers=0,
+    #         collate_fn=solver.collate_fn
+    #     )
+    #     batch = next(iter(dataloader))
+    #     batch = solver.move_to_device(batch)
+    #     losses_norm, metrics, losses_raw = solver.models([batch])
+    #     print(f"✅ Forward pass OK. Raw losses={losses_raw.tolist()}, Norm={losses_norm.tolist()}")
+    # except Exception as e:
+    #     print(f"⚠️ Forward pass test failed: {e}")
 
-    try:
-        files = os.listdir(drive_path)
-        if any(f.endswith(".pkl") for f in files):
-            print(f"✅ Log files saved: {[f for f in files if f.endswith('.pkl')]}")
-        else:
-            print(f"⚠️ No log files found in {drive_path}")
-    except Exception as e:
-        print(f"⚠️ Could not read log directory: {e}")
+    # try:
+    #     files = os.listdir(drive_path)
+    #     if any(f.endswith(".pkl") for f in files):
+    #         print(f"✅ Log files saved: {[f for f in files if f.endswith('.pkl')]}")
+    #     else:
+    #         print(f"⚠️ No log files found in {drive_path}")
+    # except Exception as e:
+    #     print(f"⚠️ Could not read log directory: {e}")
 
-    print("\n✅ Pre-run check complete! If all checks are green, you're safe to run full training.")
+    # print("\n✅ Pre-run check complete! If all checks are green, you're safe to run full training.")
 
-    # best_metrics = {}
-    # best_epoch = 0
+    best_metrics = {}
+    best_epoch = 0
     
-    # start_epoch = 0
-    # if args.resume and os.path.exists(args.resume):
-    #     logger.info(f"Resuming from checkpoint: {args.resume}")
-    #     solver.load(args.resume, load_optimizer=True)
-    #     start_epoch = solver.epoch
-    # elif args.resume_auto:
-    #     latest_ckpt = sorted(glob.glob("checkpoint_epoch_*.pt"))
-    #     if latest_ckpt:
-    #         checkpoint_path = latest_ckpt[-1]
-    #         logger.info(f"Auto-resuming from latest checkpoint: {checkpoint_path}")
-    #         solver.load(checkpoint_path, load_optimizer=True)
-    #         start_epoch = solver.epoch
+    start_epoch = 0
+    if args.resume and os.path.exists(args.resume):
+        logger.info(f"Resuming from checkpoint: {args.resume}")
+        solver.load(args.resume, load_optimizer=True)
+        start_epoch = solver.epoch
+    elif args.resume_auto:
+        latest_ckpt = sorted(glob.glob("checkpoint_epoch_*.pt"))
+        if latest_ckpt:
+            checkpoint_path = latest_ckpt[-1]
+            logger.info(f"Auto-resuming from latest checkpoint: {checkpoint_path}")
+            solver.load(checkpoint_path, load_optimizer=True)
+            start_epoch = solver.epoch
 
-    # for epoch in range(start_epoch, cfg.train.num_epoch):
-    #     logger.info(f"\n{'='*60}")
-    #     logger.info(f"Epoch {epoch + 1}/{cfg.train.num_epoch}")
-    #     logger.info(f"{'='*60}")
+    for epoch in range(start_epoch, cfg.train.num_epoch):
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Epoch {epoch + 1}/{cfg.train.num_epoch}")
+        logger.info(f"{'='*60}")
         
-    #     # Train for center task weightining
-    #     #solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
+        # Train for center task weightining
+        #solver.train(num_epoch=1, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
 
-    #     # Train for equal weightining of downstream tasks
-    #     #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
+        # Train for equal weightining of downstream tasks
+        #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='equal')
 
-    #     # Train for loss normalization weighting
-    #     #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='loss_norm')
+        # Train for loss normalization weighting
+        #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='loss_norm')
 
-    #     #solver.train(num_epoch=4, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
+        #solver.train(num_epoch=4, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
 
-    #     # Train for boosted weighting
-    #     solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='boosted')
+        # Train for boosted weighting
+        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='boosted')
       
-    #     # Validate
-    #     val_metrics = solver.evaluate(split='valid', log=True)
+        # Validate
+        val_metrics = solver.evaluate(split='valid', log=True)
         
-    #     # Save checkpoint
-    #     checkpoint_path = f"checkpoint_epoch_{epoch:03d}.pt"
-    #     solver.save(checkpoint_path)
-    #     logger.info(f"Checkpoint saved: {checkpoint_path}")
+        # Save checkpoint
+        checkpoint_path = f"checkpoint_epoch_{epoch:03d}.pt"
+        solver.save(checkpoint_path)
+        logger.info(f"Checkpoint saved: {checkpoint_path}")
         
-    #     # Track best epoch based on center task (Task_0)
-    #     center_task_metric = None
-    #     for key in val_metrics:
-    #         if key.startswith('Center - Task_0'):
-    #             center_task_metric = val_metrics[key]
-    #             break
+        # Track best epoch based on center task (Task_0)
+        center_task_metric = None
+        for key in val_metrics:
+            if key.startswith('Center - Task_0'):
+                center_task_metric = val_metrics[key]
+                break
         
-    #     if center_task_metric is not None:
-    #         if epoch == 0 or center_task_metric < best_metrics.get('Center - Task_0', float('inf')):
-    #             best_metrics = val_metrics.copy()
-    #             best_epoch = epoch
-    #             logger.info(f"✓ New best validation metrics (epoch {epoch + 1})")
+        if center_task_metric is not None:
+            if epoch == 0 or center_task_metric < best_metrics.get('Center - Task_0', float('inf')):
+                best_metrics = val_metrics.copy()
+                best_epoch = epoch
+                logger.info(f"✓ New best validation metrics (epoch {epoch + 1})")
         
-    #     logger.info(f"Validation Metrics: {val_metrics}")
+        logger.info(f"Validation Metrics: {val_metrics}")
     
-    # # Test on best epoch
-    # logger.info(f"\n{'='*60}")
-    # logger.info(f"Testing on best epoch {best_epoch + 1}")
-    # logger.info(f"{'='*60}")
+    # Test on best epoch
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Testing on best epoch {best_epoch + 1}")
+    logger.info(f"{'='*60}")
     
-    # test_metrics = solver.evaluate(split='test', log=True)
+    test_metrics = solver.evaluate(split='test', log=True)
     
-    # logger.info(f"\nFinal Test Results:")
-    # for key, value in test_metrics.items():
-    #     logger.info(f"  {key}: {value:.4f}")
-    # logger.info("Training completed successfully!")
+    logger.info(f"\nFinal Test Results:")
+    for key, value in test_metrics.items():
+        logger.info(f"  {key}: {value:.4f}")
+    logger.info("Training completed successfully!")
 
-    # log_dir = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
-    # task_names = ["Task_0", "Task_1", "Task_2"]
+    log_dir = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
+    task_names = ["Task_0", "Task_1", "Task_2"]
 
-    # plot_task_weight_evolution(task_names, log_dir)
-    # plot_task_performance_trends(log_dir)
-    # plot_loss_and_grad_stability(log_dir, task_names)
+    plot_task_weight_evolution(task_names, log_dir)
+    plot_task_performance_trends(log_dir)
+    plot_loss_and_grad_stability(log_dir, task_names)
