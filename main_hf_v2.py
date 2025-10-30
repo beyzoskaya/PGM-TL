@@ -362,6 +362,11 @@ if __name__ == "__main__":
 
     solver = build_solver(cfg, logger)
 
+    print("\nModel sanity check:")
+    print(f"Tasks: {solver.models.task_names}")
+    print(f"Trainable params: {sum(p.numel() for p in solver.models.parameters() if p.requires_grad):,}")
+    print(f"Total params: {sum(p.numel() for p in solver.models.parameters()):,}")
+
     # print("\n🔍 [Pre-Run Check] Starting...")
     # drive_path = "/content/drive/MyDrive/protein_multitask_outputs/multitask_logs"
     # if os.path.exists(drive_path):
@@ -438,8 +443,11 @@ if __name__ == "__main__":
         #solver.train(num_epoch=4, batch_per_epoch=None, tradeoff=cfg.train.tradeoff)
 
         # Train for boosted weighting
-        solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='boosted')
-      
+        #solver.train(num_epoch=4, batch_per_epoch=None, weighting_strategy='boosted')
+
+        # Train with uncertanity weighting + top-k layer gradnorm
+        solver.train_uncertanity_gradnorm_norm(num_epoch=4, batch_per_epoch=None, weighting_strategy='uncertainty_gradnorm')
+
         # Validate
         val_metrics = solver.evaluate(split='valid', log=True)
         
