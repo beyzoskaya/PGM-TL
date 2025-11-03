@@ -451,7 +451,7 @@ if __name__ == "__main__":
             batch_per_epoch=None,
             weighting_strategy='uncertainty_gradnorm'
         )
-        
+
         # Validate
         val_metrics = solver.evaluate(split='valid', log=True)
         
