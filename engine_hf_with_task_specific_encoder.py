@@ -643,7 +643,7 @@ class MultiTaskEngine:
             if self.scheduler:
                 self.scheduler.step()
     
-    def train_uncertainty_gradnorm_norm(
+    def train_uncertanity_gradnorm_norm(
         self, num_epoch=4, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'
     ):
         from tqdm import tqdm
