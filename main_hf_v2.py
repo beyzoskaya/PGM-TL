@@ -448,7 +448,6 @@ if __name__ == "__main__":
         # Train with uncertanity weighting + top-k layer gradnorm
         solver.train_uncertanity_gradnorm_norm(
             num_epoch=4,
-            batch_per_epoch=None,
             weighting_strategy='uncertainty_gradnorm'
         )
 
