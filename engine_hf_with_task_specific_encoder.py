@@ -643,9 +643,7 @@ class MultiTaskEngine:
             if self.scheduler:
                 self.scheduler.step()
     
-    def train_uncertanity_gradnorm_norm(
-        self, num_epoch=4, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'
-    ):
+    def train_uncertanity_gradnorm_norm(self, num_epoch=4, batch_per_epoch=None, tradeoff=1.0, weighting_strategy='size_norm'):
         from tqdm import tqdm
         import torch.nn.functional as F
         import matplotlib.pyplot as plt
@@ -659,24 +657,20 @@ class MultiTaskEngine:
         self.models.train()
         self.current_weighting_strategy = weighting_strategy
 
-        # --- Initialize uncertainty + GradNorm parameters ---
         if weighting_strategy == 'uncertainty_gradnorm':
             if not hasattr(self, "log_sigma"):
-                self.log_sigma = torch.nn.Parameter(
-                    torch.zeros(len(self.models.task_names), device=self.device)
-                )
+                # learned log-variance per task
+                self.log_sigma = torch.nn.Parameter(torch.zeros(len(self.models.task_names), device=self.device))
                 try:
-                    self.optimizer.add_param_group({"params": [self.log_sigma],
-                                                "lr": self.optimizer.param_groups[0]['lr']})
+                    self.optimizer.add_param_group({"params": [self.log_sigma], "lr": self.optimizer.param_groups[0]['lr']})
                 except Exception as e:
                     logger.warning(f"Could not add log_sigma to optimizer param groups: {e}")
-                logger.info(f"Initialized log_sigma parameters for {len(self.models.task_names)} tasks.")
+                logger.info(f"  Initialized uncertainty log_sigma parameters for {len(self.models.task_names)} tasks.")
             if not hasattr(self, "gradnorm_alpha"):
                 self.gradnorm_alpha = 0.12
             if not hasattr(self, "initial_losses"):
                 self.initial_losses = None
 
-        # --- Prepare logging ---
         train_logs = {
             "per_task_loss": [[] for _ in self.models.task_names],
             "normalized_loss": [[] for _ in self.models.task_names],
@@ -684,10 +678,9 @@ class MultiTaskEngine:
             "grad_norm_head": [[] for _ in self.models.task_names],
             "grad_norm_shared": [],
             "task_weights": [],
-            "metrics": {}
+            "metrics": {name: defaultdict(list) for name in self.models.task_names}  # per-task metrics
         }
 
-        # --- Determine last 3 layers of ProtBERT for GradNorm ---
         encoder_layers = list(self.models.task_models[0].backbone.protbert.model.encoder.layer)
         num_layers = len(encoder_layers)
         last_k = 3
@@ -697,7 +690,6 @@ class MultiTaskEngine:
         for epoch in range(num_epoch):
             logger.info(f"Epoch {epoch + 1}/{num_epoch}")
 
-            # --- Prepare iterators for each task ---
             dataloaders = []
             for train_set in self.train_sets:
                 dataloader = DataLoader(
@@ -710,14 +702,13 @@ class MultiTaskEngine:
                 )
                 dataloaders.append(iter(dataloader))
 
-            # Determine number of batches per epoch
             if batch_per_epoch is None:
                 lengths = [len(DataLoader(ts, batch_size=self.batch_size)) for ts in self.train_sets]
                 batch_per_epoch = min(lengths)
                 logger.info(f"Batch per epoch set to {batch_per_epoch} (based on smallest dataset)")
 
-            metrics_buffer = []
             progress_bar = tqdm(range(batch_per_epoch), desc=f"Epoch {epoch + 1}")
+            metrics_buffer = []
 
             for batch_id in progress_bar:
                 batches = []
@@ -738,32 +729,32 @@ class MultiTaskEngine:
                     batch = self.move_to_device(batch)
                     batches.append(batch)
 
-                # --- Forward pass ---
+                # forward
                 per_task_loss_norm, metric, per_task_loss_raw = self.models(batches)
 
-                # --- Update EMA loss statistics ---
+                # update EMA running mean
                 self.models.update_loss_statistics(per_task_loss_raw)
 
-                # --- Compute weights for each strategy ---
+                # compute weights
                 if weighting_strategy == 'size_norm':
                     weights = self.task_size_weights.to(self.device)
                 elif weighting_strategy == 'equal':
                     weights = torch.ones(len(batches), device=self.device) / len(batches)
                 elif weighting_strategy == 'center_task':
-                    weights = torch.tensor([1.0] + [tradeoff]*(len(batches)-1), device=self.device)
+                    weights = torch.tensor([1.0] + [tradeoff] * (len(batches) - 1), device=self.device)
                     weights = weights / weights.sum()
                 elif weighting_strategy == 'boosted':
                     T = 0.5
                     weights = torch.softmax(per_task_loss_raw.detach() / T, dim=0).to(self.device)
                 elif weighting_strategy == 'uncertainty_gradnorm':
-                    # --- Uncertainty weighting ---
+                    # Uncertainty weighting
                     precision = torch.exp(-self.log_sigma)
                     weighted_losses_for_gradnorm = precision * per_task_loss_raw + 0.5 * self.log_sigma
 
                     self.optimizer.zero_grad()
                     weighted_losses_for_gradnorm.sum().backward(retain_graph=True)
 
-                    # --- GradNorm: compute per-task grad norms on last layers ---
+                    # collect top-k shared params grads
                     shared_params = []
                     for n, p in self.models.task_models[0].backbone.protbert.model.named_parameters():
                         if not p.requires_grad:
@@ -787,12 +778,9 @@ class MultiTaskEngine:
                     target = loss_ratios.mean()
                     relative = loss_ratios / (target + 1e-12)
                     gradnorm_loss = torch.mean(torch.abs(grad_norms - grad_norms.mean() * (relative ** self.gradnorm_alpha)))
-                    gradnorm_loss = torch.clamp(gradnorm_loss, max=10.0)  # safety
 
-                    # Final composed scalar (not used for backward directly)
                     composed_loss_scalar = weighted_losses_for_gradnorm.sum() + 0.1 * gradnorm_loss
                     weights = (precision / precision.sum()).to(self.device)
-
                     self.optimizer.zero_grad()
                 else:
                     raise ValueError(f"Unknown weighting strategy: {weighting_strategy}")
@@ -802,11 +790,10 @@ class MultiTaskEngine:
                 except Exception:
                     pass
 
-                # --- Backward with normalized loss ---
                 weighted_loss = (per_task_loss_norm * weights).sum() / self.gradient_interval
                 weighted_loss.backward()
 
-                # --- Gradient clipping & logging ---
+                # clip grads & log
                 for model in self.models.task_models:
                     torch.nn.utils.clip_grad_norm_(model.head.parameters(), max_norm=1.0)
 
@@ -815,31 +802,36 @@ class MultiTaskEngine:
                     avg_norm = sum(norms)/len(norms) if norms else 0.0
                     train_logs["grad_norm_head"][i].append(avg_norm)
 
-                protbert_params = [p for p in self.models.task_models[0].backbone.protbert.model.parameters()
-                                if p.requires_grad and p.grad is not None]
+                protbert_params = [p for p in self.models.task_models[0].backbone.protbert.model.parameters() if p.requires_grad and p.grad is not None]
                 if protbert_params:
                     train_logs["grad_norm_shared"].append(torch.norm(torch.stack([p.grad.norm() for p in protbert_params])).item())
 
-                # --- Optimizer step controlled by gradient_interval ---
                 if (batch_id + 1) % self.gradient_interval == 0:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-                    if len(metrics_buffer) > 0:
-                        avg_metrics = self._average_metrics(metrics_buffer)
-                        progress_bar.set_postfix(avg_metrics)
-                    metrics_buffer = []
                     self.step += 1
 
-                # --- Logging per-task losses and metrics ---
+                # store losses
                 for i, loss in enumerate(per_task_loss_raw):
                     train_logs["per_task_loss"][i].append(loss.item())
                     train_logs["normalized_loss"][i].append(per_task_loss_norm[i].item())
+                
                 train_logs["weighted_loss"].append(weighted_loss.item())
                 train_logs["task_weights"].append(weights.detach().cpu().tolist())
-                for metric_name, val in metric.items():
-                    train_logs["metrics"].setdefault(metric_name, []).append(val)
 
-            # --- Plot per-epoch ---
+                # store metrics per task
+                for i, task_name in enumerate(self.models.task_names):
+                    for metric_name, val in metric[task_name].items():
+                        train_logs["metrics"][task_name][metric_name].append(val)
+
+                # update progress bar every batch
+                avg_metrics = {}
+                for task_name in self.models.task_names:
+                    for metric_name, vals in train_logs["metrics"][task_name].items():
+                        avg_metrics[f"{task_name}_{metric_name}"] = round(sum(vals[-10:])/len(vals[-10:]), 4)  # last 10 batches
+                progress_bar.set_postfix(avg_metrics)
+
+            # --- Save logs and plots per epoch ---
             plt.figure(figsize=(8,5))
             for i, name in enumerate(self.models.task_names):
                 plt.plot(train_logs["normalized_loss"][i], label=f"{name} norm loss")
@@ -862,13 +854,18 @@ class MultiTaskEngine:
             plt.savefig(os.path.join(save_path, f"epoch{epoch+1}_grad_norm.png"))
             plt.close()
 
+            # log epoch-level metrics
+            for task_name in self.models.task_names:
+                logger.info(f"Epoch {epoch+1} metrics ({task_name}): "
+                            f"{ {k: round(sum(v)/len(v),4) for k,v in train_logs['metrics'][task_name].items()} }")
+
+            # save logs
             with open(os.path.join(save_path, f"train_logs_epoch{epoch+1}.pkl"), "wb") as f:
                 pickle.dump(train_logs, f)
 
             self.epoch += 1
             if self.scheduler:
                 self.scheduler.step()
-
 
     def _average_metrics(self, metrics_list):
         if not metrics_list:
