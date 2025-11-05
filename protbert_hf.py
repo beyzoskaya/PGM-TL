@@ -35,6 +35,15 @@ class ProtBert(nn.Module):
             raise ValueError(f"Unknown readout `{readout}`")
     
     def forward(self, batch):
+        """
+        Forward pass with proper attention mask alignment.
+        
+        Args:
+            batch: dict with 'sequence' key or object with 'sequence' attribute
+        
+        Returns:
+            dict with 'graph_feature', 'residue_feature', and aligned 'attention_mask'
+        """
         if isinstance(batch, dict) and 'sequence' in batch:
             sequences = batch['sequence']
         elif hasattr(batch, 'sequence'):
@@ -45,8 +54,10 @@ class ProtBert(nn.Module):
         if isinstance(sequences, str):
             sequences = [sequences]
         
+        # Add spaces between amino acids for BERT tokenization
         spaced_sequences = [' '.join(seq) for seq in sequences]
         
+        # Tokenize sequences
         encoded = self.tokenizer(
             spaced_sequences,
             add_special_tokens=True,
@@ -65,26 +76,30 @@ class ProtBert(nn.Module):
         # Extract features
         last_hidden_state = outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
         
-        # Get graph-level features
+        # --- Get graph-level features (sequence-level representation) ---
         if self.readout == "pooler" and hasattr(outputs, 'pooler_output'):
-            graph_feature = outputs.pooler_output
+            graph_feature = outputs.pooler_output  # [batch_size, hidden_size]
         elif self.readout == "mean":
-            attention_mask = encoded['attention_mask'].unsqueeze(-1)
-            masked_hidden = last_hidden_state * attention_mask
-            graph_feature = masked_hidden.sum(dim=1) / attention_mask.sum(dim=1)
+            attention_mask_expanded = encoded['attention_mask'].unsqueeze(-1)  # [batch, seq_len, 1]
+            masked_hidden = last_hidden_state * attention_mask_expanded
+            graph_feature = masked_hidden.sum(dim=1) / attention_mask_expanded.sum(dim=1)  # [batch, hidden]
         elif self.readout == "sum":
-            attention_mask = encoded['attention_mask'].unsqueeze(-1)
-            graph_feature = (last_hidden_state * attention_mask).sum(dim=1)
+            attention_mask_expanded = encoded['attention_mask'].unsqueeze(-1)
+            graph_feature = (last_hidden_state * attention_mask_expanded).sum(dim=1)  # [batch, hidden]
         else:
-            graph_feature = last_hidden_state[:, 0]
+            graph_feature = last_hidden_state[:, 0]  # [batch, hidden] - CLS token
         
-        # For residue-level features, remove special tokens [CLS] and [SEP]
-        residue_feature = last_hidden_state[:, 1:-1]
+        # --- For residue-level features, remove special tokens [CLS] and [SEP] ---
+        residue_feature = last_hidden_state[:, 1:-1]  # [batch, seq_len-2, hidden]
+        
+        # --- IMPORTANT: Return ALIGNED attention mask (also stripped of special tokens) ---
+        # Remove attention mask for special tokens to match residue_feature
+        residue_attention_mask = encoded['attention_mask'][:, 1:-1]  # [batch, seq_len-2]
         
         return {
-            "graph_feature": graph_feature,
-            "residue_feature": residue_feature,
-            "attention_mask": encoded['attention_mask'][:, 1:-1]
+            "graph_feature": graph_feature,           # [batch, hidden]
+            "residue_feature": residue_feature,       # [batch, seq_len-2, hidden]
+            "attention_mask": residue_attention_mask  # [batch, seq_len-2] - ALIGNED!
         }
     
     def extract_sequence_from_graph(self, batch):

@@ -6,7 +6,9 @@ import torch
 from torch.utils.data import Dataset, Subset
 from datasets import load_dataset
 from transformers import BertTokenizer
+import logging
 
+logger = logging.getLogger(__name__)
 
 class ProteinDataset(Dataset):
     
@@ -165,12 +167,14 @@ class Thermostability(HuggingFaceDataset):
 
 class SecondaryStructure(HuggingFaceDataset):
     """
-    Token-level classification task: predict secondary structure per residue (8 classes)
+    Token-level classification task: predict secondary structure per residue (8 classes - Q8)
     
     Data format from HuggingFace:
-    {'seq': 'GKITFYEDRGFQGRH...', 'label': [7, 4, 4, 4, 4, ...]}
+    {'seq': 'GKITFYEDRGFQGRH...', 'label': '01234567...'}
     
-    Output targets: {'target': [[7, 4, 4, ...], ...]}  (token-level lists)
+    Output targets: {'target': [[0, 1, 2, 3, 4, 5, 6, 7, ...], ...]}  (token-level lists)
+    
+    Q8 Classes: 0=coil, 1=helix, 2=sheet, etc.
     """
 
     target_fields = ["label"]
@@ -180,8 +184,7 @@ class SecondaryStructure(HuggingFaceDataset):
         
         try:
             dataset_name = "proteinglm/ssp_q8"
-            
-            # Load dataset
+        
             self.load_hf_dataset(
                 dataset_name,
                 sequence_column='seq',
@@ -189,33 +192,89 @@ class SecondaryStructure(HuggingFaceDataset):
                 verbose=verbose
             )
             
-            # Convert labels to list format if they're strings
             if 'label' in self.targets:
                 processed_targets = []
-                for item in self.targets['label']:
+                invalid_count = 0
+                length_mismatch_count = 0
+                
+                for seq_idx, item in enumerate(self.targets['label']):
                     if isinstance(item, str):
-                        # Convert string to list of integers
-                        processed_targets.append([int(x) for x in list(item)])
+                        # Convert string "01234567..." to list of integers [0, 1, 2, 3, ...]
+                        labels = []
+                        for char_idx, x in enumerate(list(item)):
+                            try:
+                                val = int(x)
+                                # Validate Q8 range [0-7]
+                                if val < 0 or val > 7:
+                                    logger.warning(
+                                        f"[SecondaryStructure] Invalid Q8 label at position {char_idx}: "
+                                        f"got {val}, expected 0-7. Replacing with 0 (coil)."
+                                    )
+                                    val = 0
+                                    invalid_count += 1
+                                labels.append(val)
+                            except ValueError as e:
+                                logger.warning(
+                                    f"[SecondaryStructure] Could not convert label '{x}' to int at position {char_idx}"
+                                )
+                                labels.append(0)
+                                invalid_count += 1
+                        
+                        # Check if label length matches sequence length
+                        seq_len = len(self.sequences[seq_idx]) if seq_idx < len(self.sequences) else 0
+                        if len(labels) != seq_len:
+                            logger.warning(
+                                f"[SecondaryStructure] Sequence {seq_idx} length mismatch: "
+                                f"sequence={seq_len}, labels={len(labels)}"
+                            )
+                            length_mismatch_count += 1
+                        
+                        processed_targets.append(labels)
+                        
                     elif isinstance(item, list):
-                        processed_targets.append(item)
+                        # Already a list, validate each element
+                        labels = []
+                        for val in item:
+                            if isinstance(val, int):
+                                if val < 0 or val > 7:
+                                    logger.warning(f"Invalid Q8 label: {val}, replacing with 0")
+                                    val = 0
+                                    invalid_count += 1
+                            labels.append(val)
+                        processed_targets.append(labels)
+                        
                     else:
+                        # Unknown format, use empty list
+                        logger.warning(f"[SecondaryStructure] Unknown label format: {type(item)}")
                         processed_targets.append([])
                 
                 self.targets['target'] = processed_targets
                 
                 if verbose:
-                    print(f"SecondaryStructure - Task: Token Classification (8 classes)")
-                    print(f"  Sample sequence length: {len(self.sequences[0])}")
-                    print(f"  Sample target: {self.targets['target'][0][:20]}...")  # First 20 tokens
+                    print(f"\n{'='*60}")
+                    print(f"SecondaryStructure Dataset - Token Classification (Q8)")
+                    print(f"{'='*60}")
+                    print(f"  ✓ Samples loaded: {len(self.sequences)}")
+                    print(f"  ✓ Sample sequence length: {len(self.sequences[0]) if self.sequences else 'N/A'}")
+                    print(f"  ✓ Sample target: {self.targets['target'][0][:30]}..." if self.targets['target'][0] else "N/A")
+                    print(f"  ✓ Label range: 0-7 (Q8 classes)")
+                    if invalid_count > 0:
+                        print(f"  ⚠️  Fixed {invalid_count} invalid labels")
+                    if length_mismatch_count > 0:
+                        print(f"  ⚠️  Found {length_mismatch_count} sequences with label length mismatch")
+                    print(f"{'='*60}\n")
             else:
                 print("Warning: 'label' field not found in dataset.")
                 self.targets['target'] = [[] for _ in range(len(self.sequences))]
         
         except Exception as e:
             print(f"Error loading secondary structure dataset: {e}")
-            raise ValueError("Secondary structure dataset not available")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def split(self):
+        """Split dataset into train, valid, test subsets"""
         offset = 0
         splits = []
         for num_sample in self.num_samples:
