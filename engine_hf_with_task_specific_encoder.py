@@ -246,14 +246,14 @@ class ModelsWrapper(nn.Module):
         device = logits.device
         num_classes = logits.size(-1)
         
-        # --- target to tensor ---
+        # --- Convert target to tensor ---
         if isinstance(target, list):
             tgt_tensors = [torch.tensor(t, dtype=torch.long, device=device) for t in target]
             target_tensor = pad_sequence(tgt_tensors, batch_first=True, padding_value=-100)
         else:
             target_tensor = target.to(device).long()
         
-        # --- attention mask ---
+        # --- Get attention mask ---
         attention_mask = batch.get('attention_mask')
         if attention_mask is None:
             attention_mask = torch.ones(
@@ -292,17 +292,22 @@ class ModelsWrapper(nn.Module):
             )
             attention_mask = torch.cat([attention_mask, pad], dim=1)
         
-        # --- Validate target labels are in valid range ---
-        valid_labels = (target_tensor >= -1) & (target_tensor < num_classes)
-        if not valid_labels.all():
-            invalid_count = (~valid_labels).sum().item()
-            logger.warning(
-                f"Found {invalid_count} invalid labels. "
-                f"Range: [{target_tensor.min()}, {target_tensor.max()}], "
-                f"Expected: [0, {num_classes-1}]"
-            )
-            # Set invalid labels to -100 (ignored by cross_entropy)
-            target_tensor[~valid_labels] = -100
+        # --- Validate target labels are in valid range (EXCLUDING padding value -100) ---
+        # Only validate non-padding labels
+        non_padding_mask = target_tensor != -100
+        if non_padding_mask.any():
+            valid_labels = (target_tensor[non_padding_mask] >= 0) & (target_tensor[non_padding_mask] < num_classes)
+            if not valid_labels.all():
+                invalid_count = (~valid_labels).sum().item()
+                invalid_vals = target_tensor[non_padding_mask][~valid_labels].unique().tolist()
+                logger.warning(
+                    f"Found {invalid_count} invalid labels (excluding padding). "
+                    f"Invalid values: {invalid_vals}, Expected: [0, {num_classes-1}]"
+                )
+                # Set invalid labels to -100 (ignored by cross_entropy)
+                invalid_positions = non_padding_mask.clone()
+                invalid_positions[non_padding_mask] = ~valid_labels
+                target_tensor[invalid_positions] = -100
         
         # --- Identify active tokens (not masked and not padding) ---
         active = attention_mask.reshape(-1) == 1
@@ -316,7 +321,7 @@ class ModelsWrapper(nn.Module):
         active_logits = logits.reshape(-1, num_classes)[active]  # [active_count, num_classes]
         active_labels = target_tensor.reshape(-1)[active]        # [active_count]
         
-        # --- Compute class weights for handling class imbalance (e.g., in secondary structure) ---
+        # --- Compute class weights for handling class imbalance ---
         # Only compute from valid (non-ignored) labels
         valid_label_mask = active_labels >= 0
         if valid_label_mask.sum() > 0:
@@ -346,7 +351,7 @@ class ModelsWrapper(nn.Module):
         if torch.isnan(loss) or torch.isinf(loss):
             logger.error(
                 f"Loss is NaN/Inf! active_count={active_count}, "
-                f"unique_labels={active_labels.unique().tolist()}, "
+                f"unique_labels={active_labels[active_labels >= 0].unique().tolist()}, "
                 f"loss={loss.item()}"
             )
             return torch.tensor(1e-6, device=device, dtype=logits.dtype, requires_grad=True)
