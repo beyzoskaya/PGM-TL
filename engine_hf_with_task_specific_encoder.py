@@ -1049,15 +1049,21 @@ class MultiTaskEngine:
                     norms = [round(l.item(), 4) for l in per_task_loss_norm]
                     wts = [round(w.item(), 3) for w in weights]
                     sigmas = [round(self.log_sigma[i].item(), 3) for i in range(len(self.log_sigma))]
+        
+                    metrics_parts = []
+                    for task_name in self.models.task_names:
+                        if task_name in epoch_metrics_per_task:
+                            task_metrics_dict = epoch_metrics_per_task[task_name]
+                            metric_strs = []
+                            for metric_key, values in task_metrics_dict.items():
+                                if isinstance(values, list) and len(values) > 0:
+                                    recent_val = values[-1]
+                                    if isinstance(recent_val, (int, float)):
+                                        metric_strs.append(f"{metric_key}={round(recent_val, 3)}")
+                            if metric_strs:
+                                metrics_parts.append(f"{task_name}: {', '.join(metric_strs)}")
                     
-                    metrics_str = " | ".join([
-                        f"{task_name}: " + ", ".join([
-                            f"{k}={round(v, 3)}" 
-                            for k, v in dict(list(epoch_metrics_per_task[task_name].items())[-1:]).items()
-                        ])
-                        for task_name in self.models.task_names
-                        if task_name in epoch_metrics_per_task
-                    ])
+                    metrics_str = " | ".join(metrics_parts) if metrics_parts else "No metrics"
 
                     logger.info(
                         f"[Epoch {epoch+1} | Batch {batch_id}] "
