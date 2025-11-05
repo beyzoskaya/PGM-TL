@@ -433,12 +433,20 @@ class MultiTaskEngine:
         self.scheduler = scheduler
 
         self.log_sigma = nn.Parameter(torch.zeros(len(task_configs), device=self.device))
-        # Attach to optimizer immediately so grads flow
-        if not any(self.log_sigma in g['params'] for g in self.optimizer.param_groups):
-            self.optimizer.add_param_group({"params": [self.log_sigma],
-                                            "lr": self.optimizer.param_groups[0]['lr']})
+
+        already_in_optimizer = any(
+            any(id(p) == id(self.log_sigma) for p in g['params'])
+            for g in self.optimizer.param_groups
+        )
+        if not already_in_optimizer:
+            self.optimizer.add_param_group({
+                "params": [self.log_sigma],
+                "lr": self.optimizer.param_groups[0]['lr']
+            })
+
         logger.info(f"[Init] Added trainable log_sigma for {len(task_configs)} tasks.")
-        
+        logger.info(f"Optimizer now has {len(self.optimizer.param_groups)} param groups.")
+
         self.epoch = 0
         self.step = 0
         self.current_weighting_strategy = 'size_norm'
