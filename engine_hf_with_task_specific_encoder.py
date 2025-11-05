@@ -431,6 +431,13 @@ class MultiTaskEngine:
         self.test_sets = test_sets
         self.optimizer = optimizer
         self.scheduler = scheduler
+
+        self.log_sigma = nn.Parameter(torch.zeros(len(task_configs), device=self.device))
+        # Attach to optimizer immediately so grads flow
+        if not any(self.log_sigma in g['params'] for g in self.optimizer.param_groups):
+            self.optimizer.add_param_group({"params": [self.log_sigma],
+                                            "lr": self.optimizer.param_groups[0]['lr']})
+        logger.info(f"[Init] Added trainable log_sigma for {len(task_configs)} tasks.")
         
         self.epoch = 0
         self.step = 0
@@ -706,14 +713,10 @@ class MultiTaskEngine:
 
         # Initialize uncertainty params
         if weighting_strategy == 'uncertainty_gradnorm':
-            if not hasattr(self, "log_sigma"):
-                self.log_sigma = torch.nn.Parameter(torch.zeros(len(self.models.task_names), device=self.device))
-                self.optimizer.add_param_group({"params": [self.log_sigma],
-                                                "lr": self.optimizer.param_groups[0]['lr']})
-            if not hasattr(self, "gradnorm_alpha"):
-                self.gradnorm_alpha = 0.12
-            if not hasattr(self, "initial_losses"):
-                self.initial_losses = None
+            self.gradnorm_alpha = getattr(self, "gradnorm_alpha", 0.12)
+            self.initial_losses = None
+            logger.info(f"Using uncertainty+GradNorm weighting.")
+            logger.info(f"Initial log_sigma values: {[round(x.item(),3) for x in self.log_sigma]}")
 
         # Logging containers
         train_logs = {
@@ -806,6 +809,13 @@ class MultiTaskEngine:
                     total_loss += reg_uncertainty * uncertainty_term + reg_gradnorm * gradnorm_loss
 
                 total_loss.backward()
+                if debug and batch_id % 20 == 0:
+                    logger.info(f"[Batch {batch_id}] σ (log_sigma): {[round(x.item(),3) for x in self.log_sigma]}")
+                    if self.log_sigma.grad is not None:
+                        logger.info(f"Gradients σ.grad: {[round(x.item(),6) for x in self.log_sigma.grad]}")
+                    else:
+                        logger.warning("⚠️ log_sigma.grad is None — check optimizer registration!")
+
                 epoch_loss_recorder.append(total_loss.item())
 
                 for i, model in enumerate(self.models.task_models):
