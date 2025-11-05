@@ -527,15 +527,21 @@ class MultiTaskEngine:
         self.scheduler = scheduler
 
         self.log_sigma = nn.Parameter(torch.zeros(len(task_configs), device=self.device))
-        sigma_in_optimizer = any(
-            self.log_sigma in g['params'] for g in self.optimizer.param_groups
-        )
+        
+        sigma_in_optimizer = False
+        for g in self.optimizer.param_groups:
+            for p in g['params']:
+                if p is self.log_sigma:  
+                    sigma_in_optimizer = True
+                    break
+            if sigma_in_optimizer:
+                break
 
         if not sigma_in_optimizer:
             self.optimizer.add_param_group({
                 'params': [self.log_sigma],
                 'lr': self.optimizer.param_groups[0]['lr'],
-                'weight_decay': 0.0  # Don't regularize uncertainties
+                'weight_decay': 0.0  
             })
             logger.info(f"✓ Added log_sigma to optimizer param groups")
         else:
@@ -546,7 +552,14 @@ class MultiTaskEngine:
 
         self.epoch = 0
         self.step = 0
-        self.current_weighting_strategy = 'size_norm'
+        self.current_weighting_strategy = 'uncertainty_gradnorm'
+        
+        logger.info(f"Initialized MultiTaskEngine with {len(task_configs)} tasks on device {self.device}")
+        logger.info(f"Task-specific encoders: {'enabled (no bottleneck)' if use_task_encoder else 'disabled'}")
+        logger.info(f"Task dataset sizes: {self.task_dataset_sizes}")
+        logger.info(f"Task size weights (normalized): {self.task_size_weights.tolist()}")
+        for i, (train_set, valid_set, test_set) in enumerate(zip(train_sets, valid_sets, test_sets)):
+            logger.info(f"Task {i}: Train={len(train_set)}, Valid={len(valid_set)}, Test={len(test_set)}")
         
         logger.info(f"Initialized MultiTaskEngine with {len(task_configs)} tasks on device {self.device}")
         logger.info(f"Task-specific encoders: {'enabled (no bottleneck)' if use_task_encoder else 'disabled'}")
