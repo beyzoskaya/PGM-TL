@@ -47,7 +47,7 @@ def create_default_config():
             'lora_dropout': 0.1
         },
         'datasets': [
-            {'type': 'CloningCLF', 'path': './data', 'center': True},
+            {'type': 'CloningCLF', 'path': './data', 'center': False},
             {'type': 'SecondaryStructure', 'path': './data', 'center': False},
             {'type': 'Thermostability', 'path': './data', 'center': False}
         ],
