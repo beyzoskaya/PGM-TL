@@ -1,5 +1,4 @@
 # multitask_engine_dynamic_plot.py
-
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
@@ -7,6 +6,7 @@ from protbert_hf import SharedProtBert
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 import numpy as np
 import matplotlib.pyplot as plt
+from torch.nn.utils.rnn import pad_sequence
 
 # ----------------------------
 # Utility Metrics
@@ -16,12 +16,44 @@ def regression_metrics(preds, targets):
     rmse = np.sqrt(mse)
     return {'mse': mse, 'rmse': rmse}
 
-def classification_metrics(preds, targets):
-    pred_labels = preds.argmax(dim=-1)
-    correct = (pred_labels == targets).sum().item()
-    total = targets.numel()
+def classification_metrics(preds, targets, ignore_index=-100):
+    """
+    preds: [B, num_classes] or [B, L, num_classes]
+    targets: [B] or [B, L] with -100 padding for ignored positions
+    """
+    preds_flat = preds.view(-1, preds.shape[-1])
+    targets_flat = targets.view(-1)
+
+    mask = targets_flat != ignore_index
+    if mask.sum() == 0:
+        return {'accuracy': float('nan')}  # no valid positions
+    pred_labels = preds_flat.argmax(dim=-1)
+    correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
+    total = mask.sum().item()
     acc = correct / total
     return {'accuracy': acc}
+
+# ----------------------------
+# Custom collate_fn for variable-length sequences
+# ----------------------------
+def collate_fn(batch):
+    input_ids = [torch.tensor(item['sequence'], dtype=torch.long) for item in batch]
+    targets = [item['targets']['target'] for item in batch]
+
+    # Pad sequences
+    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
+    attention_mask = (input_ids_padded != 0).long()
+
+    # Convert targets to tensor
+    if isinstance(targets[0], list) or isinstance(targets[0], np.ndarray):
+        targets = [torch.tensor(t, dtype=torch.float32) for t in targets]
+        targets = pad_sequence(targets, batch_first=True, padding_value=-100)
+    else:
+        targets = torch.tensor(targets, dtype=torch.float32)
+
+    return {'sequence': input_ids_padded,
+            'attention_mask': attention_mask,
+            'targets': {'target': targets}}
 
 # ----------------------------
 # MultiTask Engine with Dynamic Weight Logging
@@ -32,12 +64,19 @@ class MultiTaskEngine:
         self.device = device
         self.backbone = backbone.to(device)
         self.task_configs = task_configs
-        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True) for ds in train_sets]
-        self.valid_loaders = [DataLoader(ds, batch_size=batch_size) for ds in valid_sets]
-        self.test_loaders = [DataLoader(ds, batch_size=batch_size) for ds in test_sets]
+
+        # Use custom collate_fn for variable-length sequences
+        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=collate_fn) for ds in train_sets]
+        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn) for ds in valid_sets]
+        self.test_loaders  = [DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn) for ds in test_sets]
+
+        # Use backbone hidden size for task heads
+        sample_input = torch.randint(0, 10, (1, 5)).to(device)
+        sample_mask = torch.ones_like(sample_input)
+        hidden_dim = backbone(sample_input, sample_mask).shape[1]
 
         self.task_heads = nn.ModuleList([
-            nn.Linear(backbone.hidden_size, cfg['num_labels']) for cfg in task_configs
+            nn.Linear(hidden_dim, cfg['num_labels']) for cfg in task_configs
         ]).to(device)
 
         self.loss_fns = []
@@ -45,7 +84,7 @@ class MultiTaskEngine:
             if cfg['type'] == 'regression':
                 self.loss_fns.append(nn.MSELoss())
             elif cfg['type'] in ['classification', 'per_residue_classification']:
-                self.loss_fns.append(nn.CrossEntropyLoss())
+                self.loss_fns.append(nn.CrossEntropyLoss(ignore_index=-100))
             else:
                 raise ValueError(f"Unknown task type: {cfg['type']}")
 
@@ -58,11 +97,9 @@ class MultiTaskEngine:
 
     def compute_loss(self, logits, targets, task_idx):
         if self.task_configs[task_idx]['type'] == 'regression':
-            return self.loss_fns[task_idx](logits, targets)
-        elif self.task_configs[task_idx]['type'] in ['classification', 'per_residue_classification']:
-            return self.loss_fns[task_idx](logits, targets.squeeze(-1).long() if logits.dim()==2 else targets.long())
-        else:
-            raise ValueError("Unknown task type")
+            return self.loss_fns[task_idx](logits.squeeze(-1), targets)
+        else:  # classification
+            return self.loss_fns[task_idx](logits.view(-1, logits.shape[-1]), targets.view(-1).long())
 
     def update_dynamic_weights(self):
         inv_losses = 1.0 / (self.running_losses + 1e-8)
@@ -80,14 +117,13 @@ class MultiTaskEngine:
             print(f"\n--- Training Task {task_idx} ---")
             for batch_idx, batch in enumerate(loader):
                 seqs = batch['sequence'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
                 targets = batch['targets']['target']
-                if isinstance(targets, list) or isinstance(targets, np.ndarray):
-                    targets = torch.tensor(targets, dtype=torch.float32, device=self.device)
-                elif torch.is_tensor(targets):
+                if torch.is_tensor(targets):
                     targets = targets.to(self.device)
 
                 optimizer.zero_grad()
-                embeddings = self.backbone(seqs)
+                embeddings = self.backbone(seqs, attention_mask)
                 logits = self.forward_task(embeddings, task_idx)
                 loss = self.compute_loss(logits, targets, task_idx)
 
@@ -117,18 +153,20 @@ class MultiTaskEngine:
                 task_metrics_accum = []
                 for batch in loader:
                     seqs = batch['sequence'].to(self.device)
+                    attention_mask = batch['attention_mask'].to(self.device)
                     targets = batch['targets']['target']
-                    if isinstance(targets, list) or isinstance(targets, np.ndarray):
-                        targets = torch.tensor(targets, dtype=torch.float32, device=self.device)
-                    elif torch.is_tensor(targets):
+                    if torch.is_tensor(targets):
                         targets = targets.to(self.device)
-                    embeddings = self.backbone(seqs)
+
+                    embeddings = self.backbone(seqs, attention_mask)
                     logits = self.forward_task(embeddings, task_idx)
 
-                    if self.task_configs[task_idx]['type'] == 'regression':
-                        batch_metrics = regression_metrics(logits, targets)
-                    elif self.task_configs[task_idx]['type'] in ['classification', 'per_residue_classification']:
-                        batch_metrics = classification_metrics(logits, targets)
+                    if self.task_configs[task_idx]['type'] in ['classification', 'per_residue_classification']:
+                        batch_metrics = classification_metrics(
+                            logits, targets, ignore_index=-100
+                        )
+                    else:
+                        batch_metrics = classification_metrics(logits.view(-1, logits.shape[-1]), targets.view(-1))
                     task_metrics_accum.append(batch_metrics)
 
                 # average over batches
@@ -150,6 +188,7 @@ class MultiTaskEngine:
         plt.legend()
         plt.grid(True)
         plt.show()
+
 
 # ----------------------------
 # Main Script
