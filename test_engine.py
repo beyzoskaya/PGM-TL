@@ -36,9 +36,7 @@ task_configs = [
 # ----------------------------
 backbone = SharedProtBert().to(device)
 
-# Set regression loss scaling to roughly balance magnitude with classification tasks
-reg_loss_scale = 10.0
-
+# You can adjust reg_loss_scale to roughly match the magnitude of classification losses
 engine = MultiTaskEngine(
     backbone=backbone,
     task_configs=task_configs,
@@ -47,7 +45,7 @@ engine = MultiTaskEngine(
     test_sets=[thermo_ds_train, ssp_ds_train, clf_ds_train],
     batch_size=2,
     device=device,
-    reg_loss_scale=reg_loss_scale
+    reg_loss_scale=10.0   # <--- scale regression loss
 )
 
 # ----------------------------
