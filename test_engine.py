@@ -1,15 +1,15 @@
 # test_engine_step2.py
 import torch
 from protbert_hf import SharedProtBert   # your backbone
-from flip_hf import ThermoDataset, SSPDataset, CloningCLFDataset  # your dataset classes
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF  
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
 # ----------------------------
 # Load small portion of each dataset for fast test
 # ----------------------------
-train_thermo = ThermoDataset(split='train', limit=5)  # take only 5 samples
-train_ssp = SSPDataset(split='train', limit=5)
-train_clf = CloningCLFDataset(split='train', limit=5)
+train_thermo = Thermostability(split='train', limit=5)  # take only 5 samples
+train_ssp = SecondaryStructure(split='train', limit=5)
+train_clf = CloningCLF(split='train', limit=5)
 
 train_sets = [train_thermo, train_ssp, train_clf]
 valid_sets = [train_thermo, train_ssp, train_clf]  # reuse same for test purposes
