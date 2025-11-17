@@ -104,3 +104,26 @@ class MultiTaskEngine:
         for k, v in targets.items():
             print(f"Target '{k}' shape: {v.shape}")
         return batch
+    
+    def forward(self, batch, dataset_idx=0):
+        """
+        Forward pass through the backbone for a given batch.
+        batch: (encoding, targets) returned by tokenize_and_collate
+        dataset_idx: which dataset/task this batch belongs to
+        """
+        encoding, targets = batch
+        input_ids = encoding['input_ids']
+        attention_mask = encoding['attention_mask']
+
+        # Forward through backbone
+        embeddings = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+
+        # Debug prints
+        print(f"=== Forward pass for dataset {dataset_idx} ===")
+        print("Input IDs shape:", input_ids.shape)
+        print("Embeddings shape:", embeddings.shape)
+        for k, v in targets.items():
+            print(f"Target '{k}' shape: {v.shape}")
+
+        return embeddings, targets
+
