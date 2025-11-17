@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from torch.nn.utils.rnn import pad_sequence
 import os
 import time
+import json
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
@@ -296,33 +297,18 @@ class MultiTaskEngine:
                 plt.close()
 
     # ---------- training / evaluation ----------
-    def train(self, num_epochs, optimizer, scheduler=None, validate_every=1, save_every=1):
+    def train(self, num_epochs, optimizer, scheduler=None, save_every=1):
         """
-        Full train loop across epochs, saving checkpoints & plotting.
-        validate_every: run evaluation on validation set every N epochs (default 1)
-        save_every: checkpoint every N epochs (default 1)
+        Train loop for multiple epochs. Only trains and saves checkpoints.
+        Validation and test evaluation are handled in main per epoch.
         """
         self._optimizer = optimizer
         for epoch in range(1, num_epochs+1):
             start = time.time()
             train_loss = self.train_one_epoch(optimizer)
             epoch_time = time.time() - start
-            print(f"Epoch {epoch} done in {epoch_time:.1f}s - avg weighted loss: {train_loss:.4f}")
+            print(f"\nEpoch {epoch} done in {epoch_time:.1f}s - avg weighted loss: {train_loss:.4f}")
             self.history["train_loss"].append(train_loss)
-
-            # Evaluation
-            if epoch % validate_every == 0:
-                val_metrics = self.evaluate(self.valid_loaders, split_name="Validation")
-                self.history["val_metrics"].append(val_metrics)
-
-                # Save best per-task
-                for t_idx, m in enumerate(val_metrics):
-                    # choose primary metric for comparison:
-                    if self.task_configs[t_idx]['type'] == 'regression':
-                        primary = {'mse': m.get('mse', np.inf)}
-                    else:
-                        primary = {'accuracy': m.get('accuracy', 0.0)}
-                    self.save_best_for_task(epoch, t_idx, primary, optimizer=optimizer)
 
             # scheduler step if present
             if scheduler is not None:
@@ -332,7 +318,7 @@ class MultiTaskEngine:
             if epoch % save_every == 0:
                 self.save_checkpoint(epoch, optimizer=optimizer)
 
-            # persist history & dynamic weights
+            # persist training history
             if self.save_dir:
                 np.save(os.path.join(self.save_dir, "train_loss.npy"), np.array(self.history["train_loss"]))
                 np.save(os.path.join(self.save_dir, "dynamic_weight_log.npy"), np.array(self.dynamic_weight_log))
@@ -514,15 +500,48 @@ if __name__ == "__main__":
     # Run training: adjust epochs as needed
     # ----------------------------
     NUM_EPOCHS = 3
-    engine.train(num_epochs=NUM_EPOCHS, optimizer=optimizer, scheduler=None, validate_every=1, save_every=1)
+
+    for epoch in range(1, NUM_EPOCHS+1):
+        start = time.time()
+        train_loss = engine.train_one_epoch(optimizer)
+        epoch_time = time.time() - start
+        print(f"\nEpoch {epoch} done in {epoch_time:.1f}s - avg weighted loss: {train_loss:.4f}")
+        engine.history["train_loss"].append(train_loss)
+
+        # ----------------------------
+        # Evaluate validation and test per epoch
+        # ----------------------------
+        val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation")
+        test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
+
+        engine.history["val_metrics"].append(val_metrics)
+        engine.history["test_metrics"].append(test_metrics)
+
+        # ----------------------------
+        # Save best model per task based on validation
+        # ----------------------------
+        for t_idx, m in enumerate(val_metrics):
+            if engine.task_configs[t_idx]['type'] == 'regression':
+                primary = {'mse': m.get('mse', np.inf)}
+            else:
+                primary = {'accuracy': m.get('accuracy', 0.0)}
+            engine.save_best_for_task(epoch, t_idx, primary, optimizer=optimizer)
+
+        # ----------------------------
+        # Persist history per epoch
+        # ----------------------------
+        if SAVE_DIR:
+            np.save(os.path.join(SAVE_DIR, "train_loss.npy"), np.array(engine.history["train_loss"]))
+            np.save(os.path.join(SAVE_DIR, "dynamic_weight_log.npy"), np.array(engine.dynamic_weight_log))
+            with open(os.path.join(SAVE_DIR, "history.json"), "w") as fh:
+                json.dump(engine.history, fh, indent=2)
 
     # ----------------------------
-    # Final evaluate test set and save final artifacts
+    # Final evaluation on test set
     # ----------------------------
     final_test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
     engine.history["test_metrics"] = final_test_metrics
     np.save(os.path.join(SAVE_DIR, "final_test_metrics.npy"), np.array(final_test_metrics, dtype=object))
-    # save history json
     with open(os.path.join(SAVE_DIR, "final_history.json"), "w") as fh:
         json.dump(engine.history, fh, indent=2)
 
