@@ -120,7 +120,11 @@ class MultiTaskEngine:
         # Task heads: for per-residue tasks we'll create linear that accepts D->C and is applied token-wise
         hidden_dim = backbone.hidden_size
         self.task_heads = nn.ModuleList([
-            nn.Linear(hidden_dim, cfg['num_labels']) for cfg in task_configs
+            nn.Sequential(
+                nn.Dropout(0.2),
+                nn.Linear(hidden_dim, cfg['num_labels'])
+            )
+            for cfg in task_configs
         ]).to(device)
 
         # Loss functions
@@ -493,7 +497,8 @@ if __name__ == "__main__":
     # ----------------------------
     optimizer = optim.Adam(
         list(backbone.parameters()) + list(engine.task_heads.parameters()),
-        lr=1e-4
+        lr=1e-4,
+        weight_decay=1e-5
     )
 
     # ----------------------------
