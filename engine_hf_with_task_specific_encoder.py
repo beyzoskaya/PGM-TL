@@ -3,14 +3,11 @@ from torch import nn
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 class MultiTaskEngine:
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
-                 batch_size=8, num_worker=0, device='cpu'):
-        """
-        backbone: SharedProtBert model
-        task_configs: list of dicts, e.g. [{'type':'regression', 'num_labels':1}, ...]
-        train_sets, valid_sets, test_sets: list of Dataset objects
-        """
+                 batch_size=8, num_worker=0, device=device):
         self.backbone = backbone
         self.task_configs = task_configs
         self.device = device
@@ -22,11 +19,10 @@ class MultiTaskEngine:
         self.valid_sets = valid_sets
         self.test_sets = test_sets
 
-        # Tokenizer from backbone
+        # Tokenizer
         if hasattr(backbone, 'tokenizer'):
             self.tokenizer = backbone.tokenizer
         else:
-            # fallback: create tokenizer manually if backbone doesn't store it
             self.tokenizer = AutoTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False)
 
         # Task-specific heads
@@ -40,27 +36,14 @@ class MultiTaskEngine:
                 self.task_heads.append(nn.Linear(1024, cfg['num_labels']))
             else:
                 raise ValueError(f"Unknown task type: {cfg['type']}")
-
         self.task_heads.to(device)
 
-        # Prepare dataloaders
+        # DataLoaders
         self.train_loaders = [
             DataLoader(ds, batch_size=batch_size, shuffle=True,
                        num_workers=num_worker,
                        collate_fn=lambda b: self.tokenize_and_collate(b))
             for ds in train_sets
-        ]
-        self.valid_loaders = [
-            DataLoader(ds, batch_size=batch_size, shuffle=False,
-                       num_workers=num_worker,
-                       collate_fn=lambda b: self.tokenize_and_collate(b))
-            for ds in valid_sets
-        ]
-        self.test_loaders = [
-            DataLoader(ds, batch_size=batch_size, shuffle=False,
-                       num_workers=num_worker,
-                       collate_fn=lambda b: self.tokenize_and_collate(b))
-            for ds in test_sets
         ]
 
     def tokenize_and_collate(self, batch):
@@ -84,6 +67,7 @@ class MultiTaskEngine:
             else:
                 batch_targets[key] = torch.tensor(values, dtype=torch.float).unsqueeze(-1)
 
+        # Move to device
         for k in batch_targets:
             batch_targets[k] = batch_targets[k].to(self.device)
         for k in encoding:
@@ -100,9 +84,6 @@ class MultiTaskEngine:
         return encoding, batch_targets
 
     def forward(self, batch, dataset_idx=0):
-        """
-        Forward pass through backbone + task-specific head
-        """
         encoding, targets = batch
         input_ids = encoding['input_ids']
         attention_mask = encoding['attention_mask']
@@ -114,20 +95,55 @@ class MultiTaskEngine:
         task_head = self.task_heads[dataset_idx]
         task_cfg = self.task_configs[dataset_idx]
         if task_cfg['type'] == 'per_residue_classification':
-            # Apply head per residue
-            # embeddings shape: [batch_size, seq_len, 1024]
-            logits = task_head(embeddings)
+            logits = task_head(embeddings)  # [batch, seq_len, num_labels]
         else:
-            # Apply head on pooled embedding
-            # embeddings shape: [batch_size, 1024]
-            logits = task_head(embeddings)
-
-        # Debug prints
-        print(f"=== Forward pass for dataset {dataset_idx} ===")
-        print("Input IDs shape:", input_ids.shape)
-        print("Embeddings shape:", embeddings.shape)
-        print("Logits shape:", logits.shape)
-        for k, v in targets.items():
-            print(f"Target '{k}' shape: {v.shape}")
+            logits = task_head(embeddings)  # [batch, num_labels or 1]
 
         return logits, targets
+
+    def train_one_epoch(self, optimizer, max_batches_per_task=None):
+        """
+        Single epoch over all tasks, one task at a time.
+        max_batches_per_task: optional, limit number of batches per task for quick testing
+        """
+        self.backbone.train()
+        for task_idx, loader in enumerate(self.train_loaders):
+            task_cfg = self.task_configs[task_idx]
+
+            # Select loss function
+            if task_cfg['type'] == 'regression':
+                loss_fn = nn.MSELoss()
+            elif task_cfg['type'] in ['classification', 'per_residue_classification']:
+                loss_fn = nn.CrossEntropyLoss()
+            else:
+                raise ValueError(f"Unknown task type: {task_cfg['type']}")
+
+            print(f"\n--- Training task {task_idx} ({task_cfg['type']}) ---")
+            for batch_idx, batch in enumerate(loader):
+                if max_batches_per_task is not None and batch_idx >= max_batches_per_task:
+                    break
+
+                optimizer.zero_grad()
+                logits, targets = self.forward(batch, dataset_idx=task_idx)
+
+                # Compute loss
+                target_tensor = list(targets.values())[0]
+                if task_cfg['type'] == 'regression':
+                    loss = loss_fn(logits, target_tensor)
+                elif task_cfg['type'] == 'classification':
+                    # logits: [batch, num_labels], target: [batch]
+                    loss = loss_fn(logits, target_tensor.squeeze(-1).long())
+                elif task_cfg['type'] == 'per_residue_classification':
+                    # flatten batch and sequence: [batch*seq_len, num_labels]
+                    b, s, c = logits.shape
+                    loss = loss_fn(logits.view(b*s, c), target_tensor.view(b*s))
+
+                # Backprop
+                loss.backward()
+                optimizer.step()
+
+                # Debug prints for first batch
+                if batch_idx == 0:
+                    print(f"Batch {batch_idx}: loss={loss.item()}")
+                    print("Logits shape:", logits.shape)
+                    print("Target shape:", target_tensor.shape)

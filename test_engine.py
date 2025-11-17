@@ -1,39 +1,43 @@
-# test_engine_step2.py
 import torch
-from protbert_hf import SharedProtBert   # your backbone
-from flip_hf import Thermostability, SecondaryStructure, CloningCLF  
+from torch import nn, optim
+
+from protbert_hf import SharedProtBert
+from datasets import Thermostability, SecondaryStructure, CloningCLF 
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
-# ----------------------------
-# Load small portion of each dataset for fast test
-# ----------------------------
-train_thermo = Thermostability(split='train', limit=5)  # take only 5 samples
-train_ssp = SecondaryStructure(split='train', limit=5)
-train_clf = CloningCLF(split='train', limit=5)
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-train_sets = [train_thermo, train_ssp, train_clf]
-valid_sets = [train_thermo, train_ssp, train_clf]  # reuse same for test purposes
-test_sets  = [train_thermo, train_ssp, train_clf]
+# ======================
+# 1. Load datasets
+# ======================
+thermo_ds = Thermostability(split='train')  # can select subset if needed
+ssp_ds = SecondaryStructure(split='train')
+clf_ds = CloningCLF(split='train')
 
-# ----------------------------
-# Task configs
-# ----------------------------
+# For quick testing, take small subset
+thermo_ds_train = thermo_ds[:100]
+ssp_ds_train = ssp_ds[:100]
+clf_ds_train = clf_ds[:100]
+
+train_sets = [thermo_ds_train, ssp_ds_train, clf_ds_train]
+valid_sets = train_sets  # just reuse for test
+test_sets = train_sets   # just reuse for test
+
+# ======================
+# 2. Task configs
+# ======================
 task_configs = [
-    {'type': 'regression', 'num_labels': 1},                  # Thermostability
-    {'type': 'per_residue_classification', 'num_labels': 8},  # SSP Q8
-    {'type': 'classification', 'num_labels': 2}               # CloningCLF
+    {'type': 'regression', 'num_labels': 1},             # Thermostability
+    {'type': 'per_residue_classification', 'num_labels': 8},  # SSP (Q8)
+    {'type': 'classification', 'num_labels': 2}          # CloningCLF
 ]
 
-# ----------------------------
-# Create backbone
-# ----------------------------
-backbone = SharedProtBert(lora=False)  # use regular ProtBert for testing
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# ======================
+# 3. Initialize backbone and engine
+# ======================
+backbone = SharedProtBert()
 backbone.to(device)
 
-# ----------------------------
-# Initialize engine
-# ----------------------------
 engine = MultiTaskEngine(
     backbone=backbone,
     task_configs=task_configs,
@@ -41,14 +45,19 @@ engine = MultiTaskEngine(
     valid_sets=valid_sets,
     test_sets=test_sets,
     batch_size=2,
-    num_worker=0,
     device=device
 )
 
-# ----------------------------
-# Test forward pass for each dataset
-# ----------------------------
-for i, name in enumerate(['Thermo', 'SSP', 'CloningCLF']):
-    batch = next(iter(engine.train_loaders[i]))
-    logits, targets = engine.forward(batch, dataset_idx=i)
-    print(f"=== Dataset {i} ({name}) test complete ===\n")
+# ======================
+# 4. Optimizer
+# ======================
+optimizer = optim.Adam(list(engine.backbone.parameters()) + list(engine.task_heads.parameters()),
+                       lr=1e-4)
+
+# ======================
+# 5. Train one epoch (fast test)
+# ======================
+# max_batches_per_task limits the run to 2 batches per task
+engine.train_one_epoch(optimizer, max_batches_per_task=2)
+
+print("\n✅ MultiTaskEngine train_one_epoch test completed successfully!")
