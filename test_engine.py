@@ -2,7 +2,7 @@ import torch
 from torch import nn, optim
 
 from protbert_hf import SharedProtBert
-from datasets import Thermostability, SecondaryStructure, CloningCLF 
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF 
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
