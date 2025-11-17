@@ -6,30 +6,49 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.nn.utils.rnn import pad_sequence
+import os
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
+    return path
 
 # ----------------------------
 # Utility Metrics
 # ----------------------------
 def regression_metrics(preds, targets):
+    # preds: tensor [B] or [B,1], targets: tensor [B] or [B,1]
+    preds = preds.squeeze(-1)
+    targets = targets.squeeze(-1)
     mse = ((preds - targets) ** 2).mean().item()
-    rmse = np.sqrt(mse)
-    return {'mse': mse, 'rmse': rmse}
+    rmse = float(np.sqrt(mse))
+    return {'mse': float(mse), 'rmse': rmse}
 
 def classification_metrics(preds, targets, ignore_index=-100):
     """
-    Supports per-sequence or per-residue classification
-    preds: [B, num_classes] or [B, L, num_classes]
-    targets: [B] or [B, L] with -100 for ignored positions
+    preds: [B, C] or [B, L, C]
+    targets: [B] or [B, L] with -100 padding for ignored TOKEN positions
+    returns dict {'accuracy': float}
     """
-    preds_flat = preds.view(-1, preds.shape[-1])
-    targets_flat = targets.view(-1)
-    mask = targets_flat != ignore_index
-    if mask.sum() == 0:
-        return {'accuracy': float('nan')}
-    pred_labels = preds_flat.argmax(dim=-1)
-    correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
-    acc = correct / mask.sum().item()
-    return {'accuracy': acc}
+    if preds.dim() == 3:
+        # per-token
+        B, L, C = preds.shape
+        preds_flat = preds.view(-1, C)
+        targets_flat = targets.view(-1)
+        mask = targets_flat != ignore_index
+        if mask.sum() == 0:
+            return {'accuracy': float('nan')}
+        pred_labels = preds_flat.argmax(dim=-1)
+        correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
+        acc = correct / mask.sum().item()
+        return {'accuracy': float(acc)}
+    else:
+        # sequence-level
+        pred_labels = preds.argmax(dim=-1)
+        targets_flat = targets.view(-1)
+        correct = (pred_labels == targets_flat).sum().item()
+        total = targets_flat.numel()
+        acc = correct / total
+        return {'accuracy': float(acc)}
 
 # ----------------------------
 # Custom collate_fn for variable-length sequences
@@ -78,17 +97,25 @@ def collate_fn(batch, tokenizer=None, max_length=None):
 # ----------------------------
 class MultiTaskEngine:
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
-                 batch_size=16, device='cuda', alpha=0.99):
+                 batch_size=16, device='cuda', alpha=0.99, save_dir=None, max_length=None):
         self.device = device
         self.backbone = backbone.to(device)
         self.task_configs = task_configs
+        self.max_length = max_length
 
-        # DataLoaders with custom collate_fn
-        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda batch: collate_fn(batch, tokenizer=self.backbone.tokenizer)) for ds in train_sets]
-        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda batch: collate_fn(batch, tokenizer=self.backbone.tokenizer)) for ds in valid_sets]
-        self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda batch: collate_fn(batch, tokenizer=self.backbone.tokenizer)) for ds in test_sets]
+        # Data loaders (pass tokenizer into collate via lambda)
+        tokenizer = self.backbone.tokenizer
+        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True,
+                                         collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
+                              for ds in train_sets]
+        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False,
+                                         collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
+                              for ds in valid_sets]
+        self.test_loaders  = [DataLoader(ds, batch_size=batch_size, shuffle=False,
+                                         collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
+                              for ds in test_sets]
 
-        # Task heads
+        # Task heads: for per-residue tasks we'll create linear that accepts D->C and is applied token-wise
         hidden_dim = backbone.hidden_size
         self.task_heads = nn.ModuleList([
             nn.Linear(hidden_dim, cfg['num_labels']) for cfg in task_configs
@@ -100,78 +127,270 @@ class MultiTaskEngine:
             if cfg['type'] == 'regression':
                 self.loss_fns.append(nn.MSELoss())
             elif cfg['type'] in ['classification', 'per_residue_classification']:
+                # use ignore_index for per-residue padding
                 self.loss_fns.append(nn.CrossEntropyLoss(ignore_index=-100))
             else:
-                raise ValueError(f"Unknown task type: {cfg['type']}")
+                raise ValueError(f"Unknown task type {cfg['type']}")
 
+        # dynamic weighting bookkeeping
         self.running_losses = torch.ones(len(task_configs), device=device)
         self.alpha = alpha
-        self.dynamic_weight_log = []
+        self.dynamic_weight_log = []  # list of lists (per update)
 
-    def forward_task(self, x, task_idx):
-        task_type = self.task_configs[task_idx]['type']
-        if task_type == 'per_residue_classification':
-            print(f"Task {task_idx} - per_residue_classification forward")
-            # x: [B, L, D]
-            # apply linear token-wise
-            B, L, D = x.shape
-            logits = self.task_heads[task_idx](x)  # [B, L, num_labels]
+        # history and saving
+        self.history = {
+            "train_loss": [],   # per epoch
+            "val_metrics": [],  # per epoch: list of dicts
+            "test_metrics": []  # saved after evaluation
+        }
+
+        self.save_dir = ensure_dir(save_dir) if save_dir is not None else None
+
+        # placeholders to store optimizer for checkpointing convenience
+        self._optimizer = None
+
+        # best model tracking per task (we use simple rule: for regression lower mse is better; for classification higher acc)
+        self.best = {
+            "score": [None] * len(task_configs),
+            "path": [None] * len(task_configs)
+        }
+
+    # ---------- forward helpers ----------
+    def forward_task(self, embeddings, task_idx):
+        """
+        embeddings:
+          - sequence-level pipeline: [B, D]
+          - per-residue pipeline: [B, L, D]
+        returns logits shaped:
+          - [B, C] for sequence-level
+          - [B, L, C] for per-residue
+        """
+        tcfg = self.task_configs[task_idx]['type']
+        head = self.task_heads[task_idx]
+        if tcfg == 'per_residue_classification':
+            # apply linear to last dim
+            logits = head(embeddings)  # shape [B, L, C]
             return logits
         else:
-            return self.task_heads[task_idx](x)  # [B, D] -> [B, num_labels]
-
+            logits = head(embeddings)  # [B, C]
+            return logits
 
     def compute_loss(self, logits, targets, task_idx):
-        task_type = self.task_configs[task_idx]['type']
-        if task_type == 'regression':
-            return self.loss_fns[task_idx](logits.squeeze(-1), targets)
-        elif task_type == 'per_residue_classification':
-            # logits: [B, L, C], targets: [B, L]
-            return self.loss_fns[task_idx](logits.view(-1, logits.shape[-1]), targets.view(-1))
-        else:  # sequence-level classification
+        tcfg = self.task_configs[task_idx]['type']
+        if tcfg == 'regression':
+            # logits [B,1] or [B], targets [B]
+            # ensure shapes
+            if logits.dim() > 1 and logits.size(-1) == 1:
+                logits = logits.squeeze(-1)
+            return self.loss_fns[task_idx](logits, targets)
+        elif tcfg == 'per_residue_classification':
+            # logits [B, L, C], targets [B, L] with -100
+            B, L, C = logits.shape
+            logits_flat = logits.view(-1, C)
+            targets_flat = targets.view(-1)  # long
+            return self.loss_fns[task_idx](logits_flat, targets_flat)
+        else:
+            # sequence-level classification: logits [B, C], targets [B]
             return self.loss_fns[task_idx](logits, targets.long())
 
     def update_dynamic_weights(self):
         inv_losses = 1.0 / (self.running_losses + 1e-8)
-        self.task_weights = inv_losses / inv_losses.sum()
-        self.dynamic_weight_log.append(self.task_weights.cpu().numpy())
-        return self.task_weights
+        weights = inv_losses / inv_losses.sum()
+        self.dynamic_weight_log.append(weights.cpu().numpy().tolist())
 
-    def train_one_epoch(self, optimizer):
+        # save dynamic weight log periodically
+        if self.save_dir:
+            np.save(os.path.join(self.save_dir, "dynamic_weight_log.npy"), np.array(self.dynamic_weight_log))
+
+        return weights
+
+    # ---------- checkpoint / save ----------
+    def save_checkpoint(self, epoch, optimizer=None, name=None):
+        if not self.save_dir:
+            return
+
+        ckpt = {
+            "epoch": epoch,
+            "backbone_state": self.backbone.state_dict(),
+            "heads_state": self.task_heads.state_dict(),
+            "history": self.history,
+            "dynamic_weight_log": self.dynamic_weight_log,
+            "running_losses": self.running_losses.cpu().tolist()
+        }
+        if optimizer is not None:
+            ckpt["optimizer_state"] = optimizer.state_dict()
+        fname = f"checkpoint_epoch_{epoch}.pt" if name is None else name
+        path = os.path.join(self.save_dir, fname)
+        torch.save(ckpt, path)
+        print(f"Saved checkpoint: {path}")
+        return path
+
+    def save_best_for_task(self, epoch, task_idx, val_metric, optimizer=None):
+        """
+        Save a copy when improvement on task_idx observed.
+        For regression we expect smaller 'mse'; for classification we expect larger 'accuracy'.
+        val_metric: dict e.g. {'mse':..., 'rmse':...} or {'accuracy':...}
+        """
+        if not self.save_dir:
+            return
+        score = None
+        if self.task_configs[task_idx]['type'] == 'regression':
+            score = -float(val_metric.get('mse', np.inf))  # higher is better (negate)
+        else:
+            score = float(val_metric.get('accuracy', 0.0))
+
+        prev = self.best['score'][task_idx]
+        if prev is None or score > prev:
+            self.best['score'][task_idx] = score
+            name = f"best_task{task_idx}_epoch{epoch}.pt"
+            path = self.save_checkpoint(epoch, optimizer=optimizer, name=name)
+            self.best['path'][task_idx] = path
+            print(f"New best for task {task_idx}: {path} (score={score})")
+
+    # ---------- plotting ----------
+    def plot_dynamic_weights(self, save_name="dynamic_weights.png"):
+        if len(self.dynamic_weight_log) == 0:
+            print("No dynamic weight history to plot")
+            return
+        arr = np.array(self.dynamic_weight_log)
+        plt.figure(figsize=(8,4))
+        for i in range(arr.shape[1]):
+            plt.plot(arr[:, i], label=f"task_{i}")
+        plt.xlabel("Update (batch-level)")
+        plt.ylabel("Dynamic weight")
+        plt.legend()
+        plt.grid(True)
+        if self.save_dir:
+            out = os.path.join(self.save_dir, save_name)
+            plt.savefig(out, bbox_inches="tight")
+            print(f"Saved dynamic weight plot: {out}")
+        plt.close()
+
+    def plot_metric_history(self, save_prefix="metrics"):
+        # history["val_metrics"] is list per-epoch; each element is list of per-task dicts
+        if not self.history["val_metrics"]:
+            return
+        n_epochs = len(self.history["val_metrics"])
+        # per-task per-metric plotting
+        # gather per-task metric lists
+        per_task_metrics = [{} for _ in range(len(self.task_configs))]
+        for epoch_metrics in self.history["val_metrics"]:
+            # epoch_metrics is list of dicts (one per task)
+            for t_idx, mdict in enumerate(epoch_metrics):
+                for k, v in mdict.items():
+                    per_task_metrics[t_idx].setdefault(k, []).append(v)
+
+        # plot each task-metric
+        for t_idx, metrics_dict in enumerate(per_task_metrics):
+            for metric_name, values in metrics_dict.items():
+                plt.figure(figsize=(6,4))
+                plt.plot(range(1, n_epochs+1), values, marker='o')
+                plt.title(f"Task {t_idx} - {metric_name}")
+                plt.xlabel("Epoch")
+                plt.grid(True)
+                if self.save_dir:
+                    out = os.path.join(self.save_dir, f"{save_prefix}_task{t_idx}_{metric_name}.png")
+                    plt.savefig(out, bbox_inches="tight")
+                    print(f"Saved metric plot: {out}")
+                plt.close()
+
+    # ---------- training / evaluation ----------
+    def train(self, num_epochs, optimizer, scheduler=None, validate_every=1, save_every=1):
+        """
+        Full train loop across epochs, saving checkpoints & plotting.
+        validate_every: run evaluation on validation set every N epochs (default 1)
+        save_every: checkpoint every N epochs (default 1)
+        """
+        self._optimizer = optimizer
+        for epoch in range(1, num_epochs+1):
+            start = time.time()
+            train_loss = self.train_one_epoch(optimizer)
+            epoch_time = time.time() - start
+            print(f"Epoch {epoch} done in {epoch_time:.1f}s - avg weighted loss: {train_loss:.4f}")
+            self.history["train_loss"].append(train_loss)
+
+            # Evaluation
+            if epoch % validate_every == 0:
+                val_metrics = self.evaluate(self.valid_loaders, split_name="Validation")
+                self.history["val_metrics"].append(val_metrics)
+
+                # Save best per-task
+                for t_idx, m in enumerate(val_metrics):
+                    # choose primary metric for comparison:
+                    if self.task_configs[t_idx]['type'] == 'regression':
+                        primary = {'mse': m.get('mse', np.inf)}
+                    else:
+                        primary = {'accuracy': m.get('accuracy', 0.0)}
+                    self.save_best_for_task(epoch, t_idx, primary, optimizer=optimizer)
+
+            # scheduler step if present
+            if scheduler is not None:
+                scheduler.step()
+
+            # checkpoint
+            if epoch % save_every == 0:
+                self.save_checkpoint(epoch, optimizer=optimizer)
+
+            # persist history & dynamic weights
+            if self.save_dir:
+                np.save(os.path.join(self.save_dir, "train_loss.npy"), np.array(self.history["train_loss"]))
+                np.save(os.path.join(self.save_dir, "dynamic_weight_log.npy"), np.array(self.dynamic_weight_log))
+                with open(os.path.join(self.save_dir, "history.json"), "w") as fh:
+                    json.dump(self.history, fh, indent=2)
+
+        # after training, produce plots
+        self.plot_dynamic_weights()
+        self.plot_metric_history()
+
+    def train_one_epoch(self, optimizer, max_batches_per_loader=None):
         self.backbone.train()
         for head in self.task_heads:
             head.train()
 
-        total_loss = 0
+        total_weighted_loss = 0.0
+        updates = 0
+
         for task_idx, loader in enumerate(self.train_loaders):
-            print(f"\n--- Training Task {task_idx} ---")
+            print(f"\n--- Training Task {task_idx} (loader size: {len(loader)}) ---")
             for batch_idx, batch in enumerate(loader):
-                seqs = batch['sequence'].to(self.device)
+                if (max_batches_per_loader is not None) and (batch_idx >= max_batches_per_loader):
+                    break
+
+                input_ids = batch['sequence'].to(self.device)
                 attention_mask = batch['attention_mask'].to(self.device)
                 targets = batch['targets']['target']
                 if torch.is_tensor(targets):
                     targets = targets.to(self.device)
 
                 optimizer.zero_grad()
-                #embeddings = self.backbone(seqs, attention_mask)
-                per_residue = self.task_configs[task_idx]['type'] == 'per_residue_classification'
-                embeddings = self.backbone(seqs, attention_mask, per_residue=per_residue)
+
+                per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
+
+                # call backbone: returns either [B, D] or [B, L, D]
+                embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
+
+                # for sequence-level tasks ensure embeddings shape [B, D]
                 logits = self.forward_task(embeddings, task_idx)
+
                 loss = self.compute_loss(logits, targets, task_idx)
 
-                self.running_losses[task_idx] = self.alpha * self.running_losses[task_idx] + (1 - self.alpha) * loss.detach()
+                # update running loss (ema)
+                self.running_losses[task_idx] = self.alpha * self.running_losses[task_idx] + (1.0 - self.alpha) * loss.detach()
+
+                # compute dynamic weights (inversely proportional to running_losses)
                 weights = self.update_dynamic_weights()
-                weighted_loss = weights[task_idx] * loss
+                weighted_loss = (weights[task_idx].to(self.device) * loss)
 
                 weighted_loss.backward()
                 optimizer.step()
 
-                total_loss += weighted_loss.item()
-                print(f"Batch {batch_idx}: raw_loss={loss.item():.4f}, weight={weights[task_idx]:.4f}, weighted_loss={weighted_loss.item():.4f}")
+                total_weighted_loss += float(weighted_loss.item())
+                updates += 1
 
-        avg_loss = total_loss / len(self.train_loaders)
-        print(f"Average weighted training loss: {avg_loss:.4f}")
-        self.plot_dynamic_weights()
+                if (updates % 50) == 0 or batch_idx == 0:
+                    print(f"Task {task_idx} Batch {batch_idx}: raw_loss={loss.item():.4f}, weight={weights[task_idx]:.4f}, weighted_loss={weighted_loss.item():.4f}")
+
+        avg_loss = total_weighted_loss / max(1, updates)
         return avg_loss
 
     def evaluate(self, loaders, split_name="Validation"):
@@ -179,126 +398,78 @@ class MultiTaskEngine:
         for head in self.task_heads:
             head.eval()
 
-        all_metrics = []
+        all_task_metrics = []
         with torch.no_grad():
             for task_idx, loader in enumerate(loaders):
-                task_metrics_accum = []
+                print(f"Evaluating task {task_idx} on {split_name} (loader size: {len(loader)})")
+                accumulated = []
                 for batch in loader:
-                    seqs = batch['sequence'].to(self.device)
+                    input_ids = batch['sequence'].to(self.device)
                     attention_mask = batch['attention_mask'].to(self.device)
                     targets = batch['targets']['target']
                     if torch.is_tensor(targets):
                         targets = targets.to(self.device)
 
-                    #embeddings = self.backbone(seqs, attention_mask)
-                    per_residue = self.task_configs[task_idx]['type'] == 'per_residue_classification'
-                    embeddings = self.backbone(seqs, attention_mask, per_residue=per_residue)
+                    per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
+                    embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
                     logits = self.forward_task(embeddings, task_idx)
 
                     if self.task_configs[task_idx]['type'] == 'regression':
-                        batch_metrics = regression_metrics(logits.squeeze(-1), targets)
+                        metrics = regression_metrics(logits.squeeze(-1).cpu(), targets.cpu())
                     else:
-                        batch_metrics = classification_metrics(logits, targets, ignore_index=-100)
+                        metrics = classification_metrics(logits.cpu(), targets.cpu(), ignore_index=-100)
 
-                    task_metrics_accum.append(batch_metrics)
+                    accumulated.append(metrics)
 
-                # Average metrics over batches
-                avg_metrics = {}
-                for k in task_metrics_accum[0].keys():
-                    avg_metrics[k] = np.mean([m[k] for m in task_metrics_accum])
+                # average metrics across batches (for each metric name)
+                if len(accumulated) == 0:
+                    avg_metrics = {}
+                else:
+                    avg_metrics = {}
+                    keys = accumulated[0].keys()
+                    for k in keys:
+                        vals = [a[k] for a in accumulated if not (isinstance(a[k], float) and np.isnan(a[k]))]
+                        avg_metrics[k] = float(np.mean(vals)) if len(vals) > 0 else float('nan')
                 print(f"{split_name} metrics for Task {task_idx}: {avg_metrics}")
-                all_metrics.append(avg_metrics)
-        return all_metrics
+                all_task_metrics.append(avg_metrics)
 
-    def plot_dynamic_weights(self):
-        log = np.array(self.dynamic_weight_log)
-        plt.figure(figsize=(8, 4))
-        for i in range(log.shape[1]):
-            plt.plot(log[:, i], label=f'Task {i} weight')
-        plt.xlabel("Batch")
-        plt.ylabel("Dynamic Task Weight")
-        plt.title("Dynamic Task Weights over Training Batches")
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+        # save evaluation metrics
+        if self.save_dir:
+            fname = f"{split_name.lower()}_metrics_epoch_{len(self.history['train_loss'])+1}.npy"
+            np.save(os.path.join(self.save_dir, fname), np.array(all_task_metrics, dtype=object))
 
-def validate_dataset_splits(train_set, valid_set, test_set, name="Dataset"):
-    print(f"\n=== Checking {name} splits ===")
+        return all_task_metrics
 
-    # 1. Print sizes
-    print(f"Train samples: {len(train_set)}")
-    print(f"Valid samples: {len(valid_set)}")
-    print(f"Test samples:  {len(test_set)}")
-
-    # 2. Validate they are subsets (expect Subset)
-    def get_indices(d):
-        if hasattr(d, "indices"):
-            return list(d.indices)
-        return list(range(len(d)))
-
-    train_idx = set(get_indices(train_set))
-    valid_idx = set(get_indices(valid_set))
-    test_idx  = set(get_indices(test_set))
-
-    # 3. Confirm disjoint
-    inter_train_valid = train_idx & valid_idx
-    inter_train_test  = train_idx & test_idx
-    inter_valid_test  = valid_idx & test_idx
-
-    # Report any overlaps
-    if len(inter_train_valid) == 0 and len(inter_train_test) == 0 and len(inter_valid_test) == 0:
-        print("✔ Splits are disjoint (good)")
-    else:
-        print("❌ Overlap detected!")
-        print("train ∩ valid:", inter_train_valid)
-        print("train ∩ test:", inter_train_test)
-        print("valid ∩ test:", inter_valid_test)
-
-    # 4. Inspect random sample
-    import random
-    idx = random.randint(0, len(train_set)-1)
-    sample = train_set[idx]
-    print(f"\nRandom {name} train sample at idx {idx}:")
-    print("Sequence (first 40 aa):", sample['sequence'][:40], "...")
-
-    # 5. Print target dict sample
-    print("Targets:", sample["targets"])
-
-    # 6. Check missing label count (None labels)
-    missing = sum(
-        1 for i in range(len(train_set))
-        if train_set[i]["targets"]["target"] is None
-    )
-    print(f"Missing labels in train: {missing}")
-
-    print("=" * 60)
-
-
+# ----------------------------
+# Main usage example
+# ----------------------------
 if __name__ == "__main__":
+    #try:
+    #    from google.colab import drive
+    #    drive.mount('/content/drive')
+    #except Exception:
+    #    pass
+
+    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting"
+    ensure_dir(SAVE_DIR)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # ----------------------------
-    # Load datasets
+    # Load datasets (your dataset classes should provide split() that returns (train,valid,test) Subsets)
     # ----------------------------
-    # Thermostability (regression)
-    thermo_full = Thermostability()
+    thermo_full = Thermostability()    # uses HF loader
     thermo_train, thermo_valid, thermo_test = thermo_full.split()
 
-    # Secondary structure (per-residue classification)
     ssp_full = SecondaryStructure()
     ssp_train, ssp_valid, ssp_test = ssp_full.split()
 
-    # Cloning classification (single-label classification)
     clf_full = CloningCLF()
     clf_train, clf_valid, clf_test = clf_full.split()
 
+    print("Splits sizes (thermo, ssp, clf):")
     print(len(thermo_train), len(thermo_valid), len(thermo_test))
     print(len(ssp_train), len(ssp_valid), len(ssp_test))
     print(len(clf_train), len(clf_valid), len(clf_test))
-
-    validate_dataset_splits(thermo_train, thermo_valid, thermo_test, name="Thermostability")
-    validate_dataset_splits(ssp_train, ssp_valid, ssp_test, name="Secondary Structure")
-    validate_dataset_splits(clf_train, clf_valid, clf_test, name="Cloning")
 
     # ----------------------------
     # Task configuration
@@ -310,12 +481,12 @@ if __name__ == "__main__":
     ]
 
     # ----------------------------
-    # Backbone model
+    # Backbone
     # ----------------------------
     backbone = SharedProtBert(lora=False).to(device)
 
     # ----------------------------
-    # MultiTaskEngine
+    # Engine
     # ----------------------------
     engine = MultiTaskEngine(
         backbone=backbone,
@@ -325,11 +496,13 @@ if __name__ == "__main__":
         test_sets=[thermo_test, ssp_test, clf_test],
         batch_size=16,
         device=device,
-        alpha=0.99
+        alpha=0.99,
+        save_dir=SAVE_DIR,
+        max_length=None  # set if you want to truncate sequences
     )
 
     # ----------------------------
-    # Optimizer
+    # Optimizer + optional scheduler
     # ----------------------------
     optimizer = optim.Adam(
         list(backbone.parameters()) + list(engine.task_heads.parameters()),
@@ -337,20 +510,19 @@ if __name__ == "__main__":
     )
 
     # ----------------------------
-    # Train for one epoch
+    # Run training: adjust epochs as needed
     # ----------------------------
-    print("\n=== Start Training One Epoch with Dynamic Task Weighting ===")
-    #engine.train_one_epoch(optimizer)
+    NUM_EPOCHS = 3
+    engine.train(num_epochs=NUM_EPOCHS, optimizer=optimizer, scheduler=None, validate_every=1, save_every=1)
 
     # ----------------------------
-    # Evaluate on validation sets
+    # Final evaluate test set and save final artifacts
     # ----------------------------
-    print("\n=== Evaluate on Validation Sets ===")
-    #engine.evaluate(engine.valid_loaders, split_name="Validation")
+    final_test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
+    engine.history["test_metrics"] = final_test_metrics
+    np.save(os.path.join(SAVE_DIR, "final_test_metrics.npy"), np.array(final_test_metrics, dtype=object))
+    # save history json
+    with open(os.path.join(SAVE_DIR, "final_history.json"), "w") as fh:
+        json.dump(engine.history, fh, indent=2)
 
-    # ----------------------------
-    # Evaluate on test sets
-    # ----------------------------
-    print("\n=== Evaluate on Test Sets ===")
-    #engine.evaluate(engine.test_loaders, split_name="Test")
-
+    print("Training finished. Artifacts saved to:", SAVE_DIR)
