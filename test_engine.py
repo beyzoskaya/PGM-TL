@@ -36,6 +36,9 @@ task_configs = [
 # ----------------------------
 backbone = SharedProtBert().to(device)
 
+# Set regression loss scaling to roughly balance magnitude with classification tasks
+reg_loss_scale = 10.0
+
 engine = MultiTaskEngine(
     backbone=backbone,
     task_configs=task_configs,
@@ -43,7 +46,8 @@ engine = MultiTaskEngine(
     valid_sets=[thermo_ds_train, ssp_ds_train, clf_ds_train],  # reuse subset
     test_sets=[thermo_ds_train, ssp_ds_train, clf_ds_train],
     batch_size=2,
-    device=device
+    device=device,
+    reg_loss_scale=reg_loss_scale
 )
 
 # ----------------------------
@@ -54,4 +58,4 @@ optimizer = optim.Adam(list(backbone.parameters()) + list(engine.task_heads.para
 # ----------------------------
 # Run one epoch for testing
 # ----------------------------
-engine.train_one_epoch(optimizer, max_batches_per_task=2)
+engine.train_one_epoch(optimizer, max_batches_per_task=2)  # limit to 2 batches per task for speed
