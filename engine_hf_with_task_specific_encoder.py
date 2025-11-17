@@ -88,16 +88,21 @@ class MultiTaskEngine:
         input_ids = encoding['input_ids']
         attention_mask = encoding['attention_mask']
 
-        # Backbone embeddings
-        embeddings = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
-
-        # Task-specific head
-        task_head = self.task_heads[dataset_idx]
         task_cfg = self.task_configs[dataset_idx]
+
+        # Backbone embeddings
         if task_cfg['type'] == 'per_residue_classification':
-            logits = task_head(embeddings)  # [batch, seq_len, num_labels]
+            # Return full sequence embeddings
+            embeddings = self.backbone.backbone.bert(
+                input_ids=input_ids,
+                attention_mask=attention_mask
+            ).last_hidden_state  # [B, L, D]
         else:
-            logits = task_head(embeddings)  # [batch, num_labels or 1]
+            # Return pooled embeddings
+            embeddings = self.backbone(input_ids=input_ids, attention_mask=attention_mask)  # [B, D]
+
+        # Task head
+        logits = self.task_heads[dataset_idx](embeddings)
 
         return logits, targets
 
@@ -126,15 +131,17 @@ class MultiTaskEngine:
                 optimizer.zero_grad()
                 logits, targets = self.forward(batch, dataset_idx=task_idx)
 
-                # Compute loss
                 target_tensor = list(targets.values())[0]
+
+                # Compute loss
                 if task_cfg['type'] == 'regression':
                     loss = loss_fn(logits, target_tensor)
                 elif task_cfg['type'] == 'classification':
-                    # logits: [batch, num_labels], target: [batch]
                     loss = loss_fn(logits, target_tensor.squeeze(-1).long())
                 elif task_cfg['type'] == 'per_residue_classification':
-                    # flatten batch and sequence: [batch*seq_len, num_labels]
+                    # Ensure logits are [B, L, C]
+                    if logits.dim() != 3:
+                        raise ValueError(f"Expected logits of shape [B, L, C], got {logits.shape}")
                     b, s, c = logits.shape
                     loss = loss_fn(logits.view(b*s, c), target_tensor.view(b*s))
 
