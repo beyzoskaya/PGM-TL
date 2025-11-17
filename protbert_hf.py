@@ -132,17 +132,20 @@ class SharedProtBert(nn.Module):
 
         # --- Backbone ---
         if lora:
-            # Your LoRA wrapper class here
             self.backbone = ProtBertWithLoRA(model_name=model_name, readout=readout,
                                              lora_rank=lora_rank, lora_alpha=lora_alpha,
                                              lora_dropout=lora_dropout)
         else:
-            # Regular ProtBert wrapper
             self.backbone = ProtBert(model_name=model_name, readout=readout,
                                      freeze_bert=freeze_backbone)
 
     def forward(self, input_ids, attention_mask):
         return self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+
+    @property
+    def hidden_size(self):
+        return self.backbone.bert.config.hidden_size
+
 
 #if __name__ == "__main__":
 #    import torch
