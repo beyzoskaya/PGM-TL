@@ -34,28 +34,39 @@ def classification_metrics(preds, targets, ignore_index=-100):
 # ----------------------------
 # Custom collate_fn for variable-length sequences
 # ----------------------------
-def collate_fn(batch):
-    # Convert sequences to tensor
-    input_ids = [torch.tensor(item['sequence'], dtype=torch.long) for item in batch]
-    attention_mask = [(seq != 0).long() for seq in input_ids]
-
-    # Pad sequences
-    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
-    attention_mask_padded = pad_sequence(attention_mask, batch_first=True, padding_value=0)
-
-    # Process targets
+def collate_fn(batch, tokenizer=None, max_length=None):
+    """
+    batch: list of dicts from Dataset
+    tokenizer: ProtBert tokenizer (from SharedProtBert)
+    """
+    sequences = [item['sequence'] for item in batch]
     targets = [item['targets']['target'] for item in batch]
-    if isinstance(targets[0], list) or isinstance(targets[0], np.ndarray):
-        # Per-residue classification: pad with -100
-        targets = [torch.tensor(t, dtype=torch.long) for t in targets]
-        targets = pad_sequence(targets, batch_first=True, padding_value=-100)
-    else:
-        # Regression or single-label classification
+
+    # --- Tokenize sequences ---
+    if tokenizer is None:
+        raise ValueError("Tokenizer must be provided to collate_fn")
+    
+    encodings = tokenizer(sequences,
+                          return_tensors='pt',
+                          padding=True,
+                          truncation=True,
+                          max_length=max_length)
+    
+    input_ids = encodings['input_ids']
+    attention_mask = encodings['attention_mask']
+
+    # --- Process targets ---
+    # Regression or classification (single value per sequence)
+    if isinstance(targets[0], (int, float)):
         targets = torch.tensor(targets, dtype=torch.float32)
+    else:
+        # Per-residue targets: pad to same length
+        target_tensors = [torch.tensor(t, dtype=torch.long) for t in targets]
+        targets = pad_sequence(target_tensors, batch_first=True, padding_value=-100)
 
     return {
-        'sequence': input_ids_padded,
-        'attention_mask': attention_mask_padded,
+        'sequence': input_ids,
+        'attention_mask': attention_mask,
         'targets': {'target': targets}
     }
 
@@ -70,9 +81,9 @@ class MultiTaskEngine:
         self.task_configs = task_configs
 
         # DataLoaders with custom collate_fn
-        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=collate_fn) for ds in train_sets]
-        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn) for ds in valid_sets]
-        self.test_loaders  = [DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn) for ds in test_sets]
+        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda batch: collate_fn(batch, tokenizer=self.backbone.tokenizer)) for ds in train_sets]
+        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda batch: collate_fn(batch, tokenizer=self.backbone.tokenizer)) for ds in valid_sets]
+        self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda batch: collate_fn(batch, tokenizer=self.backbone.tokenizer)) for ds in test_sets]
 
         # Task heads
         hidden_dim = backbone.hidden_size
