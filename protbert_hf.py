@@ -1,198 +1,144 @@
-import os
+# protbert_hf.py
 import torch
-from torch import nn
-from transformers import AutoModel, AutoTokenizer
-import torch.nn.functional as F
-
-class ProtBert(nn.Module):
-    
-    def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="pooler", freeze_bert=False):
-        super(ProtBert, self).__init__()
-        
-        self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
-        self.model = AutoModel.from_pretrained(model_name)
-        
-        self.output_dim = self.model.config.hidden_size  
-        
-        if freeze_bert:
-            # Freeze all layers
-            for param in self.model.parameters():
-                param.requires_grad = False
-
-            # Unfreeze the last 2 transformer encoder layers
-            for layer in self.model.encoder.layer[-2:]:
-                for param in layer.parameters():
-                    param.requires_grad = True
-                    
-            if hasattr(self.model, "pooler"):
-                for param in self.model.pooler.parameters():
-                    param.requires_grad = True
-
-        if readout in ["pooler", "sum", "mean"]:
-            self.readout = readout
-        else:
-            raise ValueError(f"Unknown readout `{readout}`")
-    
-    def forward(self, batch):
-        """
-        Forward pass with proper attention mask alignment.
-        
-        Args:
-            batch: dict with 'sequence' key or object with 'sequence' attribute
-        
-        Returns:
-            dict with 'graph_feature', 'residue_feature', and aligned 'attention_mask'
-        """
-        if isinstance(batch, dict) and 'sequence' in batch:
-            sequences = batch['sequence']
-        elif hasattr(batch, 'sequence'):
-            sequences = batch.sequence
-        else:
-            sequences = self.extract_sequence_from_graph(batch)
- 
-        if isinstance(sequences, str):
-            sequences = [sequences]
-        
-        # Add spaces between amino acids for BERT tokenization
-        spaced_sequences = [' '.join(seq) for seq in sequences]
-        
-        # Tokenize sequences
-        encoded = self.tokenizer(
-            spaced_sequences,
-            add_special_tokens=True,
-            padding=True,
-            truncation=True,
-            max_length=1024, 
-            return_tensors='pt'
-        )
-        
-        device = next(self.model.parameters()).device
-        encoded = {k: v.to(device) for k, v in encoded.items()}
-
-        # Forward pass through BERT
-        outputs = self.model(**encoded)
-        
-        # Extract features
-        last_hidden_state = outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
-        
-        # --- Get graph-level features (sequence-level representation) ---
-        if self.readout == "pooler" and hasattr(outputs, 'pooler_output'):
-            graph_feature = outputs.pooler_output  # [batch_size, hidden_size]
-        elif self.readout == "mean":
-            attention_mask_expanded = encoded['attention_mask'].unsqueeze(-1)  # [batch, seq_len, 1]
-            masked_hidden = last_hidden_state * attention_mask_expanded
-            graph_feature = masked_hidden.sum(dim=1) / attention_mask_expanded.sum(dim=1)  # [batch, hidden]
-        elif self.readout == "sum":
-            attention_mask_expanded = encoded['attention_mask'].unsqueeze(-1)
-            graph_feature = (last_hidden_state * attention_mask_expanded).sum(dim=1)  # [batch, hidden]
-        else:
-            graph_feature = last_hidden_state[:, 0]  # [batch, hidden] - CLS token
-        
-        # --- For residue-level features, remove special tokens [CLS] and [SEP] ---
-        residue_feature = last_hidden_state[:, 1:-1]  # [batch, seq_len-2, hidden]
-        
-        # --- IMPORTANT: Return ALIGNED attention mask (also stripped of special tokens) ---
-        # Remove attention mask for special tokens to match residue_feature
-        residue_attention_mask = encoded['attention_mask'][:, 1:-1]  # [batch, seq_len-2]
-        
-        return {
-            "graph_feature": graph_feature,           # [batch, hidden]
-            "residue_feature": residue_feature,       # [batch, seq_len-2, hidden]
-            "attention_mask": residue_attention_mask  # [batch, seq_len-2] - ALIGNED!
-        }
-    
-    def extract_sequence_from_graph(self, batch):
-        """Extract amino acid sequence from graph representation"""
-        if hasattr(batch, 'graph') and 'residue_type' in batch['graph']:
-            residue_types = batch['graph']['residue_type']
-        elif isinstance(batch, dict) and 'graph' in batch:
-            residue_types = batch['graph']['residue_type']
-        else:
-            raise ValueError("Cannot extract sequence from batch")
-        
-        id_to_aa = {
-            0: 'A', 1: 'R', 2: 'N', 3: 'D', 4: 'C', 5: 'Q', 6: 'E', 7: 'G', 8: 'H', 9: 'I',
-            10: 'L', 11: 'K', 12: 'M', 13: 'F', 14: 'P', 15: 'S', 16: 'T', 17: 'W', 18: 'Y', 19: 'V',
-            20: 'X', 21: 'U', 22: 'B', 23: 'Z', 24: 'O'
-        }
-        
-        if residue_types.dim() == 1:
-            sequence = ''.join([id_to_aa.get(idx.item(), 'X') for idx in residue_types])
-            return sequence
-        else:
-            sequences = []
-            for seq_residues in residue_types:
-                sequence = ''.join([id_to_aa.get(idx.item(), 'X') for idx in seq_residues])
-                sequences.append(sequence)
-            return sequences
+import torch.nn as nn
+from transformers import BertModel, BertTokenizer, AutoModel, AutoTokenizer
+import copy
+import math
 
 class LoRALinear(nn.Module):
-    """LoRA (Low-Rank Adaptation) layer"""
-    
-    def __init__(self, in_features, out_features, rank=16, alpha=32, dropout=0.1):
+    """
+    LoRA applied to linear layers: W = W_0 + A @ B
+    """
+    def __init__(self, in_features, out_features, r=8, alpha=16, dropout=0.0, bias=True):
         super().__init__()
-        self.rank = rank
+        self.in_features = in_features
+        self.out_features = out_features
+        self.r = r
         self.alpha = alpha
-        
-        # Original linear layer (frozen)
-        self.linear = nn.Linear(in_features, out_features, bias=False)
-        self.linear.weight.requires_grad = False
-        
-        # LoRA matrices
-        self.lora_A = nn.Linear(in_features, rank, bias=False)
-        self.lora_B = nn.Linear(rank, out_features, bias=False)
-        self.dropout = nn.Dropout(dropout)
-        
-        # Initialize LoRA matrices
-        nn.init.kaiming_uniform_(self.lora_A.weight)
-        nn.init.zeros_(self.lora_B.weight)
-        
-    def forward(self, x):
-        original_out = self.linear(x)
-        lora_out = self.lora_B(self.dropout(self.lora_A(x)))
-        return original_out + (self.alpha / self.rank) * lora_out
+        self.scaling = alpha / r
 
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(out_features))
+        else:
+            self.register_parameter('bias', None)
+
+        # LoRA matrices
+        self.A = nn.Parameter(torch.zeros(r, in_features))
+        self.B = nn.Parameter(torch.zeros(out_features, r))
+        self.dropout = nn.Dropout(dropout)
+
+        # Init weights
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.A)
+        nn.init.zeros_(self.B)
+
+    def forward(self, x):
+        lora_update = self.dropout(x) @ self.A.T @ self.B.T * self.scaling
+        return x @ self.weight.T + lora_update + (self.bias if self.bias is not None else 0)
+
+class ProtBert(nn.Module):
+    def __init__(self, model_name='Rostlab/prot_bert_bfd', readout='mean', freeze_bert=True):
+        """
+        Base ProtBert model wrapper.
+        readout: 'mean' or 'cls'
+        """
+        super().__init__()
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
+        self.bert = AutoModel.from_pretrained(model_name)
+        self.readout = readout
+
+        if freeze_bert:
+            for param in self.bert.parameters():
+                param.requires_grad = False
+
+    def forward(self, input_ids, attention_mask=None):
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        last_hidden = outputs.last_hidden_state  # [B, L, D]
+        if self.readout == 'mean':
+            seq_emb = (last_hidden * attention_mask.unsqueeze(-1)).sum(dim=1) / attention_mask.sum(dim=1, keepdim=True)
+        else:  # 'cls'
+            seq_emb = last_hidden[:, 0, :]
+        return seq_emb  # [B, D]
 
 class ProtBertWithLoRA(nn.Module):
-    """ProtBert with LoRA adapters for efficient fine-tuning"""
-
-    def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
-                 lora_rank=16, lora_alpha=32, lora_dropout=0.1):
+    def __init__(self, model_name='Rostlab/prot_bert_bfd', readout='mean', lora_rank=16, lora_alpha=32, lora_dropout=0.1):
+        """
+        ProtBert with LoRA adapters.
+        Freezes backbone and adds LoRA to attention projections.
+        """
         super().__init__()
-        
-        self.protbert = ProtBert(model_name, readout, freeze_bert=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
+        self.bert = AutoModel.from_pretrained(model_name)
+        self.readout = readout
 
-        trainable = [n for n, p in self.protbert.model.named_parameters() if p.requires_grad]
-        print(f"Trainable ProtBert parameters ({len(trainable)}):")
-        for n in trainable:
-            print("  ", n)
-            
-        self.output_dim = self.protbert.output_dim  # Expose output_dim
-        
-        # Add LoRA adapters to attention layers
-        self.add_lora_adapters(lora_rank, lora_alpha, lora_dropout)
-    
-    def add_lora_adapters(self, rank, alpha, dropout):
-        """Add LoRA adapters to all attention layers"""
-        for layer in self.protbert.model.encoder.layer:
-            attention = layer.attention.self
-            
-            for name in ['query', 'key', 'value']:
-                if hasattr(attention, name):
-                    original_layer = getattr(attention, name)
-                    lora_layer = LoRALinear(
-                        original_layer.in_features,
-                        original_layer.out_features,
-                        rank=rank,
-                        alpha=alpha,
-                        dropout=dropout
-                    )
-                    # Copy original weights to LoRA's frozen layer
-                    lora_layer.linear.weight.data = original_layer.weight.data.clone()
-                    setattr(attention, name, lora_layer)
-    
-    def forward(self, batch):
-        """Forward pass through ProtBert backbone"""
-        outputs = self.protbert(batch)
-        return outputs
+        # Freeze backbone
+        for param in self.bert.parameters():
+            param.requires_grad = False
+
+        # Inject LoRA into attention layers
+        self.inject_lora(lora_rank, lora_alpha, lora_dropout)
+
+    def inject_lora(self, r, alpha, dropout):
+        """
+        Replace Bert attention linear layers with LoRA-augmented versions.
+        Only inject into query/key/value layers for efficiency.
+        """
+        for name, module in self.bert.named_modules():
+            if isinstance(module, nn.Linear) and 'attention' in name:
+                # Wrap linear layer with LoRA
+                lora_linear = LoRALinear(module.in_features, module.out_features, r=r, alpha=alpha, dropout=dropout, bias=(module.bias is not None))
+                # Copy original weights
+                with torch.no_grad():
+                    lora_linear.weight.copy_(module.weight)
+                    if module.bias is not None:
+                        lora_linear.bias.copy_(module.bias)
+                # Replace in model
+                parent = self.get_parent_module(name)
+                attr_name = name.split('.')[-1]
+                setattr(parent, attr_name, lora_linear)
+
+    def get_parent_module(self, name):
+        """
+        Retrieve the parent module to replace attribute.
+        """
+        parts = name.split('.')
+        module = self.bert
+        for p in parts[:-1]:
+            module = getattr(module, p)
+        return module
+
+    def forward(self, input_ids, attention_mask=None):
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        last_hidden = outputs.last_hidden_state
+        if self.readout == 'mean':
+            seq_emb = (last_hidden * attention_mask.unsqueeze(-1)).sum(dim=1) / attention_mask.sum(dim=1, keepdim=True)
+        else:
+            seq_emb = last_hidden[:, 0, :]
+        return seq_emb
+
+class SharedProtBert(nn.Module):
+    """
+    Shared ProtBert backbone for multi-task learning.
+    Optional LoRA.
+    """
+    def __init__(self, model_name='Rostlab/prot_bert_bfd', readout='mean', lora=False, lora_rank=16, lora_alpha=32, lora_dropout=0.1, freeze_backbone=True):
+        super().__init__()
+        if lora:
+            self.backbone = ProtBertWithLoRA(model_name=model_name, readout=readout, lora_rank=lora_rank, lora_alpha=lora_alpha, lora_dropout=lora_dropout)
+        else:
+            self.backbone = ProtBert(model_name=model_name, readout=readout, freeze_bert=freeze_backbone)
+
+    def forward(self, input_ids, attention_mask):
+        return self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+
+if __name__ == "__main__":
+    import torch
+
+    sample_seq = ["MTEITAAMVKELRESTGAGMMDCKNALSETQHEWAY"]
+    model = SharedProtBert(lora=True)
+    tokenizer = model.backbone.tokenizer
+    enc = tokenizer(sample_seq, return_tensors="pt", padding=True)
+    emb = model(enc['input_ids'], enc['attention_mask'])
+    print("SharedProtBert output shape:", emb.shape)
+    print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
