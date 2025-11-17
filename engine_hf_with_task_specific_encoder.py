@@ -106,13 +106,23 @@ class MultiTaskEngine:
         self.dynamic_weight_log = []
 
     def forward_task(self, x, task_idx):
-        return self.task_heads[task_idx](x)
+        task_type = self.task_configs[task_idx]['type']
+        if task_type == 'per_residue_classification':
+            # x: [B, L, D] -> logits: [B, L, num_labels]
+            return self.task_heads[task_idx](x)
+        else:
+            # x: [B, D] -> logits: [B, num_labels]
+            return self.task_heads[task_idx](x)
 
     def compute_loss(self, logits, targets, task_idx):
-        if self.task_configs[task_idx]['type'] == 'regression':
+        task_type = self.task_configs[task_idx]['type']
+        if task_type == 'regression':
             return self.loss_fns[task_idx](logits.squeeze(-1), targets)
-        else:
-            return self.loss_fns[task_idx](logits.view(-1, logits.shape[-1]), targets.view(-1).long())
+        elif task_type == 'per_residue_classification':
+            # logits: [B, L, C], targets: [B, L]
+            return self.loss_fns[task_idx](logits.view(-1, logits.shape[-1]), targets.view(-1))
+        else:  # sequence-level classification
+            return self.loss_fns[task_idx](logits, targets.long())
 
     def update_dynamic_weights(self):
         inv_losses = 1.0 / (self.running_losses + 1e-8)
@@ -136,7 +146,9 @@ class MultiTaskEngine:
                     targets = targets.to(self.device)
 
                 optimizer.zero_grad()
-                embeddings = self.backbone(seqs, attention_mask)
+                #embeddings = self.backbone(seqs, attention_mask)
+                per_residue = self.task_configs[task_idx]['type'] == 'per_residue_classification'
+                embeddings = self.backbone(seqs, attention_mask, per_residue=per_residue)
                 logits = self.forward_task(embeddings, task_idx)
                 loss = self.compute_loss(logits, targets, task_idx)
 
@@ -171,7 +183,9 @@ class MultiTaskEngine:
                     if torch.is_tensor(targets):
                         targets = targets.to(self.device)
 
-                    embeddings = self.backbone(seqs, attention_mask)
+                    #embeddings = self.backbone(seqs, attention_mask)
+                    per_residue = self.task_configs[task_idx]['type'] == 'per_residue_classification'
+                    embeddings = self.backbone(seqs, attention_mask, per_residue=per_residue)
                     logits = self.forward_task(embeddings, task_idx)
 
                     if self.task_configs[task_idx]['type'] == 'regression':

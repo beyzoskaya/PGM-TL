@@ -139,13 +139,24 @@ class SharedProtBert(nn.Module):
             self.backbone = ProtBert(model_name=model_name, readout=readout,
                                      freeze_bert=freeze_backbone)
 
-    def forward(self, input_ids, attention_mask):
-        return self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+    def forward(self, input_ids, attention_mask, per_residue=False):
+        """
+        per_residue: if True, return embeddings for each token [B, L, D]
+                    if False, return pooled embeddings [B, D]
+        """
+        outputs = self.backbone.bert(input_ids=input_ids, attention_mask=attention_mask)
+        last_hidden = outputs.last_hidden_state  # [B, L, D]
+        if per_residue:
+            return last_hidden
+        if self.backbone.readout == 'mean':
+            seq_emb = (last_hidden * attention_mask.unsqueeze(-1)).sum(dim=1) / attention_mask.sum(dim=1, keepdim=True)
+        else:  # 'cls'
+            seq_emb = last_hidden[:, 0, :]
+        return seq_emb
 
     @property
     def hidden_size(self):
         return self.backbone.bert.config.hidden_size
-
 
 #if __name__ == "__main__":
 #    import torch
