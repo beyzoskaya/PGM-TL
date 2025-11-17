@@ -14,10 +14,9 @@ thermo_ds = Thermostability(split='train')  # can select subset if needed
 ssp_ds = SecondaryStructure(split='train')
 clf_ds = CloningCLF(split='train')
 
-# For quick testing, take small subset
-thermo_ds_train = thermo_ds[:100]
-ssp_ds_train = ssp_ds[:100]
-clf_ds_train = clf_ds[:100]
+thermo_ds_train = thermo_ds.select(range(100))
+ssp_ds_train = ssp_ds.select(range(100))
+clf_ds_train = clf_ds.select(range(100))
 
 train_sets = [thermo_ds_train, ssp_ds_train, clf_ds_train]
 valid_sets = train_sets  # just reuse for test
