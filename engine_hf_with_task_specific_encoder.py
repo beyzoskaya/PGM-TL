@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
+from transformers import AutoTokenizer
 
 class MultiTaskEngine:
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
@@ -20,23 +21,72 @@ class MultiTaskEngine:
         self.valid_sets = valid_sets
         self.test_sets = test_sets
 
-        # Prepare dataloaders
-        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True,
-                                         num_workers=num_worker, collate_fn=self.collate_fn)
-                              for ds in train_sets]
-        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False,
-                                         num_workers=num_worker, collate_fn=self.collate_fn)
-                              for ds in valid_sets]
-        self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False,
-                                        num_workers=num_worker, collate_fn=self.collate_fn)
-                             for ds in test_sets]
+        # Tokenizer from backbone
+        self.tokenizer = backbone.tokenizer  # assuming backbone has tokenizer
 
-    def collate_fn(self, batch):
-        """Temporary collate_fn: just pass sequences and targets as lists"""
-        sequences = [sample['sequence'] for sample in batch]
-        targets = [sample['targets'] for sample in batch]
-        return {'sequences': sequences, 'targets': targets}
+        # Prepare dataloaders with proper collate function
+        self.train_loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=True,
+                       num_workers=num_worker,
+                       collate_fn=lambda b: self.tokenize_and_collate(b))
+            for ds in train_sets
+        ]
+        self.valid_loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=False,
+                       num_workers=num_worker,
+                       collate_fn=lambda b: self.tokenize_and_collate(b))
+            for ds in valid_sets
+        ]
+        self.test_loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=False,
+                       num_workers=num_worker,
+                       collate_fn=lambda b: self.tokenize_and_collate(b))
+            for ds in test_sets
+        ]
 
+    def tokenize_and_collate(self, batch):
+        """
+        Collate function to tokenize sequences and prepare target tensors.
+        """
+        sequences = [s['sequence'] for s in batch]
+        targets = [s['targets'] for s in batch]
+
+        # Tokenize sequences
+        encoding = self.tokenizer(
+            sequences,
+            padding=True,
+            truncation=True,
+            return_tensors='pt'
+        )
+
+        # Convert targets to tensors
+        batch_targets = {}
+        for key in targets[0].keys():
+            values = [t[key] for t in targets]
+            if isinstance(values[0], list):  # per-residue targets
+                max_len = max(len(v) for v in values)
+                padded = [v + [0]*(max_len-len(v)) for v in values]
+                batch_targets[key] = torch.tensor(padded, dtype=torch.long)
+            else:
+                batch_targets[key] = torch.tensor(values, dtype=torch.float).unsqueeze(-1)
+
+        # Move everything to device
+        for k in batch_targets:
+            batch_targets[k] = batch_targets[k].to(self.device)
+        for k in encoding:
+            encoding[k] = encoding[k].to(self.device)
+
+        # Debug prints for first batch only
+        if hasattr(self, '_debug_done') is False:
+            print("=== Debug collate ===")
+            print("Input IDs shape:", encoding['input_ids'].shape)
+            for k, v in batch_targets.items():
+                print(f"Target '{k}' shape: {v.shape}")
+            self._debug_done = True
+
+        return encoding, batch_targets
+
+    # Optional: keep old print_first_batch for debugging
     def print_first_batch(self, split='train', dataset_idx=0):
         if split == 'train':
             loader = self.train_loaders[dataset_idx]
@@ -48,12 +98,9 @@ class MultiTaskEngine:
             raise ValueError("split must be 'train', 'valid', or 'test'")
 
         batch = next(iter(loader))
+        encoding, targets = batch
         print(f"=== First batch from {split} dataset {dataset_idx} ===")
-        for i, (seq, targ) in enumerate(zip(batch['sequences'], batch['targets'])):
-            print(f"Sample {i}: sequence length={len(seq)}, target keys={list(targ.keys())}")
-            for k, v in targ.items():
-                if isinstance(v, list):
-                    print(f"  Target '{k}' (first 10): {v[:10]}")
-                else:
-                    print(f"  Target '{k}': {v}")
+        print("Input IDs shape:", encoding['input_ids'].shape)
+        for k, v in targets.items():
+            print(f"Target '{k}' shape: {v.shape}")
         return batch

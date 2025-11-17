@@ -1,56 +1,54 @@
+from flip_hf import Thermostability
+from protbert_hf import SharedProtBert
+from engine_hf_with_task_specific_encoder import MultiTaskEngine
 import torch
-from flip_hf import Thermostability  # or any dataset you want to test
-from protbert_hf import SharedProtBert  # your updated ProtBert model
-from engine_hf_with_task_specific_encoder import MultiTaskEngine  # the skeleton
 
-# Load dataset
-train_thermo = Thermostability(path='./data').split()[0]  # get train split
-valid_thermo = Thermostability(path='./data').split()[1]  # valid split
-test_thermo = Thermostability(path='./data').split()[2]  # test split
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Load a small subset of dataset
+dataset = Thermostability(path='./data')
+subset = [dataset[i] for i in range(5)]  # first 5 sequences
 
 # Load backbone
-backbone = SharedProtBert('Rostlab/prot_bert_bfd')
-backbone.to('cuda' if torch.cuda.is_available() else 'cpu')
+backbone = SharedProtBert().to(device)
 
-# Initialize engine
+# Initialize engine with one dataset
 engine = MultiTaskEngine(
     backbone=backbone,
-    task_configs=[{'type':'regression','num_labels':1}],
-    train_sets=[train_thermo],
-    valid_sets=[valid_thermo],
-    test_sets=[test_thermo],
+    task_configs=[{'type':'regression', 'num_labels':1}],
+    train_sets=[subset],
+    valid_sets=[subset],
+    test_sets=[subset],
     batch_size=2,
-    num_worker=0,
-    device='cuda' if torch.cuda.is_available() else 'cpu'
+    device=device
 )
 
-# Test: print first batch
-batch = engine.print_first_batch(split='train', dataset_idx=0)
+# Test collate + print
+batch_encoding, batch_targets = engine.print_first_batch(split='train', dataset_idx=0)
+from flip_hf import Thermostability
+from protbert_hf import SharedProtBert
+from engine_hf_with_task_specific_encoder import MultiTaskEngine
 import torch
-from flip_hf import Thermostability  # or any dataset you want to test
-from protbert_hf import SharedProtBert  # your updated ProtBert model
-from engine_hf_with_task_specific_encoder import MultiTaskEngine  # the skeleton
 
-# Load dataset
-train_thermo = Thermostability(path='./data').split()[0]  # get train split
-valid_thermo = Thermostability(path='./data').split()[1]  # valid split
-test_thermo = Thermostability(path='./data').split()[2]  # test split
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Load a small subset of dataset
+dataset = Thermostability(path='./data')
+subset = [dataset[i] for i in range(5)]  # first 5 sequences
 
 # Load backbone
-backbone = SharedProtBert('Rostlab/prot_bert_bfd')
-backbone.to('cuda' if torch.cuda.is_available() else 'cpu')
+backbone = SharedProtBert().to(device)
 
-# Initialize engine
+# Initialize engine with one dataset
 engine = MultiTaskEngine(
     backbone=backbone,
-    task_configs=[{'type':'regression','num_labels':1}],
-    train_sets=[train_thermo],
-    valid_sets=[valid_thermo],
-    test_sets=[test_thermo],
+    task_configs=[{'type':'regression', 'num_labels':1}],
+    train_sets=[subset],
+    valid_sets=[subset],
+    test_sets=[subset],
     batch_size=2,
-    num_worker=0,
-    device='cuda' if torch.cuda.is_available() else 'cpu'
+    device=device
 )
 
-# Test: print first batch
-batch = engine.print_first_batch(split='train', dataset_idx=0)
+# Test collate + print
+batch_encoding, batch_targets = engine.print_first_batch(split='train', dataset_idx=0)
