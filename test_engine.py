@@ -94,4 +94,4 @@ for task_idx, loader in enumerate(engine.train_loaders):
 # Optional: run one training epoch to see dynamic weighting in action
 # ----------------------------
 print("\n=== Training Epoch Debug ===")
-engine.train_one_epoch(optimizer, max_batches_per_task=10)  # small number of batches for debug
+engine.train_one_epoch(optimizer, max_batches_per_task=2)  # small number of batches for debug
