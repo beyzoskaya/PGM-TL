@@ -222,6 +222,58 @@ class MultiTaskEngine:
         plt.grid(True)
         plt.show()
 
+def validate_dataset_splits(train_set, valid_set, test_set, name="Dataset"):
+    print(f"\n=== Checking {name} splits ===")
+
+    # 1. Print sizes
+    print(f"Train samples: {len(train_set)}")
+    print(f"Valid samples: {len(valid_set)}")
+    print(f"Test samples:  {len(test_set)}")
+
+    # 2. Validate they are subsets (expect Subset)
+    def get_indices(d):
+        if hasattr(d, "indices"):
+            return list(d.indices)
+        return list(range(len(d)))
+
+    train_idx = set(get_indices(train_set))
+    valid_idx = set(get_indices(valid_set))
+    test_idx  = set(get_indices(test_set))
+
+    # 3. Confirm disjoint
+    inter_train_valid = train_idx & valid_idx
+    inter_train_test  = train_idx & test_idx
+    inter_valid_test  = valid_idx & test_idx
+
+    # Report any overlaps
+    if len(inter_train_valid) == 0 and len(inter_train_test) == 0 and len(inter_valid_test) == 0:
+        print("✔ Splits are disjoint (good)")
+    else:
+        print("❌ Overlap detected!")
+        print("train ∩ valid:", inter_train_valid)
+        print("train ∩ test:", inter_train_test)
+        print("valid ∩ test:", inter_valid_test)
+
+    # 4. Inspect random sample
+    import random
+    idx = random.randint(0, len(train_set)-1)
+    sample = train_set[idx]
+    print(f"\nRandom {name} train sample at idx {idx}:")
+    print("Sequence (first 40 aa):", sample['sequence'][:40], "...")
+
+    # 5. Print target dict sample
+    print("Targets:", sample["targets"])
+
+    # 6. Check missing label count (None labels)
+    missing = sum(
+        1 for i in range(len(train_set))
+        if train_set[i]["targets"]["target"] is None
+    )
+    print(f"Missing labels in train: {missing}")
+
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -229,19 +281,24 @@ if __name__ == "__main__":
     # Load datasets
     # ----------------------------
     # Thermostability (regression)
-    thermo_train = Thermostability(split='train')
-    thermo_valid = Thermostability(split='valid')
-    thermo_test  = Thermostability(split='test')
+    thermo_full = Thermostability()
+    thermo_train, thermo_valid, thermo_test = thermo_full.split()
 
     # Secondary structure (per-residue classification)
-    ssp_train = SecondaryStructure(split='train')
-    ssp_valid = SecondaryStructure(split='valid')
-    ssp_test  = SecondaryStructure(split='test')
+    ssp_full = SecondaryStructure()
+    ssp_train, ssp_valid, ssp_test = ssp_full.split()
 
     # Cloning classification (single-label classification)
-    clf_train = CloningCLF(split='train')
-    clf_valid = CloningCLF(split='valid')
-    clf_test  = CloningCLF(split='test')
+    clf_full = CloningCLF()
+    clf_train, clf_valid, clf_test = clf_full.split()
+
+    print(len(thermo_train), len(thermo_valid), len(thermo_test))
+    print(len(ssp_train), len(ssp_valid), len(ssp_test))
+    print(len(clf_train), len(clf_valid), len(clf_test))
+
+    validate_dataset_splits(thermo_train, thermo_valid, thermo_test, name="Thermostability")
+    validate_dataset_splits(ssp_train, ssp_valid, ssp_test, name="Secondary Structure")
+    validate_dataset_splits(clf_train, clf_valid, clf_test, name="Cloning")
 
     # ----------------------------
     # Task configuration
@@ -283,17 +340,17 @@ if __name__ == "__main__":
     # Train for one epoch
     # ----------------------------
     print("\n=== Start Training One Epoch with Dynamic Task Weighting ===")
-    engine.train_one_epoch(optimizer)
+    #engine.train_one_epoch(optimizer)
 
     # ----------------------------
     # Evaluate on validation sets
     # ----------------------------
     print("\n=== Evaluate on Validation Sets ===")
-    engine.evaluate(engine.valid_loaders, split_name="Validation")
+    #engine.evaluate(engine.valid_loaders, split_name="Validation")
 
     # ----------------------------
     # Evaluate on test sets
     # ----------------------------
     print("\n=== Evaluate on Test Sets ===")
-    engine.evaluate(engine.test_loaders, split_name="Test")
+    #engine.evaluate(engine.test_loaders, split_name="Test")
 

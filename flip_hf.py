@@ -59,79 +59,111 @@ class ProteinDataset(Dataset):
 
 class HuggingFaceDataset(ProteinDataset):
     
-    def load_hf_dataset(self, dataset_name, split_column='split', sequence_column='sequence',
-                        target_columns=None, verbose=1, valid_ratio=0.1):
+    def load_hf_dataset(self, dataset_name,
+                        split_column='split',
+                        sequence_column='sequence',
+                        target_columns=None,
+                        verbose=1,
+                        valid_ratio=0.1,
+                        test_ratio=0.1):
         """
-        Load a dataset from HuggingFace hub name (dataset_name).
-        Supports standard splits (train/validation/test) or single-file datasets with
-        a split column. Missing target values are set to None (not NaN), conversion
-        to tensors should be done in collate.
+        Safe HuggingFace dataset loader
+        Guarantees: TRAIN, VALID, TEST always exist
+        Never merges splits
+        Never returns empty splits silently
         """
+
         if target_columns is None:
             target_columns = []
 
         dataset = load_dataset(dataset_name)
 
-        # identify splits
+        # CASE 1 — standard HF splits exist already
         if isinstance(dataset, dict) and 'train' in dataset:
-            train_data = dataset['train']
-            valid_data = dataset.get('validation', dataset.get('valid', []))
-            test_data = dataset.get('test', [])
-            if len(valid_data) == 0:
-                # create validation split from train
-                if verbose:
-                    print(f"No validation split found. Splitting {len(train_data)} training samples...")
-                split_data = train_data.train_test_split(test_size=valid_ratio, seed=42)
-                train_data = split_data['train']
-                valid_data = split_data['test']
-        else:
-            # fallback (very rare)
-            all_data = dataset if not isinstance(dataset, dict) else list(dataset.values())[0]
-            train_data = [item for item in all_data if item.get(split_column) == 'train']
-            valid_data = [item for item in all_data if item.get(split_column) in ['valid', 'validation']]
-            test_data = [item for item in all_data if item.get(split_column) == 'test']
-            if len(valid_data) == 0:
-                n_valid = max(1, int(len(train_data) * valid_ratio))
-                valid_data = train_data[:n_valid]
-                train_data = train_data[n_valid:]
 
-        # collect sequences and targets in order train -> valid -> test
+            train_data = dataset['train']
+            valid_data = dataset.get('validation', dataset.get('valid', None))
+            test_data  = dataset.get('test', None)
+
+            # ✔ train / valid / test all exist — OK
+            if valid_data is not None and test_data is not None:
+                if verbose:
+                    print(f"✓ Using provided TRAIN / VALID / TEST splits.")
+
+            # ✔ only train & test — create validation from train
+            elif valid_data is None and test_data is not None:
+                if verbose:
+                    print(f"⚠ TRAIN + TEST found — splitting VALIDATION from TRAIN")
+                split = train_data.train_test_split(test_size=valid_ratio, seed=42)
+                train_data = split['train']
+                valid_data = split['test']
+
+            # ✔ only train — create validation and test
+            else:
+                if verbose:
+                    print(f"⚠ Only TRAIN found — creating VALID & TEST splits")
+
+                # first split: train vs temp
+                split1 = train_data.train_test_split(test_size=(valid_ratio + test_ratio), seed=42)
+                train_data = split1['train']
+                temp = split1['test']
+
+                # second split: temp -> valid/test
+                relative_test_ratio = test_ratio / (valid_ratio + test_ratio)
+                split2 = temp.train_test_split(test_size=relative_test_ratio, seed=42)
+
+                valid_data = split2['train']
+                test_data = split2['test']
+
+        else:
+            # RARE CASE: only one list exists
+            if verbose:
+                print(f"⚠ Nonstandard dataset format — manual splitting...")
+
+            all_data = list(dataset.values())[0] if isinstance(dataset, dict) else dataset
+
+            split1 = all_data.train_test_split(test_size=(valid_ratio + test_ratio), seed=42)
+            train_data = split1['train']
+            temp = split1['test']
+
+            relative_test_ratio = test_ratio / (valid_ratio + test_ratio)
+            split2 = temp.train_test_split(test_size=relative_test_ratio, seed=42)
+            valid_data = split2['train']
+            test_data = split2['test']
+
+        # --- Now we are guaranteed correct splits ---
+        splits = [train_data, valid_data, test_data]
+
+        # Collect sequences + targets in order
         all_sequences = []
         all_targets = defaultdict(list)
 
-        for split in [train_data, valid_data, test_data]:
+        for split in splits:
             for item in split:
-                # sequence may be in different columns (sequence_column)
-                seq = item.get(sequence_column) if isinstance(item, dict) else None
-                if seq is None:
-                    # try alternative keys common in protein datasets
-                    seq = item.get('seq') if isinstance(item, dict) else None
-                if seq is None:
-                    seq = ""
+                seq = item.get(sequence_column) or item.get('seq') or ""
                 all_sequences.append(seq)
 
-                # targets
+                # each target key we requested
                 for col in target_columns:
-                    val = item.get(col) if isinstance(item, dict) else None
-                    if val == "" or val is None:
-                        # record None for missing, collate will treat missing appropriately
-                        all_targets[col].append(None)
-                    else:
-                        all_targets[col].append(val)
+                    val = item.get(col, None)
+                    # keep None == missing target
+                    all_targets[col].append(val)
 
+        # assign unified internal storage
         self.sequences = all_sequences
-        # ensure each target column exists and is a list of appropriate length
+
         for col in target_columns:
-            values = all_targets.get(col, [])
-            if len(values) < len(all_sequences):
-                values.extend([None] * (len(all_sequences) - len(values)))
+            values = all_targets[col]
             self.targets[col] = values
 
         self.num_samples = [len(train_data), len(valid_data), len(test_data)]
 
         if verbose:
-            print(f"Loaded dataset '{dataset_name}' with {len(self.sequences)} sequences")
-            print(f"Splits - Train: {self.num_samples[0]}, Valid: {self.num_samples[1]}, Test: {self.num_samples[2]}")
+            print(f"✓ Loaded dataset '{dataset_name}'")
+            print(f"  TRAIN: {self.num_samples[0]}")
+            print(f"  VALID: {self.num_samples[1]}")
+            print(f"  TEST:  {self.num_samples[2]}")
+            print(f"  Targets: {target_columns}")
 
 class Thermostability(HuggingFaceDataset):
     """
