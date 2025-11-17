@@ -54,4 +54,4 @@ optimizer = optim.Adam(list(backbone.parameters()) + list(engine.task_heads.para
 # ----------------------------
 # Run one epoch for testing
 # ----------------------------
-engine.train_one_epoch(optimizer, max_batches_per_task=2)  # limit to 2 batches per task for speed
+engine.train_one_epoch(optimizer, max_batches_per_task=2)

@@ -30,9 +30,7 @@ class MultiTaskEngine:
         for cfg in task_configs:
             if cfg['type'] == 'regression':
                 self.task_heads.append(nn.Linear(1024, 1))
-            elif cfg['type'] == 'classification':
-                self.task_heads.append(nn.Linear(1024, cfg['num_labels']))
-            elif cfg['type'] == 'per_residue_classification':
+            elif cfg['type'] in ['classification', 'per_residue_classification']:
                 self.task_heads.append(nn.Linear(1024, cfg['num_labels']))
             else:
                 raise ValueError(f"Unknown task type: {cfg['type']}")
@@ -90,32 +88,39 @@ class MultiTaskEngine:
 
         task_cfg = self.task_configs[dataset_idx]
 
-        # Backbone embeddings
         if task_cfg['type'] == 'per_residue_classification':
-            # Return full sequence embeddings
-            embeddings = self.backbone.backbone.bert(
-                input_ids=input_ids,
-                attention_mask=attention_mask
-            ).last_hidden_state  # [B, L, D]
+            # Full sequence embeddings
+            outputs = self.backbone.backbone.bert(input_ids=input_ids,
+                                                  attention_mask=attention_mask)
+            embeddings = outputs.last_hidden_state  # [B, L, D]
+
+            # Pad/truncate embeddings to match target length
+            target_tensor = list(targets.values())[0]
+            target_len = target_tensor.shape[1]
+
+            if embeddings.shape[1] != target_len:
+                pad_size = target_len - embeddings.shape[1]
+                if pad_size > 0:
+                    pad_tensor = torch.zeros(embeddings.shape[0], pad_size, embeddings.shape[2], device=embeddings.device)
+                    embeddings = torch.cat([embeddings, pad_tensor], dim=1)
+                else:
+                    embeddings = embeddings[:, :target_len, :]
         else:
-            # Return pooled embeddings
+            # Pooled embeddings
             embeddings = self.backbone(input_ids=input_ids, attention_mask=attention_mask)  # [B, D]
 
-        # Task head
         logits = self.task_heads[dataset_idx](embeddings)
-
         return logits, targets
 
     def train_one_epoch(self, optimizer, max_batches_per_task=None):
         """
         Single epoch over all tasks, one task at a time.
-        max_batches_per_task: optional, limit number of batches per task for quick testing
         """
         self.backbone.train()
         for task_idx, loader in enumerate(self.train_loaders):
             task_cfg = self.task_configs[task_idx]
 
-            # Select loss function
+            # Loss function
             if task_cfg['type'] == 'regression':
                 loss_fn = nn.MSELoss()
             elif task_cfg['type'] in ['classification', 'per_residue_classification']:
@@ -130,7 +135,6 @@ class MultiTaskEngine:
 
                 optimizer.zero_grad()
                 logits, targets = self.forward(batch, dataset_idx=task_idx)
-
                 target_tensor = list(targets.values())[0]
 
                 # Compute loss
@@ -139,9 +143,8 @@ class MultiTaskEngine:
                 elif task_cfg['type'] == 'classification':
                     loss = loss_fn(logits, target_tensor.squeeze(-1).long())
                 elif task_cfg['type'] == 'per_residue_classification':
-                    # Ensure logits are [B, L, C]
-                    if logits.dim() != 3:
-                        raise ValueError(f"Expected logits of shape [B, L, C], got {logits.shape}")
+                    if logits.shape[:2] != target_tensor.shape[:2]:
+                        raise ValueError(f"Logits shape {logits.shape} != target shape {target_tensor.shape}")
                     b, s, c = logits.shape
                     loss = loss_fn(logits.view(b*s, c), target_tensor.view(b*s))
 
@@ -149,7 +152,6 @@ class MultiTaskEngine:
                 loss.backward()
                 optimizer.step()
 
-                # Debug prints for first batch
                 if batch_idx == 0:
                     print(f"Batch {batch_idx}: loss={loss.item()}")
                     print("Logits shape:", logits.shape)
