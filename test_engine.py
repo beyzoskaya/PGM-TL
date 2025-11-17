@@ -18,7 +18,7 @@ clf_ds = CloningCLF(split='train')
 # ----------------------------
 # Subset for fast testing (or increase for larger batch experiments)
 # ----------------------------
-subset_size = 200 # adjust for debugging
+subset_size = 500 # adjust for debugging
 thermo_ds_train = Subset(thermo_ds, range(subset_size))
 ssp_ds_train = Subset(ssp_ds, range(subset_size))
 clf_ds_train = Subset(clf_ds, range(subset_size))
@@ -43,7 +43,7 @@ engine = MultiTaskEngine(
     train_sets=[thermo_ds_train, ssp_ds_train, clf_ds_train],
     valid_sets=[thermo_ds_train, ssp_ds_train, clf_ds_train],  # reuse subset
     test_sets=[thermo_ds_train, ssp_ds_train, clf_ds_train],
-    batch_size=8,  # try larger batch size
+    batch_size=16,  # try larger batch size
     device=device
 )
 
@@ -94,4 +94,4 @@ for task_idx, loader in enumerate(engine.train_loaders):
 # Optional: run one training epoch to see dynamic weighting in action
 # ----------------------------
 print("\n=== Training Epoch Debug ===")
-engine.train_one_epoch(optimizer, max_batches_per_task=2)  # small number of batches for debug
+engine.train_one_epoch(optimizer, max_batches_per_task=10)  # small number of batches for debug
