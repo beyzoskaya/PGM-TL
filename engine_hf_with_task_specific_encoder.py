@@ -7,16 +7,12 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class MultiTaskEngine:
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
-                 batch_size=8, num_worker=0, device=device, reg_loss_scale=10.0):
-        """
-        reg_loss_scale: factor to scale regression loss so it is comparable to classification losses
-        """
+                 batch_size=8, num_worker=0, device=device):
         self.backbone = backbone
         self.task_configs = task_configs
         self.device = device
         self.batch_size = batch_size
         self.num_worker = num_worker
-        self.reg_loss_scale = reg_loss_scale
 
         # Datasets
         self.train_sets = train_sets
@@ -47,6 +43,10 @@ class MultiTaskEngine:
                        collate_fn=lambda b: self.tokenize_and_collate(b))
             for ds in train_sets
         ]
+
+        # Initialize running average loss for dynamic weighting
+        self.running_loss = [1.0 for _ in task_configs]  # start with 1.0 to avoid division by zero
+        self.loss_decay = 0.99  # smoothing factor for running average
 
     def tokenize_and_collate(self, batch):
         sequences = [s['sequence'] for s in batch]
@@ -105,7 +105,8 @@ class MultiTaskEngine:
             if embeddings.shape[1] != target_len:
                 pad_size = target_len - embeddings.shape[1]
                 if pad_size > 0:
-                    pad_tensor = torch.zeros(embeddings.shape[0], pad_size, embeddings.shape[2], device=embeddings.device)
+                    pad_tensor = torch.zeros(embeddings.shape[0], pad_size, embeddings.shape[2],
+                                             device=embeddings.device)
                     embeddings = torch.cat([embeddings, pad_tensor], dim=1)
                 else:
                     embeddings = embeddings[:, :target_len, :]
@@ -118,7 +119,7 @@ class MultiTaskEngine:
 
     def train_one_epoch(self, optimizer, max_batches_per_task=None):
         """
-        Single epoch over all tasks, one task at a time.
+        Single epoch over all tasks with dynamic task loss weighting.
         """
         self.backbone.train()
         for task_idx, loader in enumerate(self.train_loaders):
@@ -141,22 +142,27 @@ class MultiTaskEngine:
                 logits, targets = self.forward(batch, dataset_idx=task_idx)
                 target_tensor = list(targets.values())[0]
 
-                # Compute loss
+                # Compute raw loss
                 if task_cfg['type'] == 'regression':
-                    loss = loss_fn(logits, target_tensor) * self.reg_loss_scale
+                    raw_loss = loss_fn(logits, target_tensor)
                 elif task_cfg['type'] == 'classification':
-                    loss = loss_fn(logits, target_tensor.squeeze(-1).long())
+                    raw_loss = loss_fn(logits, target_tensor.squeeze(-1).long())
                 elif task_cfg['type'] == 'per_residue_classification':
-                    if logits.shape[:2] != target_tensor.shape[:2]:
-                        raise ValueError(f"Logits shape {logits.shape} != target shape {target_tensor.shape}")
                     b, s, c = logits.shape
-                    loss = loss_fn(logits.view(b*s, c), target_tensor.view(b*s))
+                    raw_loss = loss_fn(logits.view(b*s, c), target_tensor.view(b*s))
+
+                # Dynamic weighting: scale by inverse of running loss
+                weighted_loss = raw_loss / self.running_loss[task_idx]
+
+                # Update running average
+                self.running_loss[task_idx] = self.loss_decay * self.running_loss[task_idx] + \
+                                              (1 - self.loss_decay) * raw_loss.item()
 
                 # Backprop
-                loss.backward()
+                weighted_loss.backward()
                 optimizer.step()
 
                 if batch_idx == 0:
-                    print(f"Batch {batch_idx}: loss={loss.item()}")
+                    print(f"Batch {batch_idx}: raw_loss={raw_loss.item():.4f}, weighted_loss={weighted_loss.item():.4f}")
                     print("Logits shape:", logits.shape)
                     print("Target shape:", target_tensor.shape)
