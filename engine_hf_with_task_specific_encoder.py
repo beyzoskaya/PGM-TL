@@ -1,4 +1,3 @@
-# multitask_engine_dynamic_plot.py
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
@@ -18,42 +17,47 @@ def regression_metrics(preds, targets):
 
 def classification_metrics(preds, targets, ignore_index=-100):
     """
+    Supports per-sequence or per-residue classification
     preds: [B, num_classes] or [B, L, num_classes]
-    targets: [B] or [B, L] with -100 padding for ignored positions
+    targets: [B] or [B, L] with -100 for ignored positions
     """
     preds_flat = preds.view(-1, preds.shape[-1])
     targets_flat = targets.view(-1)
-
     mask = targets_flat != ignore_index
     if mask.sum() == 0:
-        return {'accuracy': float('nan')}  # no valid positions
+        return {'accuracy': float('nan')}
     pred_labels = preds_flat.argmax(dim=-1)
     correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
-    total = mask.sum().item()
-    acc = correct / total
+    acc = correct / mask.sum().item()
     return {'accuracy': acc}
 
 # ----------------------------
 # Custom collate_fn for variable-length sequences
 # ----------------------------
 def collate_fn(batch):
+    # Convert sequences to tensor
     input_ids = [torch.tensor(item['sequence'], dtype=torch.long) for item in batch]
-    targets = [item['targets']['target'] for item in batch]
+    attention_mask = [(seq != 0).long() for seq in input_ids]
 
     # Pad sequences
     input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
-    attention_mask = (input_ids_padded != 0).long()
+    attention_mask_padded = pad_sequence(attention_mask, batch_first=True, padding_value=0)
 
-    # Convert targets to tensor
+    # Process targets
+    targets = [item['targets']['target'] for item in batch]
     if isinstance(targets[0], list) or isinstance(targets[0], np.ndarray):
-        targets = [torch.tensor(t, dtype=torch.float32) for t in targets]
+        # Per-residue classification: pad with -100
+        targets = [torch.tensor(t, dtype=torch.long) for t in targets]
         targets = pad_sequence(targets, batch_first=True, padding_value=-100)
     else:
+        # Regression or single-label classification
         targets = torch.tensor(targets, dtype=torch.float32)
 
-    return {'sequence': input_ids_padded,
-            'attention_mask': attention_mask,
-            'targets': {'target': targets}}
+    return {
+        'sequence': input_ids_padded,
+        'attention_mask': attention_mask_padded,
+        'targets': {'target': targets}
+    }
 
 # ----------------------------
 # MultiTask Engine with Dynamic Weight Logging
@@ -65,20 +69,18 @@ class MultiTaskEngine:
         self.backbone = backbone.to(device)
         self.task_configs = task_configs
 
-        # Use custom collate_fn for variable-length sequences
+        # DataLoaders with custom collate_fn
         self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=collate_fn) for ds in train_sets]
         self.valid_loaders = [DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn) for ds in valid_sets]
         self.test_loaders  = [DataLoader(ds, batch_size=batch_size, collate_fn=collate_fn) for ds in test_sets]
 
-        # Use backbone hidden size for task heads
-        sample_input = torch.randint(0, 10, (1, 5)).to(device)
-        sample_mask = torch.ones_like(sample_input)
-        hidden_dim = backbone(sample_input, sample_mask).shape[1]
-
+        # Task heads
+        hidden_dim = backbone.hidden_size
         self.task_heads = nn.ModuleList([
             nn.Linear(hidden_dim, cfg['num_labels']) for cfg in task_configs
         ]).to(device)
 
+        # Loss functions
         self.loss_fns = []
         for cfg in task_configs:
             if cfg['type'] == 'regression':
@@ -90,7 +92,7 @@ class MultiTaskEngine:
 
         self.running_losses = torch.ones(len(task_configs), device=device)
         self.alpha = alpha
-        self.dynamic_weight_log = []  # store weights per batch
+        self.dynamic_weight_log = []
 
     def forward_task(self, x, task_idx):
         return self.task_heads[task_idx](x)
@@ -98,7 +100,7 @@ class MultiTaskEngine:
     def compute_loss(self, logits, targets, task_idx):
         if self.task_configs[task_idx]['type'] == 'regression':
             return self.loss_fns[task_idx](logits.squeeze(-1), targets)
-        else:  # classification
+        else:
             return self.loss_fns[task_idx](logits.view(-1, logits.shape[-1]), targets.view(-1).long())
 
     def update_dynamic_weights(self):
@@ -161,15 +163,14 @@ class MultiTaskEngine:
                     embeddings = self.backbone(seqs, attention_mask)
                     logits = self.forward_task(embeddings, task_idx)
 
-                    if self.task_configs[task_idx]['type'] in ['classification', 'per_residue_classification']:
-                        batch_metrics = classification_metrics(
-                            logits, targets, ignore_index=-100
-                        )
+                    if self.task_configs[task_idx]['type'] == 'regression':
+                        batch_metrics = regression_metrics(logits.squeeze(-1), targets)
                     else:
-                        batch_metrics = classification_metrics(logits.view(-1, logits.shape[-1]), targets.view(-1))
+                        batch_metrics = classification_metrics(logits, targets, ignore_index=-100)
+
                     task_metrics_accum.append(batch_metrics)
 
-                # average over batches
+                # Average metrics over batches
                 avg_metrics = {}
                 for k in task_metrics_accum[0].keys():
                     avg_metrics[k] = np.mean([m[k] for m in task_metrics_accum])
@@ -189,34 +190,44 @@ class MultiTaskEngine:
         plt.grid(True)
         plt.show()
 
-
-# ----------------------------
-# Main Script
-# ----------------------------
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Instantiate separate datasets for train, valid, and test splits
+    # ----------------------------
+    # Load datasets
+    # ----------------------------
+    # Thermostability (regression)
     thermo_train = Thermostability(split='train')
     thermo_valid = Thermostability(split='valid')
     thermo_test  = Thermostability(split='test')
 
+    # Secondary structure (per-residue classification)
     ssp_train = SecondaryStructure(split='train')
     ssp_valid = SecondaryStructure(split='valid')
     ssp_test  = SecondaryStructure(split='test')
 
+    # Cloning classification (single-label classification)
     clf_train = CloningCLF(split='train')
     clf_valid = CloningCLF(split='valid')
     clf_test  = CloningCLF(split='test')
 
+    # ----------------------------
+    # Task configuration
+    # ----------------------------
     task_configs = [
         {'type': 'regression', 'num_labels': 1},
         {'type': 'per_residue_classification', 'num_labels': 8},
         {'type': 'classification', 'num_labels': 2}
     ]
 
-    backbone = SharedProtBert().to(device)
+    # ----------------------------
+    # Backbone model
+    # ----------------------------
+    backbone = SharedProtBert(lora=False).to(device)
 
+    # ----------------------------
+    # MultiTaskEngine
+    # ----------------------------
     engine = MultiTaskEngine(
         backbone=backbone,
         task_configs=task_configs,
@@ -228,13 +239,29 @@ if __name__ == "__main__":
         alpha=0.99
     )
 
-    optimizer = optim.Adam(list(backbone.parameters()) + list(engine.task_heads.parameters()), lr=1e-4)
+    # ----------------------------
+    # Optimizer
+    # ----------------------------
+    optimizer = optim.Adam(
+        list(backbone.parameters()) + list(engine.task_heads.parameters()),
+        lr=1e-4
+    )
 
+    # ----------------------------
+    # Train for one epoch
+    # ----------------------------
     print("\n=== Start Training One Epoch with Dynamic Task Weighting ===")
     engine.train_one_epoch(optimizer)
 
+    # ----------------------------
+    # Evaluate on validation sets
+    # ----------------------------
     print("\n=== Evaluate on Validation Sets ===")
     engine.evaluate(engine.valid_loaders, split_name="Validation")
 
+    # ----------------------------
+    # Evaluate on test sets
+    # ----------------------------
     print("\n=== Evaluate on Test Sets ===")
     engine.evaluate(engine.test_loaders, split_name="Test")
+
