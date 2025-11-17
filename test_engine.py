@@ -1,44 +1,54 @@
+# test_engine_step2.py
 import torch
-from flip_hf import Thermostability, SecondaryStructure, CloningCLF
-from protbert_hf import SharedProtBert
+from protbert_hf import SharedProtBert   # your backbone
+from flip_hf import ThermoDataset, SSPDataset, CloningCLFDataset  # your dataset classes
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-batch_size = 2  # small batch for fast testing
+# ----------------------------
+# Load small portion of each dataset for fast test
+# ----------------------------
+train_thermo = ThermoDataset(split='train', limit=5)  # take only 5 samples
+train_ssp = SSPDataset(split='train', limit=5)
+train_clf = CloningCLFDataset(split='train', limit=5)
 
-# --- 1. Load datasets ---
-thermo_dataset = Thermostability(split='train')
-ssp_dataset = SecondaryStructure(split='train')
-cloning_dataset = CloningCLF(split='train')
+train_sets = [train_thermo, train_ssp, train_clf]
+valid_sets = [train_thermo, train_ssp, train_clf]  # reuse same for test purposes
+test_sets  = [train_thermo, train_ssp, train_clf]
 
-train_sets = [thermo_dataset, ssp_dataset, cloning_dataset]
-valid_sets = [thermo_dataset, ssp_dataset, cloning_dataset]  # can reuse for quick test
-test_sets  = [thermo_dataset, ssp_dataset, cloning_dataset]
-
-# --- 2. Create backbone ---
-backbone = SharedProtBert()
-backbone = backbone.to(device)
-
-# --- 3. Task configs (for reference, not used yet) ---
+# ----------------------------
+# Task configs
+# ----------------------------
 task_configs = [
-    {'type': 'regression', 'num_labels': 1},      # Thermostability
-    {'type': 'classification', 'num_labels': 8},  # SecondaryStructure Q8
-    {'type': 'classification', 'num_labels': 2}   # CloningCLF
+    {'type': 'regression', 'num_labels': 1},                  # Thermostability
+    {'type': 'per_residue_classification', 'num_labels': 8},  # SSP Q8
+    {'type': 'classification', 'num_labels': 2}               # CloningCLF
 ]
 
-# --- 4. Initialize engine ---
+# ----------------------------
+# Create backbone
+# ----------------------------
+backbone = SharedProtBert(lora=False)  # use regular ProtBert for testing
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+backbone.to(device)
+
+# ----------------------------
+# Initialize engine
+# ----------------------------
 engine = MultiTaskEngine(
     backbone=backbone,
     task_configs=task_configs,
     train_sets=train_sets,
     valid_sets=valid_sets,
     test_sets=test_sets,
-    batch_size=batch_size,
+    batch_size=2,
+    num_worker=0,
     device=device
 )
 
-# --- 5. Iterate over first batch of each dataset and do forward pass ---
-for idx, loader in enumerate(engine.train_loaders):
-    print(f"\n--- Dataset {idx} first batch ---")
-    batch = next(iter(loader))
-    embeddings, targets = engine.forward(batch, dataset_idx=idx)
+# ----------------------------
+# Test forward pass for each dataset
+# ----------------------------
+for i, name in enumerate(['Thermo', 'SSP', 'CloningCLF']):
+    batch = next(iter(engine.train_loaders[i]))
+    logits, targets = engine.forward(batch, dataset_idx=i)
+    print(f"=== Dataset {i} ({name}) test complete ===\n")

@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
@@ -22,9 +23,27 @@ class MultiTaskEngine:
         self.test_sets = test_sets
 
         # Tokenizer from backbone
-        self.tokenizer = backbone.tokenizer  # assuming backbone has tokenizer
+        if hasattr(backbone, 'tokenizer'):
+            self.tokenizer = backbone.tokenizer
+        else:
+            # fallback: create tokenizer manually if backbone doesn't store it
+            self.tokenizer = AutoTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False)
 
-        # Prepare dataloaders with proper collate function
+        # Task-specific heads
+        self.task_heads = nn.ModuleList()
+        for cfg in task_configs:
+            if cfg['type'] == 'regression':
+                self.task_heads.append(nn.Linear(1024, 1))
+            elif cfg['type'] == 'classification':
+                self.task_heads.append(nn.Linear(1024, cfg['num_labels']))
+            elif cfg['type'] == 'per_residue_classification':
+                self.task_heads.append(nn.Linear(1024, cfg['num_labels']))
+            else:
+                raise ValueError(f"Unknown task type: {cfg['type']}")
+
+        self.task_heads.to(device)
+
+        # Prepare dataloaders
         self.train_loaders = [
             DataLoader(ds, batch_size=batch_size, shuffle=True,
                        num_workers=num_worker,
@@ -45,13 +64,9 @@ class MultiTaskEngine:
         ]
 
     def tokenize_and_collate(self, batch):
-        """
-        Collate function to tokenize sequences and prepare target tensors.
-        """
         sequences = [s['sequence'] for s in batch]
         targets = [s['targets'] for s in batch]
 
-        # Tokenize sequences
         encoding = self.tokenizer(
             sequences,
             padding=True,
@@ -59,7 +74,6 @@ class MultiTaskEngine:
             return_tensors='pt'
         )
 
-        # Convert targets to tensors
         batch_targets = {}
         for key in targets[0].keys():
             values = [t[key] for t in targets]
@@ -70,14 +84,13 @@ class MultiTaskEngine:
             else:
                 batch_targets[key] = torch.tensor(values, dtype=torch.float).unsqueeze(-1)
 
-        # Move everything to device
         for k in batch_targets:
             batch_targets[k] = batch_targets[k].to(self.device)
         for k in encoding:
             encoding[k] = encoding[k].to(self.device)
 
         # Debug prints for first batch only
-        if hasattr(self, '_debug_done') is False:
+        if not hasattr(self, '_debug_done'):
             print("=== Debug collate ===")
             print("Input IDs shape:", encoding['input_ids'].shape)
             for k, v in batch_targets.items():
@@ -86,44 +99,35 @@ class MultiTaskEngine:
 
         return encoding, batch_targets
 
-    # Optional: keep old print_first_batch for debugging
-    def print_first_batch(self, split='train', dataset_idx=0):
-        if split == 'train':
-            loader = self.train_loaders[dataset_idx]
-        elif split == 'valid':
-            loader = self.valid_loaders[dataset_idx]
-        elif split == 'test':
-            loader = self.test_loaders[dataset_idx]
-        else:
-            raise ValueError("split must be 'train', 'valid', or 'test'")
-
-        batch = next(iter(loader))
-        encoding, targets = batch
-        print(f"=== First batch from {split} dataset {dataset_idx} ===")
-        print("Input IDs shape:", encoding['input_ids'].shape)
-        for k, v in targets.items():
-            print(f"Target '{k}' shape: {v.shape}")
-        return batch
-    
     def forward(self, batch, dataset_idx=0):
         """
-        Forward pass through the backbone for a given batch.
-        batch: (encoding, targets) returned by tokenize_and_collate
-        dataset_idx: which dataset/task this batch belongs to
+        Forward pass through backbone + task-specific head
         """
         encoding, targets = batch
         input_ids = encoding['input_ids']
         attention_mask = encoding['attention_mask']
 
-        # Forward through backbone
+        # Backbone embeddings
         embeddings = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+
+        # Task-specific head
+        task_head = self.task_heads[dataset_idx]
+        task_cfg = self.task_configs[dataset_idx]
+        if task_cfg['type'] == 'per_residue_classification':
+            # Apply head per residue
+            # embeddings shape: [batch_size, seq_len, 1024]
+            logits = task_head(embeddings)
+        else:
+            # Apply head on pooled embedding
+            # embeddings shape: [batch_size, 1024]
+            logits = task_head(embeddings)
 
         # Debug prints
         print(f"=== Forward pass for dataset {dataset_idx} ===")
         print("Input IDs shape:", input_ids.shape)
         print("Embeddings shape:", embeddings.shape)
+        print("Logits shape:", logits.shape)
         for k, v in targets.items():
             print(f"Target '{k}' shape: {v.shape}")
 
-        return embeddings, targets
-
+        return logits, targets
