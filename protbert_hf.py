@@ -132,13 +132,13 @@ class SharedProtBert(nn.Module):
     def forward(self, input_ids, attention_mask):
         return self.backbone(input_ids=input_ids, attention_mask=attention_mask)
 
-if __name__ == "__main__":
-    import torch
+#if __name__ == "__main__":
+#    import torch
 
-    sample_seq = ["MTEITAAMVKELRESTGAGMMDCKNALSETQHEWAY"]
-    model = SharedProtBert(lora=True)
-    tokenizer = model.backbone.tokenizer
-    enc = tokenizer(sample_seq, return_tensors="pt", padding=True)
-    emb = model(enc['input_ids'], enc['attention_mask'])
-    print("SharedProtBert output shape:", emb.shape)
-    print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
+#    sample_seq = ["MTEITAAMVKELRESTGAGMMDCKNALSETQHEWAY"]
+#    model = SharedProtBert(lora=True)
+#    tokenizer = model.backbone.tokenizer
+#    enc = tokenizer(sample_seq, return_tensors="pt", padding=True)
+#    emb = model(enc['input_ids'], enc['attention_mask'])
+#    print("SharedProtBert output shape:", emb.shape)
+#    print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
