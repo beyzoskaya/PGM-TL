@@ -1,5 +1,5 @@
 import torch
-from flip_hf import ThermostabilityDataset, SecondaryStructureDataset, CloningCLFDataset
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
@@ -7,9 +7,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 batch_size = 2  # small batch for fast testing
 
 # --- 1. Load datasets ---
-thermo_dataset = ThermostabilityDataset(split='train')
-ssp_dataset = SecondaryStructureDataset(split='train')
-cloning_dataset = CloningCLFDataset(split='train')
+thermo_dataset = Thermostability(split='train')
+ssp_dataset = SecondaryStructure(split='train')
+cloning_dataset = CloningCLF(split='train')
 
 train_sets = [thermo_dataset, ssp_dataset, cloning_dataset]
 valid_sets = [thermo_dataset, ssp_dataset, cloning_dataset]  # can reuse for quick test
