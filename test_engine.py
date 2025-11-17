@@ -1,54 +1,45 @@
-from flip_hf import Thermostability
+# test_engine_step2.py
+import torch
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
-import torch
+from transformers import AutoTokenizer
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Load datasets
+train_thermo = Thermostability(path='./data')
+train_ss = SecondaryStructure(path='./data')
+train_cloning = CloningCLF(path='./data')
 
-# Load a small subset of dataset
-dataset = Thermostability(path='./data')
-subset = [dataset[i] for i in range(5)]  # first 5 sequences
-
-# Load backbone
-backbone = SharedProtBert().to(device)
-
-# Initialize engine with one dataset
-engine = MultiTaskEngine(
-    backbone=backbone,
-    task_configs=[{'type':'regression', 'num_labels':1}],
-    train_sets=[subset],
-    valid_sets=[subset],
-    test_sets=[subset],
-    batch_size=2,
-    device=device
-)
-
-# Test collate + print
-batch_encoding, batch_targets = engine.print_first_batch(split='train', dataset_idx=0)
-from flip_hf import Thermostability
-from protbert_hf import SharedProtBert
-from engine_hf_with_task_specific_encoder import MultiTaskEngine
-import torch
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# Load a small subset of dataset
-dataset = Thermostability(path='./data')
-subset = [dataset[i] for i in range(5)]  # first 5 sequences
+train_sets = [train_thermo, train_ss, train_cloning]
+valid_sets = [train_thermo, train_ss, train_cloning]
+test_sets = [train_thermo, train_ss, train_cloning]
 
 # Load backbone
-backbone = SharedProtBert().to(device)
+backbone = SharedProtBert(lora=False)
 
-# Initialize engine with one dataset
+# Attach tokenizer manually
+tokenizer = AutoTokenizer.from_pretrained("Rostlab/prot_bert_bfd", do_lower_case=False)
+backbone.tokenizer = tokenizer
+
+# Task configs
+task_configs = [
+    {'type': 'regression', 'num_labels': 1},
+    {'type': 'token_classification', 'num_labels': 8},
+    {'type': 'binary_classification', 'num_labels': 1}
+]
+
+# Initialize engine
 engine = MultiTaskEngine(
     backbone=backbone,
-    task_configs=[{'type':'regression', 'num_labels':1}],
-    train_sets=[subset],
-    valid_sets=[subset],
-    test_sets=[subset],
+    task_configs=task_configs,
+    train_sets=train_sets,
+    valid_sets=valid_sets,
+    test_sets=test_sets,
     batch_size=2,
-    device=device
+    device='cpu'
 )
 
-# Test collate + print
-batch_encoding, batch_targets = engine.print_first_batch(split='train', dataset_idx=0)
+# Print first batch from each dataset to verify collate + tokenization
+for idx, _ in enumerate(train_sets):
+    print(f"\n--- Dataset {idx} first batch ---")
+    encoding, targets = engine.print_first_batch(split='train', dataset_idx=idx)
