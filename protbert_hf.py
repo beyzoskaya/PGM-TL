@@ -122,12 +122,24 @@ class SharedProtBert(nn.Module):
     Shared ProtBert backbone for multi-task learning.
     Optional LoRA.
     """
-    def __init__(self, model_name='Rostlab/prot_bert_bfd', readout='mean', lora=False, lora_rank=16, lora_alpha=32, lora_dropout=0.1, freeze_backbone=True):
+    def __init__(self, model_name='Rostlab/prot_bert_bfd', readout='mean',
+                 lora=False, lora_rank=16, lora_alpha=32, lora_dropout=0.1,
+                 freeze_backbone=True):
         super().__init__()
+
+        # --- Tokenizer ---
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
+
+        # --- Backbone ---
         if lora:
-            self.backbone = ProtBertWithLoRA(model_name=model_name, readout=readout, lora_rank=lora_rank, lora_alpha=lora_alpha, lora_dropout=lora_dropout)
+            # Your LoRA wrapper class here
+            self.backbone = ProtBertWithLoRA(model_name=model_name, readout=readout,
+                                             lora_rank=lora_rank, lora_alpha=lora_alpha,
+                                             lora_dropout=lora_dropout)
         else:
-            self.backbone = ProtBert(model_name=model_name, readout=readout, freeze_bert=freeze_backbone)
+            # Regular ProtBert wrapper
+            self.backbone = ProtBert(model_name=model_name, readout=readout,
+                                     freeze_bert=freeze_backbone)
 
     def forward(self, input_ids, attention_mask):
         return self.backbone(input_ids=input_ids, attention_mask=attention_mask)
