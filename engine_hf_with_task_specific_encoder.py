@@ -35,34 +35,37 @@ def classification_metrics(preds, targets, ignore_index=-100):
 # Custom collate_fn for variable-length sequences
 # ----------------------------
 def collate_fn(batch, tokenizer=None, max_length=None):
-    """
-    batch: list of dicts from Dataset
-    tokenizer: ProtBert tokenizer (from SharedProtBert)
-    """
     sequences = [item['sequence'] for item in batch]
     targets = [item['targets']['target'] for item in batch]
 
-    # --- Tokenize sequences ---
     if tokenizer is None:
         raise ValueError("Tokenizer must be provided to collate_fn")
-    
+
     encodings = tokenizer(sequences,
                           return_tensors='pt',
                           padding=True,
                           truncation=True,
                           max_length=max_length)
-    
+
     input_ids = encodings['input_ids']
     attention_mask = encodings['attention_mask']
 
-    # --- Process targets ---
-    # Regression or classification (single value per sequence)
+    # Process targets
     if isinstance(targets[0], (int, float)):
         targets = torch.tensor(targets, dtype=torch.float32)
     else:
-        # Per-residue targets: pad to same length
-        target_tensors = [torch.tensor(t, dtype=torch.long) for t in targets]
-        targets = pad_sequence(target_tensors, batch_first=True, padding_value=-100)
+        # Pad per-residue targets to match input_ids length
+        max_len = input_ids.size(1)
+        padded_targets = []
+        for t in targets:
+            t_tensor = torch.tensor(t, dtype=torch.long)
+            if len(t_tensor) < max_len:
+                pad_len = max_len - len(t_tensor)
+                t_tensor = torch.cat([t_tensor, torch.full((pad_len,), -100, dtype=torch.long)])
+            else:
+                t_tensor = t_tensor[:max_len]
+            padded_targets.append(t_tensor)
+        targets = torch.stack(padded_targets, dim=0)  # [B, L]
 
     return {
         'sequence': input_ids,
@@ -108,11 +111,15 @@ class MultiTaskEngine:
     def forward_task(self, x, task_idx):
         task_type = self.task_configs[task_idx]['type']
         if task_type == 'per_residue_classification':
-            # x: [B, L, D] -> logits: [B, L, num_labels]
-            return self.task_heads[task_idx](x)
+            print(f"Task {task_idx} - per_residue_classification forward")
+            # x: [B, L, D]
+            # apply linear token-wise
+            B, L, D = x.shape
+            logits = self.task_heads[task_idx](x)  # [B, L, num_labels]
+            return logits
         else:
-            # x: [B, D] -> logits: [B, num_labels]
-            return self.task_heads[task_idx](x)
+            return self.task_heads[task_idx](x)  # [B, D] -> [B, num_labels]
+
 
     def compute_loss(self, logits, targets, task_idx):
         task_type = self.task_configs[task_idx]['type']

@@ -30,10 +30,10 @@ class ProteinDataset(Dataset):
         for key, values in self.targets.items():
             if idx < len(values):
                 target_dict[key] = values[idx]
-                print(f"Info: Retrieved target {key} for index {idx}")
+                #print(f"Info: Retrieved target {key} for index {idx}")
             else:
                 target_dict[key] = None
-                print(f"Warning: Target {key} missing for index {idx}")
+                #print(f"Warning: Target {key} missing for index {idx}")
         
         return {
             'sequence': seq,
