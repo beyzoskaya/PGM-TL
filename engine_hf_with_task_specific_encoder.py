@@ -474,7 +474,7 @@ if __name__ == "__main__":
     # ----------------------------
     # Backbone
     # ----------------------------
-    backbone = SharedProtBert(lora=False).to(device)
+    backbone = SharedProtBert(lora=True).to(device)
 
     # ----------------------------
     # Engine

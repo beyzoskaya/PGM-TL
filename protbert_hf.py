@@ -123,7 +123,7 @@ class SharedProtBert(nn.Module):
     Optional LoRA.
     """
     def __init__(self, model_name='Rostlab/prot_bert_bfd', readout='mean',
-                 lora=False, lora_rank=16, lora_alpha=32, lora_dropout=0.1,
+                 lora=True, lora_rank=16, lora_alpha=32, lora_dropout=0.1,
                  freeze_backbone=True):
         super().__init__()
 
