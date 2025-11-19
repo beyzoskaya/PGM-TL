@@ -94,6 +94,38 @@ def collate_fn(batch, tokenizer=None, max_length=None):
         'targets': {'target': targets}
     }
 
+def debug_param_update(model, name_filter="encoder"):
+    """
+    Print mean absolute weight/grad for a few selected parameters.
+    Helps detect dead gradients or frozen layers.
+    """
+    for n, p in model.named_parameters():
+        if name_filter in n and p.requires_grad:
+            grad = None if p.grad is None else p.grad.abs().mean().item()
+            wmean = p.data.abs().mean().item()
+            print(f"[GRAD DEBUG] {n}: grad_mean={grad}, weight_mean={wmean}")
+            break  # only print first matching param
+
+def debug_embeddings(task_idx, embeddings):
+    """
+    Print shape and statistics of the backbone output.
+    Helps detect wrong forward modes or degenerate outputs.
+    """
+    emean = embeddings.mean().item()
+    emax = embeddings.max().item()
+    emin = embeddings.min().item()
+    print(f"[EMB DEBUG][Task {task_idx}] shape={tuple(embeddings.shape)}, mean={emean:.4f}, min={emin:.4f}, max={emax:.4f}")
+
+def debug_logits(task_idx, logits):
+    """
+    Print output statistics and shape for logits.
+    Helps check if outputs saturate or collapse.
+    """
+    mean = logits.mean().item()
+    mx = logits.max().item()
+    mn = logits.min().item()
+    print(f"[LOGIT DEBUG][Task {task_idx}] shape={tuple(logits.shape)}, mean={mean:.4f}, min={mn:.4f}, max={mx:.4f}")
+
 # ----------------------------
 # MultiTask Engine with Dynamic Weight Logging
 # ----------------------------
@@ -359,9 +391,12 @@ class MultiTaskEngine:
 
                 # call backbone: returns either [B, D] or [B, L, D]
                 embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
+                # DEBUG: embedding stats
+                debug_embeddings(task_idx, embeddings)
 
                 # for sequence-level tasks ensure embeddings shape [B, D]
                 logits = self.forward_task(embeddings, task_idx)
+                debug_logits(task_idx, logits)
 
                 loss = self.compute_loss(logits, targets, task_idx)
 
@@ -373,6 +408,8 @@ class MultiTaskEngine:
                 weighted_loss = (weights[task_idx].to(self.device) * loss)
 
                 weighted_loss.backward()
+                # DEBUG: check gradient flow in backbone
+                debug_param_update(self.backbone, name_filter="encoder.layer.0")
                 optimizer.step()
 
                 total_weighted_loss += float(weighted_loss.item())
@@ -380,6 +417,7 @@ class MultiTaskEngine:
 
                 if (updates % 50) == 0 or batch_idx == 0:
                     print(f"Task {task_idx} Batch {batch_idx}: raw_loss={loss.item():.4f}, weight={weights[task_idx]:.4f}, weighted_loss={weighted_loss.item():.4f}")
+                    print(f"[DYN DEBUG] running_losses={self.running_losses.cpu().detach().numpy()}, weights={weights.cpu().detach().numpy()}")
 
         avg_loss = total_weighted_loss / max(1, updates)
         return avg_loss
