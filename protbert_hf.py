@@ -68,7 +68,7 @@ class ProtBert(nn.Module):
 # ============================================================
 class ProtBertWithLoRA(nn.Module):
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
-                 lora_rank=16, lora_alpha=32, lora_dropout=0.1, verbose=False):
+                 lora_rank=16, lora_alpha=32, lora_dropout=0.1, verbose=True):
         super().__init__()
         self.verbose = verbose
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)

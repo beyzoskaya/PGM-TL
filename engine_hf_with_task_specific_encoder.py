@@ -346,7 +346,7 @@ if __name__ == "__main__":
         {'type': 'classification', 'num_labels': 2}
     ]
 
-    backbone = SharedProtBert(lora=True).to(device)
+    backbone = SharedProtBert(lora=True, verbose=True).to(device)
     # Ensure backbone parameters are trainable
     for p in backbone.parameters():
         p.requires_grad = True
