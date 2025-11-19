@@ -341,7 +341,9 @@ class MultiTaskEngine:
             
             per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
             embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
+            debug_embeddings(task_idx, embeddings)
             logits = self.forward_task(embeddings, task_idx)
+            debug_logits(task_idx, logits)
             loss = self.compute_loss(logits, targets, task_idx)
 
             # Backward pass
