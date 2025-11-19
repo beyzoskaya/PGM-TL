@@ -1,4 +1,3 @@
-# protbert_hf.py
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
@@ -8,9 +7,7 @@ import math
 # LoRA Layer
 # ============================================================
 class LoRALinear(nn.Module):
-    """
-    LoRA applied to linear layers: W = W_0 + (dropout(x) @ A^T @ B^T) * scaling
-    """
+    """LoRA applied to linear layers: W = W_0 + (dropout(x) @ A^T @ B^T) * scaling"""
     def __init__(self, in_features, out_features, r=8, alpha=16, dropout=0.0, bias=True):
         super().__init__()
         self.in_features = in_features
@@ -34,7 +31,6 @@ class LoRALinear(nn.Module):
         self.B = nn.Parameter(torch.zeros(out_features, r))
         self.dropout = nn.Dropout(dropout)
 
-        # LoRA init
         nn.init.zeros_(self.A)
         nn.init.zeros_(self.B)
 
@@ -68,82 +64,52 @@ class ProtBert(nn.Module):
 
 
 # ============================================================
-# ProtBert With LoRA (CORRECT + DEBUG)
+# ProtBert With LoRA (DEBUG FRIENDLY)
 # ============================================================
 class ProtBertWithLoRA(nn.Module):
-    """
-    Correct LoRA injection into HF BERT attention layers.
-    """
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
-                 lora_rank=16, lora_alpha=32, lora_dropout=0.1):
-
+                 lora_rank=16, lora_alpha=32, lora_dropout=0.1, verbose=False):
         super().__init__()
+        self.verbose = verbose
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
         self.bert = AutoModel.from_pretrained(model_name)
         self.readout = readout
 
-        # Freeze entire BERT backbone
+        # Freeze backbone
         for p in self.bert.parameters():
             p.requires_grad = False
 
-        # Inject LoRA into Q, K, V, output.dense
+        # Inject LoRA layers
         self.inject_lora_correct(lora_rank, lora_alpha, lora_dropout)
 
-        # Debug summary (trainable params)
-        print("\n[LoRA DEBUG] Trainable parameters in ProtBertWithLoRA:")
-        total_trainable = 0
-        for name, p in self.named_parameters():
-            if p.requires_grad:
-                print("  ✓", name, p.shape)
-                total_trainable += p.numel()
-        print(f"[LoRA DEBUG] Total trainable parameters: {total_trainable}\n")
+        if self.verbose:
+            # Summary of trainable parameters
+            total_trainable = 0
+            print("\n[LoRA DEBUG] Trainable parameters:")
+            for name, p in self.named_parameters():
+                if p.requires_grad:
+                    print(f"  ✓ {name} {p.shape}")
+                    total_trainable += p.numel()
+            print(f"[LoRA DEBUG] Total trainable: {total_trainable}\n")
 
-    # ------------------------------------------------------------------
-    # CORRECT LoRA injection (layer-by-layer, no name guessing)
-    # ------------------------------------------------------------------
     def inject_lora_correct(self, r, alpha, dropout):
-        print("\n[LoRA DEBUG] Injecting LoRA into ProtBert layers...\n")
-
+        if self.verbose:
+            print("\n[LoRA DEBUG] Injecting LoRA into ProtBert layers...")
         for layer_idx, layer in enumerate(self.bert.encoder.layer):
-            # Self-attention projections -------------------------------------
+            for attr in ['query', 'key', 'value']:
+                old = getattr(layer.attention.self, attr)
+                new = LoRALinear(old.in_features, old.out_features,
+                                 r=r, alpha=alpha, dropout=dropout,
+                                 bias=(old.bias is not None))
+                with torch.no_grad():
+                    new.weight.copy_(old.weight)
+                    if old.bias is not None:
+                        new.bias.copy_(old.bias)
+                setattr(layer.attention.self, attr, new)
+                if self.verbose:
+                    print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.self.{attr}")
 
-            # Query
-            old = layer.attention.self.query
-            new = LoRALinear(old.in_features, old.out_features,
-                             r=r, alpha=alpha, dropout=dropout,
-                             bias=(old.bias is not None))
-            with torch.no_grad():
-                new.weight.copy_(old.weight)
-                if old.bias is not None:
-                    new.bias.copy_(old.bias)
-            layer.attention.self.query = new
-            print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.self.query")
-
-            # Key
-            old = layer.attention.self.key
-            new = LoRALinear(old.in_features, old.out_features,
-                             r=r, alpha=alpha, dropout=dropout,
-                             bias=(old.bias is not None))
-            with torch.no_grad():
-                new.weight.copy_(old.weight)
-                if old.bias is not None:
-                    new.bias.copy_(old.bias)
-            layer.attention.self.key = new
-            print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.self.key")
-
-            # Value
-            old = layer.attention.self.value
-            new = LoRALinear(old.in_features, old.out_features,
-                             r=r, alpha=alpha, dropout=dropout,
-                             bias=(old.bias is not None))
-            with torch.no_grad():
-                new.weight.copy_(old.weight)
-                if old.bias is not None:
-                    new.bias.copy_(old.bias)
-            layer.attention.self.value = new
-            print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.self.value")
-
-            # Output dense ---------------------------------------------------
+            # output.dense
             old = layer.attention.output.dense
             new = LoRALinear(old.in_features, old.out_features,
                              r=r, alpha=alpha, dropout=dropout,
@@ -153,30 +119,28 @@ class ProtBertWithLoRA(nn.Module):
                 if old.bias is not None:
                     new.bias.copy_(old.bias)
             layer.attention.output.dense = new
-            print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.output.dense")
+            if self.verbose:
+                print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.output.dense")
+        if self.verbose:
+            print("[LoRA DEBUG] Injection complete.\n")
 
-        print("\n[LoRA DEBUG] Injection complete.\n")
-
-    # ------------------------------------------------------------------
     def forward(self, input_ids, attention_mask=None):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden = outputs.last_hidden_state
-
         if self.readout == "mean":
             return (last_hidden * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
-
         return last_hidden[:, 0, :]
 
 
 # ============================================================
-# SHARED BACKBONE WRAPPER
+# Shared Backbone (DEBUG FRIENDLY)
 # ============================================================
 class SharedProtBert(nn.Module):
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
                  lora=True, lora_rank=16, lora_alpha=32, lora_dropout=0.1,
-                 freeze_backbone=True):
-
+                 freeze_backbone=True, verbose=False):
         super().__init__()
+        self.verbose = verbose
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
 
         if lora:
@@ -185,7 +149,8 @@ class SharedProtBert(nn.Module):
                 readout=readout,
                 lora_rank=lora_rank,
                 lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout
+                lora_dropout=lora_dropout,
+                verbose=verbose
             )
         else:
             self.backbone = ProtBert(
@@ -195,16 +160,10 @@ class SharedProtBert(nn.Module):
             )
 
     def forward(self, input_ids, attention_mask, per_residue=False):
-        outputs = self.backbone.bert(input_ids=input_ids, attention_mask=attention_mask)
-        last_hidden = outputs.last_hidden_state
-
         if per_residue:
-            return last_hidden
-
-        if self.backbone.readout == "mean":
-            return (last_hidden * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
-
-        return last_hidden[:, 0, :]
+            outputs = self.backbone.bert(input_ids=input_ids, attention_mask=attention_mask)
+            return outputs.last_hidden_state
+        return self.backbone(input_ids, attention_mask)
 
     @property
     def hidden_size(self):

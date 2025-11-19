@@ -221,8 +221,8 @@ class MultiTaskEngine:
         # DEBUG: backbone in optimizer
         optim_params = set(p for g in optimizer.param_groups for p in g['params'])
         backbone_params = set(self.backbone.parameters())
-        print("Backbone in optimizer:", backbone_params.issubset(optim_params))
-        print("Backbone requires_grad:", all(p.requires_grad for p in self.backbone.parameters()))
+        #print("Backbone in optimizer:", backbone_params.issubset(optim_params))
+        #print("Backbone requires_grad:", all(p.requires_grad for p in self.backbone.parameters()))
 
         for task_idx, loader in enumerate(self.train_loaders):
             print(f"\n--- Training Task {task_idx} ---")
@@ -261,7 +261,7 @@ class MultiTaskEngine:
                         total_grad_norm += gnorm
                         if gnorm == 0.0:
                             print(f"WARNING: zero grad for {n}")
-                print("BACKBONE TOTAL GRAD NORM:", total_grad_norm)
+                #print("BACKBONE TOTAL GRAD NORM:", total_grad_norm)
 
                 optimizer.step()
 
@@ -270,7 +270,7 @@ class MultiTaskEngine:
 
                 if (updates % 50) == 0 or batch_idx == 0:
                     print(f"Task {task_idx} Batch {batch_idx}: raw_loss={loss.item():.4f}, weight={weights[task_idx]:.4f}, weighted_loss={weighted_loss.item():.4f}")
-                    print(f"[DYN DEBUG] running_losses={self.running_losses.cpu().detach().numpy()}, weights={weights.cpu().detach().numpy()}")
+                    #print(f"[DYN DEBUG] running_losses={self.running_losses.cpu().detach().numpy()}, weights={weights.cpu().detach().numpy()}")
 
         avg_loss = total_weighted_loss / max(1, updates)
         return avg_loss
