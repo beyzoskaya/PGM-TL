@@ -133,7 +133,7 @@ class ProtBertWithLoRA(nn.Module):
 
 
 # ============================================================
-# Shared Backbone (DEBUG FRIENDLY)
+# Shared Backbone 
 # ============================================================
 class SharedProtBert(nn.Module):
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
