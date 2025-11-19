@@ -1,18 +1,29 @@
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
-from protbert_hf import SharedProtBert
+from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.nn.utils.rnn import pad_sequence
+from itertools import cycle
 import os
 import time
 import json
 
+# Configuration
+MAX_LENGTH = 512  # ProtBERT token limit
+SEED = 42
+
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
     return path
+
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 # ----------------------------
 # Utility Metrics
@@ -22,10 +33,12 @@ def regression_metrics(preds, targets):
     targets = targets.squeeze(-1)
     mse = ((preds - targets) ** 2).mean().item()
     rmse = float(np.sqrt(mse))
-    return {'mse': float(mse), 'rmse': rmse}
+    mae = (preds - targets).abs().mean().item()
+    return {'mse': float(mse), 'rmse': rmse, 'mae': float(mae)}
 
 def classification_metrics(preds, targets, ignore_index=-100):
     if preds.dim() == 3:
+        # Per-residue classification: (B, L, C) -> accuracy
         B, L, C = preds.shape
         preds_flat = preds.view(-1, C)
         targets_flat = targets.view(-1)
@@ -34,12 +47,15 @@ def classification_metrics(preds, targets, ignore_index=-100):
             return {'accuracy': float('nan')}
         pred_labels = preds_flat.argmax(dim=-1)
         correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
+        print(f"DEBUG: correct={correct}, total={mask.sum().item()}")
         acc = correct / mask.sum().item()
         return {'accuracy': float(acc)}
     else:
+        # Sequence-level classification: (B, C) -> accuracy
         pred_labels = preds.argmax(dim=-1)
         targets_flat = targets.view(-1)
         correct = (pred_labels == targets_flat).sum().item()
+        print(f"DEBUG: correct={correct}, total={targets_flat.numel()}")
         total = targets_flat.numel()
         acc = correct / total
         return {'accuracy': float(acc)}
@@ -47,7 +63,7 @@ def classification_metrics(preds, targets, ignore_index=-100):
 # ----------------------------
 # Custom collate_fn
 # ----------------------------
-def collate_fn(batch, tokenizer=None, max_length=None):
+def collate_fn(batch, tokenizer=None, max_length=MAX_LENGTH):
     sequences = [item['sequence'] for item in batch]
     targets = [item['targets']['target'] for item in batch]
 
@@ -88,13 +104,16 @@ def collate_fn(batch, tokenizer=None, max_length=None):
 # ----------------------------
 # Debug functions
 # ----------------------------
-def debug_param_update(model, name_filter="encoder"):
+def debug_grad_norm(model, name_filter="encoder", task_idx=None):
+    """Compute and return total gradient norm for a model component"""
+    total_grad_norm = 0.0
+    num_params = 0
     for n, p in model.named_parameters():
-        if name_filter in n and p.requires_grad:
-            grad = None if p.grad is None else p.grad.abs().mean().item()
-            wmean = p.data.abs().mean().item()
-            print(f"[GRAD DEBUG] {n}: grad_mean={grad}, weight_mean={wmean}")
-            break
+        if name_filter in n and p.grad is not None:
+            gnorm = p.grad.norm().item()
+            total_grad_norm += gnorm
+            num_params += 1
+    return total_grad_norm, num_params
 
 def debug_embeddings(task_idx, embeddings):
     emean = embeddings.mean().item()
@@ -112,30 +131,57 @@ def debug_logits(task_idx, logits):
 # MultiTask Engine
 # ----------------------------
 class MultiTaskEngine:
+    """
+    Multitask learning engine with:
+    - Interleaved batch sampling across tasks
+    - Per-epoch dynamic weight updates (not per-batch)
+    - Task-specific head architectures
+    - Comprehensive evaluation and best model tracking
+    """
+    
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
-                 batch_size=16, device='cuda', alpha=0.99, save_dir=None, max_length=None):
+                 batch_size=16, device='cuda', alpha=0.99, save_dir=None, 
+                 max_length=MAX_LENGTH, verbose=True):
         self.device = device
         self.backbone = backbone.to(device)
         self.task_configs = task_configs
         self.max_length = max_length
+        self.verbose = verbose
+        self.num_tasks = len(task_configs)
+        self.alpha = alpha  # EMA factor for running losses
 
         tokenizer = self.backbone.tokenizer
-        self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True,
-                                         collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
-                              for ds in train_sets]
-        self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False,
-                                         collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
-                              for ds in valid_sets]
-        self.test_loaders  = [DataLoader(ds, batch_size=batch_size, shuffle=False,
-                                         collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
-                              for ds in test_sets]
+        self.train_loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=True,
+                      collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
+            for ds in train_sets
+        ]
+        self.valid_loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=False,
+                      collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
+            for ds in valid_sets
+        ]
+        self.test_loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=False,
+                      collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=self.max_length))
+            for ds in test_sets
+        ]
 
         hidden_dim = backbone.hidden_size
-        self.task_heads = nn.ModuleList([
-            nn.Sequential(nn.Dropout(0.2), nn.Linear(hidden_dim, cfg['num_labels']))
-            for cfg in task_configs
-        ]).to(device)
+        
+        # Build task-specific heads
+        self.task_heads = nn.ModuleList()
+        for cfg in task_configs:
+            if cfg['type'] == 'regression':
+                head = build_regression_head(hidden_dim, cfg['num_labels'], dropout_rate=0.2)
+            elif cfg['type'] == 'per_residue_classification':
+                head = build_token_classification_head(hidden_dim, cfg['num_labels'], dropout_rate=0.3)
+            else:  # sequence classification
+                head = build_sequence_classification_head(hidden_dim, cfg['num_labels'], dropout_rate=0.2)
+            self.task_heads.append(head)
+        self.task_heads = self.task_heads.to(device)
 
+        # Loss functions
         self.loss_fns = []
         for cfg in task_configs:
             if cfg['type'] == 'regression':
@@ -145,30 +191,36 @@ class MultiTaskEngine:
             else:
                 raise ValueError(f"Unknown task type {cfg['type']}")
 
-        self.running_losses = torch.ones(len(task_configs), device=device)
-        self.alpha = alpha
+        # Dynamic weighting state
+        self.running_losses = torch.ones(self.num_tasks, device=device)
         self.dynamic_weight_log = []
+        self.gradient_norms_log = []
 
+        # History and best tracking
         self.history = {
             "train_loss": [],
             "val_metrics": [],
-            "test_metrics": []
+            "test_metrics": [],
+            "dynamic_weights": []
+        }
+
+        self.best = {
+            "scores": [None] * self.num_tasks,
+            "epochs": [None] * self.num_tasks,
+            "paths": [None] * self.num_tasks
         }
 
         self.save_dir = ensure_dir(save_dir) if save_dir is not None else None
         self._optimizer = None
-        self.best = {"score": [None]*len(task_configs), "path":[None]*len(task_configs)}
 
     # ---------- forward helpers ----------
     def forward_task(self, embeddings, task_idx):
-        tcfg = self.task_configs[task_idx]['type']
+        """Forward through task-specific head"""
         head = self.task_heads[task_idx]
-        if tcfg == 'per_residue_classification':
-            return head(embeddings)
-        else:
-            return head(embeddings)
+        return head(embeddings)
 
     def compute_loss(self, logits, targets, task_idx):
+        """Compute task-specific loss"""
         tcfg = self.task_configs[task_idx]['type']
         if tcfg == 'regression':
             if logits.dim() > 1 and logits.size(-1) == 1:
@@ -179,112 +231,161 @@ class MultiTaskEngine:
             logits_flat = logits.view(-1, C)
             targets_flat = targets.view(-1)
             return self.loss_fns[task_idx](logits_flat, targets_flat)
-        else:
+        else:  # sequence classification
             return self.loss_fns[task_idx](logits, targets.long())
 
-    def update_dynamic_weights(self):
+    def update_dynamic_weights_epoch(self):
+        """
+        Update dynamic weights based on accumulated task losses.
+        Called ONCE per epoch after all tasks are processed.
+        Uses inverse loss weighting: harder tasks get higher weight.
+        """
         inv_losses = 1.0 / (self.running_losses + 1e-8)
         weights = inv_losses / inv_losses.sum()
         self.dynamic_weight_log.append(weights.cpu().numpy().tolist())
+        
         if self.save_dir:
-            np.save(os.path.join(self.save_dir, "dynamic_weight_log.npy"), np.array(self.dynamic_weight_log))
+            np.save(os.path.join(self.save_dir, "dynamic_weight_log.npy"), 
+                   np.array(self.dynamic_weight_log))
+        
+        if self.verbose:
+            print(f"[WEIGHTS] {' '.join([f'Task{i}:{w:.3f}' for i, w in enumerate(weights.cpu())])}")
+        
         return weights
 
-    def save_checkpoint(self, epoch, optimizer=None, name=None):
+    def save_checkpoint(self, epoch, optimizer=None, name=None, is_best_overall=False):
         if not self.save_dir:
             return
+        
         ckpt = {
             "epoch": epoch,
             "backbone_state": self.backbone.state_dict(),
             "heads_state": self.task_heads.state_dict(),
             "history": self.history,
             "dynamic_weight_log": self.dynamic_weight_log,
+            "gradient_norms_log": self.gradient_norms_log,
             "running_losses": self.running_losses.cpu().tolist()
         }
         if optimizer is not None:
             ckpt["optimizer_state"] = optimizer.state_dict()
+        
         fname = f"checkpoint_epoch_{epoch}.pt" if name is None else name
         path = os.path.join(self.save_dir, fname)
         torch.save(ckpt, path)
-        print(f"Saved checkpoint: {path}")
+        
+        if self.verbose:
+            print(f"✓ Saved checkpoint: {path}")
         return path
 
-    # ---------- train with debug ----------
+    # ---------- train with interleaved sampling ----------
     def train_one_epoch(self, optimizer, max_batches_per_loader=None):
+        """
+        Train for one epoch with interleaved task sampling.
+        Each batch is sampled from a different task in round-robin fashion.
+        This ensures balanced gradient updates across tasks.
+        """
         self.backbone.train()
         for head in self.task_heads:
             head.train()
 
+        # Create iterators for each task loader
+        iterators = [iter(loader) for loader in self.train_loaders]
+        task_cycle = cycle(range(self.num_tasks))
+        
         total_weighted_loss = 0.0
         updates = 0
+        batch_count = 0
+        task_batch_counts = [0] * self.num_tasks
 
-        # DEBUG: backbone in optimizer
-        optim_params = set(p for g in optimizer.param_groups for p in g['params'])
-        backbone_params = set(self.backbone.parameters())
-        #print("Backbone in optimizer:", backbone_params.issubset(optim_params))
-        #print("Backbone requires_grad:", all(p.requires_grad for p in self.backbone.parameters()))
+        if self.verbose:
+            print("\n[EPOCH START] Training with interleaved batch sampling...")
 
-        for task_idx, loader in enumerate(self.train_loaders):
-            print(f"\n--- Training Task {task_idx} ---")
-            for batch_idx, batch in enumerate(loader):
-                if (max_batches_per_loader is not None) and (batch_idx >= max_batches_per_loader):
-                    break
+        # Process batches from all tasks in round-robin
+        active_iterators = list(range(self.num_tasks))
+        while len(active_iterators) > 0:
+            # Find next active task
+            task_idx = None
+            attempts = 0
+            while task_idx is None and attempts < self.num_tasks:
+                candidate = next(task_cycle)
+                if candidate in active_iterators:
+                    task_idx = candidate
+                attempts += 1
+            
+            if task_idx is None:
+                break
 
-                input_ids = batch['sequence'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                targets = batch['targets']['target']
-                if torch.is_tensor(targets):
-                    targets = targets.to(self.device)
+            # Try to get batch from this task
+            try:
+                batch = next(iterators[task_idx])
+            except StopIteration:
+                active_iterators.remove(task_idx)
+                continue
 
-                optimizer.zero_grad()
-                per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
-                embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
-                #debug_embeddings(task_idx, embeddings)
+            # Check max batches per loader
+            if (max_batches_per_loader is not None) and (task_batch_counts[task_idx] >= max_batches_per_loader):
+                active_iterators.remove(task_idx)
+                continue
 
-                logits = self.forward_task(embeddings, task_idx)
-                #debug_logits(task_idx, logits)
+            task_batch_counts[task_idx] += 1
+            batch_count += 1
 
-                loss = self.compute_loss(logits, targets, task_idx)
+            # Forward pass
+            input_ids = batch['sequence'].to(self.device)
+            attention_mask = batch['attention_mask'].to(self.device)
+            targets = batch['targets']['target']
+            if torch.is_tensor(targets):
+                targets = targets.to(self.device)
 
-                # Update running loss and dynamic weights
-                self.running_losses[task_idx] = self.alpha * self.running_losses[task_idx] + (1.0 - self.alpha) * loss.detach()
-                weights = self.update_dynamic_weights()
-                weighted_loss = (weights[task_idx].to(self.device) * loss)
+            optimizer.zero_grad()
+            
+            per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
+            embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
+            logits = self.forward_task(embeddings, task_idx)
+            loss = self.compute_loss(logits, targets, task_idx)
 
-                weighted_loss.backward()
+            # Backward pass
+            loss.backward()
+            optimizer.step()
 
-                # DEBUG: check gradients
-                total_grad_norm = 0.0
-                for n, p in self.backbone.named_parameters():
-                    if p.grad is not None:
-                        gnorm = p.grad.norm().item()
-                        total_grad_norm += gnorm
-                        #if gnorm == 0.0:
-                        #    print(f"WARNING: zero grad for {n}")
-                #print("BACKBONE TOTAL GRAD NORM:", total_grad_norm)
+            # Update running loss for this task
+            self.running_losses[task_idx] = (self.alpha * self.running_losses[task_idx] + 
+                                             (1.0 - self.alpha) * loss.detach())
 
-                optimizer.step()
+            total_weighted_loss += loss.item()
+            updates += 1
 
-                total_weighted_loss += float(weighted_loss.item())
-                updates += 1
+            if (batch_count % 50) == 0:
+                print(f"[Batch {batch_count}] Task {task_idx}: loss={loss.item():.4f}")
 
-                if (updates % 50) == 0 or batch_idx == 0:
-                    print(f"Task {task_idx} Batch {batch_idx}: raw_loss={loss.item():.4f}, weight={weights[task_idx]:.4f}, weighted_loss={weighted_loss.item():.4f}")
-                    #print(f"[DYN DEBUG] running_losses={self.running_losses.cpu().detach().numpy()}, weights={weights.cpu().detach().numpy()}")
+        # Compute gradient norm
+        grad_norm, num_grad_params = debug_grad_norm(self.backbone, name_filter="A")
+        self.gradient_norms_log.append({"norm": grad_norm, "num_params": num_grad_params})
+        
+        if self.verbose:
+            print(f"[GRAD NORM] Total: {grad_norm:.4f} across {num_grad_params} LoRA params")
 
         avg_loss = total_weighted_loss / max(1, updates)
         return avg_loss
 
-    def evaluate(self, loaders, split_name="Validation"):
+    def evaluate(self, loaders, split_name="Validation", epoch=None):
+        """
+        Evaluate on all tasks. Returns metrics per task.
+        Also tracks best performance per task for checkpoint selection.
+        """
         self.backbone.eval()
         for head in self.task_heads:
             head.eval()
 
         all_task_metrics = []
+        
         with torch.no_grad():
             for task_idx, loader in enumerate(loaders):
-                print(f"Evaluating task {task_idx} on {split_name}")
+                if self.verbose:
+                    print(f"  Evaluating task {task_idx} on {split_name}...")
+                
                 accumulated = []
+                
                 for batch in loader:
                     input_ids = batch['sequence'].to(self.device)
                     attention_mask = batch['attention_mask'].to(self.device)
@@ -297,12 +398,13 @@ class MultiTaskEngine:
                     logits = self.forward_task(embeddings, task_idx)
 
                     if self.task_configs[task_idx]['type'] == 'regression':
-                        metrics = regression_metrics(logits.squeeze(-1).cpu(), targets.cpu())
+                        metrics = regression_metrics(logits.cpu(), targets.cpu())
                     else:
                         metrics = classification_metrics(logits.cpu(), targets.cpu(), ignore_index=-100)
 
                     accumulated.append(metrics)
 
+                # Average metrics across batches
                 if len(accumulated) == 0:
                     avg_metrics = {}
                 else:
@@ -311,46 +413,87 @@ class MultiTaskEngine:
                     for k in keys:
                         vals = [a[k] for a in accumulated if not (isinstance(a[k], float) and np.isnan(a[k]))]
                         avg_metrics[k] = float(np.mean(vals)) if len(vals) > 0 else float('nan')
-                print(f"{split_name} metrics for Task {task_idx}: {avg_metrics}")
+
                 all_task_metrics.append(avg_metrics)
 
-        if self.save_dir:
-            fname = f"{split_name.lower()}_metrics_epoch_{len(self.history['train_loss'])+1}.npy"
-            np.save(os.path.join(self.save_dir, fname), np.array(all_task_metrics, dtype=object))
+                # Track best performance
+                if epoch is not None:
+                    if self.task_configs[task_idx]['type'] == 'regression':
+                        current_score = avg_metrics.get('rmse', np.inf)
+                        is_better = (self.best["scores"][task_idx] is None or 
+                                   current_score < self.best["scores"][task_idx])
+                    else:
+                        current_score = avg_metrics.get('accuracy', 0.0)
+                        is_better = (self.best["scores"][task_idx] is None or 
+                                   current_score > self.best["scores"][task_idx])
+                    
+                    if is_better:
+                        self.best["scores"][task_idx] = current_score
+                        self.best["epochs"][task_idx] = epoch
+
+                if self.verbose:
+                    print(f"    Task {task_idx} {split_name} metrics: {avg_metrics}")
 
         return all_task_metrics
+
+    def print_best_metrics(self):
+        """Print best metrics achieved for each task"""
+        print("\n" + "="*60)
+        print("BEST VALIDATION METRICS PER TASK")
+        print("="*60)
+        for task_idx in range(self.num_tasks):
+            score = self.best["scores"][task_idx]
+            epoch = self.best["epochs"][task_idx]
+            metric_name = "RMSE" if self.task_configs[task_idx]['type'] == 'regression' else "Accuracy"
+            if score is not None:
+                print(f"Task {task_idx}: {metric_name}={score:.4f} @ epoch {epoch}")
+            else:
+                print(f"Task {task_idx}: No improvement tracked")
+        print("="*60 + "\n")
+
 
 # ----------------------------
 # Main script
 # ----------------------------
 if __name__ == "__main__":
-    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting"
+    set_seed(SEED)
+    
+    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting_v2"
     ensure_dir(SAVE_DIR)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    print(f"Device: {device}")
+    print(f"Max sequence length: {MAX_LENGTH}")
 
-    thermo_full = Thermostability()
+    # Load datasets
+    print("\n[DATA] Loading datasets...")
+    thermo_full = Thermostability(verbose=1)
     thermo_train, thermo_valid, thermo_test = thermo_full.split()
-    ssp_full = SecondaryStructure()
+    
+    ssp_full = SecondaryStructure(verbose=1)
     ssp_train, ssp_valid, ssp_test = ssp_full.split()
-    clf_full = CloningCLF()
+    
+    clf_full = CloningCLF(verbose=1)
     clf_train, clf_valid, clf_test = clf_full.split()
 
-    print("Splits sizes (thermo, ssp, clf):")
-    print(len(thermo_train), len(thermo_valid), len(thermo_test))
-    print(len(ssp_train), len(ssp_valid), len(ssp_test))
-    print(len(clf_train), len(clf_valid), len(clf_test))
+    print("\n[DATA] Split sizes:")
+    print(f"  Thermostability: train={len(thermo_train)}, valid={len(thermo_valid)}, test={len(thermo_test)}")
+    print(f"  SecondaryStructure: train={len(ssp_train)}, valid={len(ssp_valid)}, test={len(ssp_test)}")
+    print(f"  CloningCLF: train={len(clf_train)}, valid={len(clf_valid)}, test={len(clf_test)}")
 
+    # Task configuration
     task_configs = [
-        {'type': 'regression', 'num_labels': 1},
-        {'type': 'per_residue_classification', 'num_labels': 8},
-        {'type': 'classification', 'num_labels': 2}
+        {'type': 'regression', 'num_labels': 1, 'name': 'Thermostability'},
+        {'type': 'per_residue_classification', 'num_labels': 8, 'name': 'SecondaryStructure'},
+        {'type': 'classification', 'num_labels': 2, 'name': 'CloningCLF'}
     ]
 
+    print("\n[MODEL] Initializing shared ProtBERT with LoRA...")
     backbone = SharedProtBert(lora=True, verbose=True).to(device)
-    # Ensure backbone parameters are trainable
     for p in backbone.parameters():
         p.requires_grad = True
 
+    print("\n[ENGINE] Creating MultiTaskEngine...")
     engine = MultiTaskEngine(
         backbone=backbone,
         task_configs=task_configs,
@@ -361,7 +504,8 @@ if __name__ == "__main__":
         device=device,
         alpha=0.99,
         save_dir=SAVE_DIR,
-        max_length=None
+        max_length=MAX_LENGTH,
+        verbose=True
     )
 
     optimizer = optim.Adam(
@@ -371,35 +515,73 @@ if __name__ == "__main__":
     )
 
     NUM_EPOCHS = 3
-    for epoch in range(1, NUM_EPOCHS+1):
+    print(f"\n{'='*60}")
+    print(f"STARTING TRAINING: {NUM_EPOCHS} epochs")
+    print(f"{'='*60}\n")
+
+    for epoch in range(1, NUM_EPOCHS + 1):
+        print(f"\n[EPOCH {epoch}/{NUM_EPOCHS}]")
+        print("-" * 60)
+        
         start = time.time()
         train_loss = engine.train_one_epoch(optimizer)
         epoch_time = time.time() - start
-        print(f"\nEpoch {epoch} done in {epoch_time:.1f}s - avg weighted loss: {train_loss:.4f}")
+        
+        print(f"\n✓ Epoch {epoch} training done in {epoch_time:.1f}s - avg loss: {train_loss:.4f}")
         engine.history["train_loss"].append(train_loss)
 
-        val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation")
-        test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
+        # Update dynamic weights for next epoch (ONCE per epoch)
+        weights = engine.update_dynamic_weights_epoch()
+        engine.history["dynamic_weights"].append(weights.cpu().numpy().tolist())
+
+        # Validation
+        print(f"\n[VALIDATION]")
+        val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
         engine.history["val_metrics"].append(val_metrics)
+
+        # Test (informative only, not for checkpoint selection)
+        print(f"\n[TEST]")
+        test_metrics = engine.evaluate(engine.test_loaders, split_name="Test", epoch=epoch)
         engine.history["test_metrics"].append(test_metrics)
 
-        for t_idx, m in enumerate(val_metrics):
-            if engine.task_configs[t_idx]['type'] == 'regression':
-                primary = {'mse': m.get('mse', np.inf)}
-            else:
-                primary = {'accuracy': m.get('accuracy', 0.0)}
-            engine.save_checkpoint(epoch, optimizer=optimizer, name=f"best_task{t_idx}_epoch{epoch}.pt")
+        # Save checkpoint
+        engine.save_checkpoint(epoch, optimizer=optimizer)
 
+        # Save history after each epoch
         if SAVE_DIR:
             np.save(os.path.join(SAVE_DIR, "train_loss.npy"), np.array(engine.history["train_loss"]))
             np.save(os.path.join(SAVE_DIR, "dynamic_weight_log.npy"), np.array(engine.dynamic_weight_log))
+            np.save(os.path.join(SAVE_DIR, "gradient_norms.npy"), np.array(engine.gradient_norms_log, dtype=object))
             with open(os.path.join(SAVE_DIR, "history.json"), "w") as fh:
                 json.dump(engine.history, fh, indent=2)
 
+    # Final evaluation
+    print(f"\n{'='*60}")
+    print("FINAL EVALUATION ON TEST SET")
+    print(f"{'='*60}")
     final_test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
-    engine.history["test_metrics"] = final_test_metrics
-    np.save(os.path.join(SAVE_DIR, "final_test_metrics.npy"), np.array(final_test_metrics, dtype=object))
-    with open(os.path.join(SAVE_DIR, "final_history.json"), "w") as fh:
-        json.dump(engine.history, fh, indent=2)
+    engine.history["final_test_metrics"] = final_test_metrics
 
-    print("Training finished. Artifacts saved to:", SAVE_DIR)
+    # Print best validation metrics per task
+    engine.print_best_metrics()
+
+    # Save final results
+    if SAVE_DIR:
+        np.save(os.path.join(SAVE_DIR, "final_test_metrics.npy"), np.array(final_test_metrics, dtype=object))
+        with open(os.path.join(SAVE_DIR, "final_history.json"), "w") as fh:
+            json.dump(engine.history, fh, indent=2)
+        
+        # Save best metrics summary
+        with open(os.path.join(SAVE_DIR, "best_metrics_summary.txt"), "w") as fh:
+            fh.write("BEST VALIDATION METRICS PER TASK\n")
+            fh.write("=" * 60 + "\n")
+            for task_idx in range(len(task_configs)):
+                score = engine.best["scores"][task_idx]
+                epoch = engine.best["epochs"][task_idx]
+                task_name = task_configs[task_idx]['name']
+                metric_name = "RMSE" if task_configs[task_idx]['type'] == 'regression' else "Accuracy"
+                if score is not None:
+                    fh.write(f"{task_name} (Task {task_idx}): {metric_name}={score:.4f} @ epoch {epoch}\n")
+
+    print(f"\n✓ Training finished. Artifacts saved to: {SAVE_DIR}")
+    print(f"✓ Check 'best_metrics_summary.txt' for validation performance tracking")

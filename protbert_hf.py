@@ -133,6 +133,47 @@ class ProtBertWithLoRA(nn.Module):
 
 
 # ============================================================
+# Task-Specific Head Builders
+# ============================================================
+def build_regression_head(hidden_dim, num_labels=1, dropout_rate=0.2):
+    """
+    Deeper head for regression tasks (e.g., Thermostability)
+    Uses intermediate ReLU layer for better capacity
+    """
+    return nn.Sequential(
+        nn.LayerNorm(hidden_dim),
+        nn.Dropout(dropout_rate),
+        nn.Linear(hidden_dim, hidden_dim // 2),
+        nn.ReLU(),
+        nn.Dropout(dropout_rate),
+        nn.Linear(hidden_dim // 2, num_labels)
+    )
+
+
+def build_token_classification_head(hidden_dim, num_labels, dropout_rate=0.3):
+    """
+    Head for per-residue token classification (e.g., Secondary Structure)
+    Applies projection directly to maintain spatial structure
+    """
+    return nn.Sequential(
+        nn.LayerNorm(hidden_dim),
+        nn.Dropout(dropout_rate),
+        nn.Linear(hidden_dim, num_labels)
+    )
+
+
+def build_sequence_classification_head(hidden_dim, num_labels, dropout_rate=0.2):
+    """
+    Head for sequence-level classification (e.g., Cloning CLF)
+    Simple but effective for binary/multi-class classification
+    """
+    return nn.Sequential(
+        nn.Dropout(dropout_rate),
+        nn.Linear(hidden_dim, num_labels)
+    )
+
+
+# ============================================================
 # Shared Backbone 
 # ============================================================
 class SharedProtBert(nn.Module):
