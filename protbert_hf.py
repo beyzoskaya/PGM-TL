@@ -105,6 +105,12 @@ class ProtBertWithLoRA(nn.Module):
                     new.weight.copy_(old.weight)
                     if old.bias is not None:
                         new.bias.copy_(old.bias)
+                
+                # CRITICAL: Freeze base weights, only train LoRA A, B
+                new.weight.requires_grad = False
+                if new.bias is not None:
+                    new.bias.requires_grad = False
+                
                 setattr(layer.attention.self, attr, new)
                 if self.verbose:
                     print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.self.{attr}")
@@ -118,6 +124,12 @@ class ProtBertWithLoRA(nn.Module):
                 new.weight.copy_(old.weight)
                 if old.bias is not None:
                     new.bias.copy_(old.bias)
+            
+            # CRITICAL: Freeze base weights, only train LoRA A, B
+            new.weight.requires_grad = False
+            if new.bias is not None:
+                new.bias.requires_grad = False
+            
             layer.attention.output.dense = new
             if self.verbose:
                 print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.output.dense")
