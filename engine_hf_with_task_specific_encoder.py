@@ -259,8 +259,8 @@ class MultiTaskEngine:
                     if p.grad is not None:
                         gnorm = p.grad.norm().item()
                         total_grad_norm += gnorm
-                        if gnorm == 0.0:
-                            print(f"WARNING: zero grad for {n}")
+                        #if gnorm == 0.0:
+                        #    print(f"WARNING: zero grad for {n}")
                 #print("BACKBONE TOTAL GRAD NORM:", total_grad_norm)
 
                 optimizer.step()
