@@ -8,9 +8,8 @@ from protbert_hf import SharedProtBert, build_regression_head, build_token_class
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
-# ====================== CONFIG ======================
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-SANITY_CHECK = False
+SANITY_CHECK = True      
 EPOCHS = 5
 BATCH_SIZE = 16
 MAX_LENGTH = 512
@@ -19,6 +18,7 @@ DEBUG_INTERVAL = 100
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting"
 
 set_seed(SEED)
+os.makedirs(SAVE_DIR, exist_ok=True)  
 
 print("\n[DATA] Loading datasets...")
 thermo_train = Thermostability(split='train')
@@ -68,41 +68,46 @@ engine = MultiTaskEngine(
     verbose=True
 )
 
-if SANITY_CHECK:
-    print("\n[SANITY CHECK] Forward + backward pass for one batch per task")
-    engine.train_one_epoch(
-        optimizer=torch.optim.Adam(list(backbone.parameters()) + list(engine.task_heads.parameters()), lr=1e-3),
-        max_batches_per_loader=1
-    )
-    engine.evaluate(engine.valid_loaders)
-    print("\n✓ Sanity check completed successfully\n")
-    exit(0)
-
 optimizer = torch.optim.Adam(
     list(backbone.parameters()) + list(engine.task_heads.parameters()),
     lr=1e-3
 )
 
+if SANITY_CHECK:
+    print("\n[SANITY CHECK] Forward + backward pass for 1 batch per task")
+    avg_loss = engine.train_one_epoch(optimizer, max_batches_per_loader=1)
+    val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=0)
+    
+    dyn_weights = [float(w) for w in engine.update_dynamic_weights_epoch()]
+    grad_norms_safe = [float(x) if isinstance(x,float) else int(x) for x in engine.gradient_norms_log[-1]]
+
+    engine.history["train_loss"].append(float(avg_loss))
+    engine.history["val_metrics"].append(val_metrics)
+    engine.history["dynamic_weights"].append(dyn_weights)
+    engine.history["gradient_norms"].append(grad_norms_safe)
+
+    sanity_path = os.path.join(SAVE_DIR, "sanity_history.json")
+    with open(sanity_path, 'w') as f:
+        json.dump(engine.history, f, indent=2)
+    print(f"[SANITY] History saved successfully to {sanity_path}")
+    exit(0)
+
 for epoch in range(EPOCHS):
     print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
-    
-    # 1️⃣ Train one epoch
+
     avg_loss = engine.train_one_epoch(optimizer)
     print(f"[Epoch {epoch+1}] Average training loss: {avg_loss:.4f}")
 
-    # 2️⃣ Evaluate on validation
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
-    
-    # 3️⃣ Update dynamic weights EMA
-    dyn_weights = engine.update_dynamic_weights_epoch()
 
-    # 4️⃣ Append metrics/history
-    engine.history["train_loss"].append(avg_loss)
+    dyn_weights = [float(w) for w in engine.update_dynamic_weights_epoch()]
+    grad_norms_safe = [float(x) if isinstance(x,float) else int(x) for x in engine.gradient_norms_log[-1]]
+
+    engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
     engine.history["dynamic_weights"].append(dyn_weights)
-    engine.history["gradient_norms"].append(engine.gradient_norms_log[-1])
+    engine.history["gradient_norms"].append(grad_norms_safe)
 
-    # 5️⃣ Save intermediate history
     history_path = os.path.join(SAVE_DIR, f"history_epoch{epoch+1}.json")
     with open(history_path, 'w') as f:
         json.dump(engine.history, f, indent=2)
