@@ -4,7 +4,7 @@ from transformers import AutoModel, AutoTokenizer
 import math
 
 # ============================================================
-# LoRA Layer
+# LoRA Layer 
 # ============================================================
 class LoRALinear(nn.Module):
     """LoRA applied to linear layers: W = W_0 + (dropout(x) @ A^T @ B^T) * scaling"""
@@ -16,27 +16,38 @@ class LoRALinear(nn.Module):
         self.alpha = alpha
         self.scaling = alpha / r
 
-        # Base weight
+        # Base weight (FROZEN)
         self.weight = nn.Parameter(torch.empty(out_features, in_features))
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.weight.requires_grad = False  # CRITICAL: Freeze base weights
 
-        # Optional bias
+        # Optional bias (FROZEN)
         if bias:
             self.bias = nn.Parameter(torch.zeros(out_features))
+            self.bias.requires_grad = False  # CRITICAL: Freeze bias
         else:
             self.register_parameter("bias", None)
 
-        # LoRA matrices (A,B)
+        # LoRA matrices (A, B) - TRAINABLE
         self.A = nn.Parameter(torch.zeros(r, in_features))
         self.B = nn.Parameter(torch.zeros(out_features, r))
         self.dropout = nn.Dropout(dropout)
 
-        nn.init.zeros_(self.A)
+        # ✓ FIXED: Initialize A with small random values (not zeros!)
+        nn.init.normal_(self.A, std=0.02)
+        # Keep B at zero (standard LoRA practice)
         nn.init.zeros_(self.B)
 
     def forward(self, x):
+        # lora_update = x @ A.T @ B.T * scaling
         lora_update = (self.dropout(x) @ self.A.T @ self.B.T) * self.scaling
-        return x @ self.weight.T + lora_update + (self.bias if self.bias is not None else 0)
+        
+        # Output = base_weight + lora_update + bias
+        output = x @ self.weight.T + lora_update
+        if self.bias is not None:
+            output = output + self.bias
+        
+        return output
 
 
 # ============================================================
@@ -64,7 +75,7 @@ class ProtBert(nn.Module):
 
 
 # ============================================================
-# ProtBert With LoRA (DEBUG FRIENDLY)
+# ProtBert With LoRA - FIXED (Gradient Flow)
 # ============================================================
 class ProtBertWithLoRA(nn.Module):
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
@@ -75,7 +86,7 @@ class ProtBertWithLoRA(nn.Module):
         self.bert = AutoModel.from_pretrained(model_name)
         self.readout = readout
 
-        # Freeze backbone
+        # Freeze BERT backbone
         for p in self.bert.parameters():
             p.requires_grad = False
 
@@ -85,17 +96,26 @@ class ProtBertWithLoRA(nn.Module):
         if self.verbose:
             # Summary of trainable parameters
             total_trainable = 0
-            print("\n[LoRA DEBUG] Trainable parameters:")
+            lora_params = 0
+            print("\n[LoRA DEBUG] Trainable parameters after injection:")
             for name, p in self.named_parameters():
                 if p.requires_grad:
-                    print(f"  ✓ {name} {p.shape}")
-                    total_trainable += p.numel()
-            print(f"[LoRA DEBUG] Total trainable: {total_trainable}\n")
+                    param_count = p.numel()
+                    total_trainable += param_count
+                    if 'A' in name or 'B' in name:
+                        lora_params += param_count
+                    if 'layer.0' in name:  # Only show layer 0 as example
+                        print(f"  ✓ {name} {p.shape}")
+            print(f"[LoRA DEBUG] Total trainable: {total_trainable:,} (LoRA only)")
+            print(f"[LoRA DEBUG] LoRA parameters: {lora_params:,}\n")
 
     def inject_lora_correct(self, r, alpha, dropout):
         if self.verbose:
-            print("\n[LoRA DEBUG] Injecting LoRA into ProtBert layers...")
+            print("\n[LoRA DEBUG] Injecting LoRA into ProtBert attention layers...")
+        
+        lora_count = 0
         for layer_idx, layer in enumerate(self.bert.encoder.layer):
+            # Attention heads: query, key, value
             for attr in ['query', 'key', 'value']:
                 old = getattr(layer.attention.self, attr)
                 new = LoRALinear(old.in_features, old.out_features,
@@ -103,38 +123,30 @@ class ProtBertWithLoRA(nn.Module):
                                  bias=(old.bias is not None))
                 with torch.no_grad():
                     new.weight.copy_(old.weight)
-                    if old.bias is not None:
+                    if old.bias is not None and new.bias is not None:
                         new.bias.copy_(old.bias)
                 
-                # CRITICAL: Freeze base weights, only train LoRA A, B
-                new.weight.requires_grad = False
-                if new.bias is not None:
-                    new.bias.requires_grad = False
-                
                 setattr(layer.attention.self, attr, new)
-                if self.verbose:
-                    print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.self.{attr}")
+                lora_count += 1
 
-            # output.dense
+            # Attention output dense layer
             old = layer.attention.output.dense
             new = LoRALinear(old.in_features, old.out_features,
                              r=r, alpha=alpha, dropout=dropout,
                              bias=(old.bias is not None))
             with torch.no_grad():
                 new.weight.copy_(old.weight)
-                if old.bias is not None:
+                if old.bias is not None and new.bias is not None:
                     new.bias.copy_(old.bias)
             
-            # CRITICAL: Freeze base weights, only train LoRA A, B
-            new.weight.requires_grad = False
-            if new.bias is not None:
-                new.bias.requires_grad = False
-            
             layer.attention.output.dense = new
-            if self.verbose:
-                print(f"  Injected LoRA: encoder.layer[{layer_idx}].attention.output.dense")
+            lora_count += 1
+            
+            if self.verbose and layer_idx == 0:
+                print(f"  Injected LoRA into layer 0 (4 total per layer)")
+
         if self.verbose:
-            print("[LoRA DEBUG] Injection complete.\n")
+            print(f"[LoRA DEBUG] Total LoRA modules injected: {lora_count}\n")
 
     def forward(self, input_ids, attention_mask=None):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)

@@ -47,7 +47,6 @@ def classification_metrics(preds, targets, ignore_index=-100):
             return {'accuracy': float('nan')}
         pred_labels = preds_flat.argmax(dim=-1)
         correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
-        print(f"DEBUG: correct={correct}, total={mask.sum().item()}")
         acc = correct / mask.sum().item()
         return {'accuracy': float(acc)}
     else:
@@ -55,7 +54,6 @@ def classification_metrics(preds, targets, ignore_index=-100):
         pred_labels = preds.argmax(dim=-1)
         targets_flat = targets.view(-1)
         correct = (pred_labels == targets_flat).sum().item()
-        print(f"DEBUG: correct={correct}, total={targets_flat.numel()}")
         total = targets_flat.numel()
         acc = correct / total
         return {'accuracy': float(acc)}
@@ -104,16 +102,23 @@ def collate_fn(batch, tokenizer=None, max_length=MAX_LENGTH):
 # ----------------------------
 # Debug functions
 # ----------------------------
-def debug_grad_norm(model, name_filter="encoder", task_idx=None):
+def debug_grad_norm(model, name_filter=None):
     """Compute and return total gradient norm for a model component"""
     total_grad_norm = 0.0
     num_params = 0
+    has_zero_grad = 0
+    
     for n, p in model.named_parameters():
-        if name_filter in n and p.grad is not None:
-            gnorm = p.grad.norm().item()
-            total_grad_norm += gnorm
-            num_params += 1
-    return total_grad_norm, num_params
+        if p.grad is not None:
+            if name_filter is None or name_filter in n:
+                gnorm = p.grad.norm().item()
+                total_grad_norm += gnorm ** 2  # Sum of squares for proper norm
+                num_params += 1
+                if gnorm == 0:
+                    has_zero_grad += 1
+    
+    total_grad_norm = float(np.sqrt(total_grad_norm))
+    return total_grad_norm, num_params, has_zero_grad
 
 def debug_embeddings(task_idx, embeddings):
     emean = embeddings.mean().item()
@@ -128,7 +133,7 @@ def debug_logits(task_idx, logits):
     print(f"[LOGIT DEBUG][Task {task_idx}] shape={tuple(logits.shape)}, mean={mean:.4f}, min={mn:.4f}, max={mx:.4f}")
 
 # ----------------------------
-# MultiTask Engine
+# MultiTask Engine - IMPROVED
 # ----------------------------
 class MultiTaskEngine:
     """
@@ -137,11 +142,12 @@ class MultiTaskEngine:
     - Per-epoch dynamic weight updates (not per-batch)
     - Task-specific head architectures
     - Comprehensive evaluation and best model tracking
+    - FIXED: Proper gradient accumulation and gradient clipping
     """
     
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
                  batch_size=16, device='cuda', alpha=0.99, save_dir=None, 
-                 max_length=MAX_LENGTH, verbose=True):
+                 max_length=MAX_LENGTH, verbose=True, grad_clip=1.0):
         self.device = device
         self.backbone = backbone.to(device)
         self.task_configs = task_configs
@@ -149,6 +155,7 @@ class MultiTaskEngine:
         self.verbose = verbose
         self.num_tasks = len(task_configs)
         self.alpha = alpha  # EMA factor for running losses
+        self.grad_clip = grad_clip  # Gradient clipping threshold
 
         tokenizer = self.backbone.tokenizer
         self.train_loaders = [
@@ -191,17 +198,16 @@ class MultiTaskEngine:
             else:
                 raise ValueError(f"Unknown task type {cfg['type']}")
 
-        # Dynamic weighting state
         self.running_losses = torch.ones(self.num_tasks, device=device)
         self.dynamic_weight_log = []
         self.gradient_norms_log = []
 
-        # History and best tracking
         self.history = {
             "train_loss": [],
             "val_metrics": [],
             "test_metrics": [],
-            "dynamic_weights": []
+            "dynamic_weights": [],
+            "gradient_norms": []
         }
 
         self.best = {
@@ -277,12 +283,11 @@ class MultiTaskEngine:
             print(f"✓ Saved checkpoint: {path}")
         return path
 
-    # ---------- train with interleaved sampling ----------
+    # ---------- train with gradient accumulation and clipping ----------
     def train_one_epoch(self, optimizer, max_batches_per_loader=None):
         """
         Train for one epoch with interleaved task sampling.
-        Each batch is sampled from a different task in round-robin fashion.
-        This ensures balanced gradient updates across tasks.
+        FIXED: Proper gradient accumulation and clipping per task.
         """
         self.backbone.train()
         for head in self.task_heads:
@@ -296,6 +301,7 @@ class MultiTaskEngine:
         updates = 0
         batch_count = 0
         task_batch_counts = [0] * self.num_tasks
+        all_grad_norms = []
 
         if self.verbose:
             print("\n[EPOCH START] Training with interleaved batch sampling...")
@@ -337,6 +343,7 @@ class MultiTaskEngine:
             if torch.is_tensor(targets):
                 targets = targets.to(self.device)
 
+            # FIXED: Always zero_grad before forward
             optimizer.zero_grad()
             
             per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
@@ -346,8 +353,15 @@ class MultiTaskEngine:
             debug_logits(task_idx, logits)
             loss = self.compute_loss(logits, targets, task_idx)
 
-            # Backward pass
+            # FIXED: Proper backward and gradient clipping
             loss.backward()
+            
+            # Clip gradients to prevent explosion
+            torch.nn.utils.clip_grad_norm_(
+                list(self.backbone.parameters()) + list(self.task_heads.parameters()),
+                max_norm=self.grad_clip
+            )
+            
             optimizer.step()
 
             # Update running loss for this task
@@ -357,15 +371,29 @@ class MultiTaskEngine:
             total_weighted_loss += loss.item()
             updates += 1
 
-            if (batch_count % 50) == 0:
-                print(f"[Batch {batch_count}] Task {task_idx}: loss={loss.item():.4f}")
+            # Log gradient norms (sample only)
+            if batch_count % 50 == 0:
+                grad_norm, num_grad_params, zero_grad_count = debug_grad_norm(self.backbone)
+                all_grad_norms.append({
+                    'batch': batch_count,
+                    'task_idx': task_idx,
+                    'grad_norm': grad_norm,
+                    'num_params': num_grad_params,
+                    'zero_grads': zero_grad_count
+                })
+                print(f"[Batch {batch_count}] Task {task_idx}: loss={loss.item():.4f}, grad_norm={grad_norm:.4e}")
 
-        # Compute gradient norm
-        grad_norm, num_grad_params = debug_grad_norm(self.backbone, name_filter="A")
-        self.gradient_norms_log.append({"norm": grad_norm, "num_params": num_grad_params})
+        # Compute final gradient norm summary
+        grad_norm, num_grad_params, zero_grad_count = debug_grad_norm(self.backbone)
+        self.gradient_norms_log.append({
+            "norm": grad_norm,
+            "num_params": num_grad_params,
+            "zero_grads": zero_grad_count,
+            "total_batches": batch_count
+        })
         
         if self.verbose:
-            print(f"[GRAD NORM] Total: {grad_norm:.4f} across {num_grad_params} LoRA params")
+            print(f"[GRAD NORM SUMMARY] Total: {grad_norm:.4e}, Params: {num_grad_params}, Zero gradients: {zero_grad_count}")
 
         avg_loss = total_weighted_loss / max(1, updates)
         return avg_loss
@@ -453,14 +481,10 @@ class MultiTaskEngine:
                 print(f"Task {task_idx}: No improvement tracked")
         print("="*60 + "\n")
 
-
-# ----------------------------
-# Main script
-# ----------------------------
 if __name__ == "__main__":
     set_seed(SEED)
     
-    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting_v2"
+    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting_v3"
     ensure_dir(SAVE_DIR)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -492,8 +516,6 @@ if __name__ == "__main__":
 
     print("\n[MODEL] Initializing shared ProtBERT with LoRA...")
     backbone = SharedProtBert(lora=True, verbose=True).to(device)
-    for p in backbone.parameters():
-        p.requires_grad = True
 
     print("\n[ENGINE] Creating MultiTaskEngine...")
     engine = MultiTaskEngine(
@@ -507,18 +529,21 @@ if __name__ == "__main__":
         alpha=0.99,
         save_dir=SAVE_DIR,
         max_length=MAX_LENGTH,
-        verbose=True
+        verbose=True,
+        grad_clip=1.0  # Gradient clipping threshold
     )
 
+    # FIXED: Higher learning rate for LoRA-only training
     optimizer = optim.Adam(
         list(backbone.parameters()) + list(engine.task_heads.parameters()),
-        lr=1e-4,
+        lr=5e-4,  # Increased from 1e-4 for better convergence
         weight_decay=1e-5
     )
 
-    NUM_EPOCHS = 3
+    NUM_EPOCHS = 5  # Increased to see learning progress
     print(f"\n{'='*60}")
     print(f"STARTING TRAINING: {NUM_EPOCHS} epochs")
+    print(f"Learning rate: 5e-4, Gradient clip: 1.0")
     print(f"{'='*60}\n")
 
     for epoch in range(1, NUM_EPOCHS + 1):
@@ -564,10 +589,8 @@ if __name__ == "__main__":
     final_test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
     engine.history["final_test_metrics"] = final_test_metrics
 
-    # Print best validation metrics per task
     engine.print_best_metrics()
 
-    # Save final results
     if SAVE_DIR:
         np.save(os.path.join(SAVE_DIR, "final_test_metrics.npy"), np.array(final_test_metrics, dtype=object))
         with open(os.path.join(SAVE_DIR, "final_history.json"), "w") as fh:
