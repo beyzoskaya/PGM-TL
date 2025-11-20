@@ -48,10 +48,10 @@ backbone = SharedProtBert(
     model_name="Rostlab/prot_bert_bfd",
     readout="mean",
     lora=True,
-    lora_rank=16,
+    lora_rank=32,           # increased rank for more capacity
     lora_alpha=32,
     lora_dropout=0.1,
-    freeze_backbone=True,
+    freeze_backbone=True,   # freeze except top layers
     verbose=True
 )
 

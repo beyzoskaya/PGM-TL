@@ -3,17 +3,11 @@ import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType
 
-# ============================================================
-# Shared ProtBERT Backbone with PEFT LoRA
-# ============================================================
 class SharedProtBert(nn.Module):
-    """
-    ProtBERT backbone with optional LoRA via PEFT.
-    Supports per-sequence or per-token outputs.
-    """
+
     def __init__(self, model_name="Rostlab/prot_bert_bfd", readout="mean",
-                 lora=True, lora_rank=16, lora_alpha=32, lora_dropout=0.1,
-                 freeze_backbone=True, verbose=True):
+                 lora=True, lora_rank=32, lora_alpha=32, lora_dropout=0.1,
+                 freeze_backbone=True, unfrozen_layers=4, verbose=True):
         super().__init__()
         self.verbose = verbose
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
@@ -27,6 +21,8 @@ class SharedProtBert(nn.Module):
         if freeze_backbone:
             for p in self.model.parameters():
                 p.requires_grad = False
+            # Unfreeze top N layers
+            self.unfreeze_top_layers(unfrozen_layers)
 
         # Apply LoRA via PEFT
         if lora:
@@ -47,6 +43,21 @@ class SharedProtBert(nn.Module):
             print(f"[SharedProtBert] model_name={model_name}")
             print(f"[SharedProtBert] total params={total_params:,}, trainable params={trainable_params:,}")
 
+    def unfreeze_top_layers(self, num_layers_to_unfreeze=4):
+ 
+        total_layers = len(self.model.encoder.layer)
+        for i, layer in enumerate(self.model.encoder.layer):
+            requires_grad = i >= total_layers - num_layers_to_unfreeze
+            for p in layer.parameters():
+                p.requires_grad = requires_grad
+
+        # Optional: also unfreeze pooler if exists
+        if hasattr(self.model, "pooler") and self.model.pooler is not None:
+            for p in self.model.pooler.parameters():
+                p.requires_grad = True
+        if self.verbose:
+            print(f"[SharedProtBert] Unfroze top {num_layers_to_unfreeze} layers of backbone.")
+
     def forward(self, input_ids, attention_mask=None, per_residue=False):
         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden = outputs.last_hidden_state
@@ -54,9 +65,10 @@ class SharedProtBert(nn.Module):
         if per_residue:
             return last_hidden
 
+        # Sequence-level pooling
         if self.readout == "mean":
             pooled = (last_hidden * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
-        else:
+        else:  # cls token
             pooled = last_hidden[:, 0, :]
 
         return self.pool_norm(pooled)
@@ -65,10 +77,6 @@ class SharedProtBert(nn.Module):
     def hidden_size(self):
         return self.model.config.hidden_size
 
-
-# ============================================================
-# Task-Specific Head Builders
-# ============================================================
 def build_regression_head(hidden_dim, num_labels=1, dropout_rate=0.2):
     return nn.Sequential(
         nn.LayerNorm(hidden_dim),
