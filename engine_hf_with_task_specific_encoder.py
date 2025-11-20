@@ -29,10 +29,10 @@ def regression_metrics(preds, targets):
     return {'mse': mse, 'rmse': rmse, 'mae': mae}
 
 def classification_metrics(preds, targets, ignore_index=-100):
-    if preds.dim() == 3:
+    if preds.dim() == 3:  # per-residue
         B, L, C = preds.shape
-        preds_flat = preds.view(-1, C)
-        targets_flat = targets.view(-1)
+        preds_flat = preds.view(B*L, C)
+        targets_flat = targets.view(B*L)
         mask = targets_flat != ignore_index
         if mask.sum() == 0:
             return {'accuracy': float('nan')}
@@ -40,7 +40,7 @@ def classification_metrics(preds, targets, ignore_index=-100):
         correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
         acc = correct / mask.sum().item()
         return {'accuracy': acc}
-    else:
+    else:  # sequence classification
         pred_labels = preds.argmax(dim=-1)
         targets_flat = targets.view(-1)
         acc = (pred_labels == targets_flat).sum().item() / targets_flat.numel()
@@ -56,7 +56,7 @@ def collate_fn(batch, tokenizer, max_length=MAX_LENGTH):
 
     # Process targets
     if isinstance(targets[0], (int, float)):
-        targets = torch.tensor(targets, dtype=torch.float32)
+        targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(-1)  # Ensure [B,1]
     else:
         max_len = input_ids.size(1)
         padded_targets = []
@@ -171,19 +171,18 @@ class MultiTaskEngine(nn.Module):
     def compute_task_loss(self, logits, targets, task_idx):
         cfg = self.task_configs[task_idx]
         if cfg['type'] == 'per_residue_classification':
-            # logits: [B, L, C], targets: [B, L]
             B, L, C = logits.shape
             logits_flat = logits.view(B*L, C)
             targets_flat = targets.view(B*L)
             return self.loss_fns[task_idx](logits_flat, targets_flat)
+        elif cfg['type'] == 'regression':
+            if targets.dim() == 1:
+                targets = targets.unsqueeze(-1)  # Ensure [B,1]
+            return self.loss_fns[task_idx](logits, targets)
         else:
             return self.loss_fns[task_idx](logits, targets)
 
     def compute_total_loss(self, logits_list, targets_list):
-        """
-        Compute total loss using uncertainty weighting:
-        loss = sum(1/(2*exp(log_var)) * task_loss + 0.5 * log_var)
-        """
         total_loss = 0.0
         per_task_losses = []
         for i, (logits, targets) in enumerate(zip(logits_list, targets_list)):
@@ -241,6 +240,9 @@ class MultiTaskEngine(nn.Module):
                 grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
                 print(f"[DEBUG][Batch {updates}] Grad norm={grad_norm:.4e}, Zero grads={zero_grads}")
 
+            if max_batches_per_loader is not None and updates >= max_batches_per_loader * self.num_tasks:
+                break
+
         avg_loss = total_loss / max(1, updates)
         self.history["gradient_norms"].append(debug_grad_norm(self.backbone))
         return avg_loss
@@ -274,7 +276,6 @@ class MultiTaskEngine(nn.Module):
                 avg_metrics = {k: float(np.mean([a[k] for a in acc])) for k in acc[0].keys()}
                 all_metrics.append(avg_metrics)
 
-                # Track best
                 if epoch is not None:
                     if self.task_configs[task_idx]['type'] == 'regression':
                         current_score = avg_metrics['rmse']
