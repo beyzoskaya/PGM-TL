@@ -8,7 +8,7 @@ from itertools import cycle
 from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
 
 MAX_LENGTH = 512
-DEBUG_INTERVAL = 100
+DEBUG_INTERVAL = 50
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
@@ -59,10 +59,8 @@ def collate_fn(batch, tokenizer, max_length=MAX_LENGTH):
 
     # Process targets based on type
     if isinstance(targets[0], (int, float)):
-        # Regression: convert to [B, 1]
         targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(-1)
     else:
-        # Classification: pad targets to match sequence length
         max_len = input_ids.size(1)
         padded_targets = []
         for t in targets:
@@ -98,8 +96,8 @@ def debug_grad_norm(model):
 
 class MultiTaskEngine(nn.Module):
     """
-    Multi-task learning engine with FIXED task cycling.
-    Each epoch processes all batches from all tasks exactly once.
+    Multi-task learning engine with CYCLIC task batch processing.
+    Handles imbalanced dataset sizes by cycling through shorter dataloaders.
     """
     
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
@@ -114,9 +112,9 @@ class MultiTaskEngine(nn.Module):
         self.verbose = verbose
         self.grad_clip = grad_clip
 
-        # Task weights: CRITICAL - per-residue tasks need much higher weights
+        # Task weights: Equal by default (loss normalization handles magnitude difference)
         if task_weights is None:
-            self.task_weights = torch.tensor([1.0, 5.0, 3.0], dtype=torch.float32, device=device)
+            self.task_weights = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32, device=device)
         else:
             self.task_weights = torch.tensor(task_weights, dtype=torch.float32, device=device)
 
@@ -158,7 +156,7 @@ class MultiTaskEngine(nn.Module):
                 self.loss_fns.append(nn.MSELoss())
             elif cfg['type'] == 'per_residue_classification':
                 self.loss_fns.append(nn.CrossEntropyLoss(ignore_index=-100))
-            else:  # sequence_classification
+            else:
                 self.loss_fns.append(nn.CrossEntropyLoss())
 
         # History
@@ -167,13 +165,18 @@ class MultiTaskEngine(nn.Module):
             "val_metrics": [], 
             "test_metrics": [],
             "per_task_losses": [],
-            "gradient_norms": []
+            "per_task_grad_norms": []
         }
         self.best = {"scores": [None]*self.num_tasks, "epochs": [None]*self.num_tasks}
         self.save_dir = ensure_dir(save_dir) if save_dir else None
         
         if self.verbose:
+            loader_sizes = [len(loader) for loader in self.train_loaders]
+            print(f"[Engine] Train loader sizes (batches): {loader_sizes}")
             print(f"[Engine] Task weights: {[f'{w:.2f}' for w in self.task_weights.cpu().numpy()]}")
+            print(f"[Engine] Task names: {[cfg['name'] for cfg in task_configs]}")
+            print(f"[Engine] Epoch length will be: {max(loader_sizes)} batches × {self.num_tasks} tasks = {max(loader_sizes) * self.num_tasks} total updates")
+            print(f"[Engine] Shorter tasks will cycle, e.g.: Task(batch 1→2→...→{loader_sizes[0]}) CYCLE back to 1, then 2...")
 
     def forward_task(self, embeddings, task_idx):
         """Forward pass through task head"""
@@ -200,72 +203,148 @@ class MultiTaskEngine(nn.Module):
             return self.loss_fns[task_idx](logits, targets_flat.long())
 
     def compute_weighted_loss(self, task_idx, logits, targets):
-        """Compute weighted loss with fixed task weights"""
+        """
+        Compute weighted loss with normalization.
+        CRITICAL: Per-residue tasks have loss summed over sequence length,
+        so we normalize by number of valid tokens to make losses comparable.
+        """
+        cfg = self.task_configs[task_idx]
         task_loss = self.compute_task_loss(logits, targets, task_idx)
-        weighted_loss = self.task_weights[task_idx] * task_loss
-        return weighted_loss, task_loss.detach().item()
+        
+        # Normalize for per-residue tasks: loss is summed, convert to per-token average
+        if cfg['type'] == 'per_residue_classification':
+            num_valid_tokens = (targets != -100).sum().item()
+            if num_valid_tokens > 0:
+                normalized_loss = task_loss / num_valid_tokens
+            else:
+                normalized_loss = task_loss
+        else:
+            # Regression and sequence classification already per-sample
+            normalized_loss = task_loss
+        
+        # Apply task weight (should be ~1.0 for all tasks if losses are normalized)
+        weighted_loss = self.task_weights[task_idx] * normalized_loss
+        return weighted_loss, task_loss.detach().item(), normalized_loss.detach().item()
 
     def train_one_epoch(self, optimizer):
         """
-        Train for one epoch.
-        FIXED: Process batches from each task in sequence, not interleaved.
-        This ensures all tasks get trained equally.
+        Train for one epoch using CYCLIC batch strategy.
+        
+        Key innovation: Instead of processing all batches of Task 0, then Task 1, then Task 2,
+        we cycle through: batch from Task 0, batch from Task 1, batch from Task 2, repeat.
+        
+        This ensures:
+        1. Balanced gradient updates (each task updates encoder equally)
+        2. Shorter dataloaders cycle seamlessly
+        3. Encoder learns shared representation, not task-specific one
         """
         self.backbone.train()
         for head in self.task_heads:
             head.train()
 
-        total_loss = 0.0
-        per_task_losses = [0.0] * self.num_tasks
-        per_task_counts = [0] * self.num_tasks
-        updates = 0
-
+        # Create infinite cycle iterators for each task's dataloader
+        # These cycle back to start when exhausted
+        loaders_cycle = [cycle(loader) for loader in self.train_loaders]
+        
+        # Epoch length = max batches across all tasks
+        # This ensures longest task is fully processed, others cycle
+        max_batches = max(len(loader) for loader in self.train_loaders)
+        
+        total_weighted_loss = 0.0
+        per_task_stats = {
+            'weighted_loss': [0.0] * self.num_tasks,
+            'raw_loss': [0.0] * self.num_tasks,
+            'normalized_loss': [0.0] * self.num_tasks,
+            'grad_norm': [0.0] * self.num_tasks,
+            'updates': [0] * self.num_tasks
+        }
+        
         if self.verbose:
-            print(f"[Epoch] Processing {self.num_tasks} tasks sequentially...")
+            loader_sizes = [len(loader) for loader in self.train_loaders]
+            print(f"\n[Epoch] Cyclic training with max_batches={max_batches}")
+            print(f"        Loader sizes: {loader_sizes}")
 
-        # Process each task's batches sequentially
-        for task_idx in range(self.num_tasks):
-            loader = self.train_loaders[task_idx]
-            
-            for batch_num, batch in enumerate(loader):
+        total_updates = 0
+        
+        for batch_idx in range(max_batches):
+            for task_idx in range(self.num_tasks):
+                # Get next batch from this task (cycles if needed)
+                batch = next(loaders_cycle[task_idx])
+                
                 input_ids = batch['sequence'].to(self.device)
                 attention_mask = batch['attention_mask'].to(self.device)
                 targets = batch['targets']['target'].to(self.device)
 
                 optimizer.zero_grad()
                 
+                # Forward pass through encoder and task head
                 per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
                 embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
                 logits = self.forward_task(embeddings, task_idx)
 
-                weighted_loss, raw_loss = self.compute_weighted_loss(task_idx, logits, targets)
+                # Compute weighted loss with normalization
+                weighted_loss, raw_loss, normalized_loss = self.compute_weighted_loss(task_idx, logits, targets)
+                
+                # Backward pass
                 weighted_loss.backward()
 
+                # Gradient clipping
                 torch.nn.utils.clip_grad_norm_(
                     list(self.backbone.parameters()) + list(self.task_heads.parameters()),
                     max_norm=self.grad_clip
                 )
+                
+                # Track gradient norm before step
+                grad_norm, _, _ = debug_grad_norm(self.backbone)
+                
+                # Optimizer step
                 optimizer.step()
 
-                total_loss += weighted_loss.item()
-                per_task_losses[task_idx] += raw_loss
-                per_task_counts[task_idx] += 1
-                updates += 1
+                # Accumulate statistics
+                total_weighted_loss += weighted_loss.item()
+                per_task_stats['weighted_loss'][task_idx] += weighted_loss.item()
+                per_task_stats['raw_loss'][task_idx] += raw_loss
+                per_task_stats['normalized_loss'][task_idx] += normalized_loss
+                per_task_stats['grad_norm'][task_idx] += grad_norm
+                per_task_stats['updates'][task_idx] += 1
+                total_updates += 1
 
-                if updates % DEBUG_INTERVAL == 0 and self.verbose:
-                    grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
-                    print(f"[Batch {updates}] Task {task_idx}: loss={raw_loss:.4f}, grad_norm={grad_norm:.4e}")
+                # Detailed logging every DEBUG_INTERVAL updates
+                if total_updates % DEBUG_INTERVAL == 0 and self.verbose:
+                    print(f"[Update {total_updates}] Task {task_idx} ({self.task_configs[task_idx]['name']}):")
+                    print(f"  Raw loss: {raw_loss:.4f} | Normalized: {normalized_loss:.4f} | Weighted: {weighted_loss.item():.4f}")
+                    print(f"  Grad norm: {grad_norm:.4e}")
 
-        avg_loss = total_loss / max(1, updates)
-        avg_per_task = [per_task_losses[i] / max(1, per_task_counts[i]) for i in range(self.num_tasks)]
+        # Compute epoch averages
+        avg_weighted_loss = total_weighted_loss / max(1, total_updates)
+        avg_per_task_stats = {}
+        for key in ['weighted_loss', 'raw_loss', 'normalized_loss', 'grad_norm']:
+            avg_per_task_stats[key] = [
+                per_task_stats[key][i] / max(1, per_task_stats['updates'][i]) 
+                for i in range(self.num_tasks)
+            ]
         
-        self.history["gradient_norms"].append(debug_grad_norm(self.backbone))
-        self.history["per_task_losses"].append(avg_per_task)
+        # Store history
+        self.history["per_task_losses"].append({
+            "raw": avg_per_task_stats['raw_loss'],
+            "normalized": avg_per_task_stats['normalized_loss'],
+            "weighted": avg_per_task_stats['weighted_loss'],
+            "updates": per_task_stats['updates']
+        })
+        self.history["per_task_grad_norms"].append(avg_per_task_stats['grad_norm'])
         
         if self.verbose:
-            print(f"[Epoch Summary] Avg loss: {avg_loss:.4f}, Per-task: {[f'{l:.4f}' for l in avg_per_task]}")
+            print(f"\n[Epoch Summary]")
+            print(f"  Total updates: {total_updates}")
+            print(f"  Updates per task: {per_task_stats['updates']}")
+            for i in range(self.num_tasks):
+                print(f"  Task {i} ({self.task_configs[i]['name']}):")
+                print(f"    Raw loss: {avg_per_task_stats['raw_loss'][i]:.4f}")
+                print(f"    Normalized loss: {avg_per_task_stats['normalized_loss'][i]:.4f}")
+                print(f"    Weighted loss: {avg_per_task_stats['weighted_loss'][i]:.4f}")
+                print(f"    Avg grad norm: {avg_per_task_stats['grad_norm'][i]:.4e}")
         
-        return avg_loss
+        return avg_weighted_loss
 
     def evaluate(self, loaders, split_name="Validation", epoch=None):
         """Evaluate on all tasks"""
@@ -309,20 +388,21 @@ class MultiTaskEngine(nn.Module):
                         self.best["epochs"][task_idx] = epoch
 
                 if self.verbose:
-                    print(f"  [{split_name}] Task {task_idx}: {avg_metrics}")
+                    print(f"  [{split_name}] Task {task_idx} ({self.task_configs[task_idx]['name']}): {avg_metrics}")
 
         return all_metrics
 
     def print_best_metrics(self):
-        print("\n" + "="*60)
+        print("\n" + "="*70)
         print("BEST VALIDATION METRICS PER TASK")
-        print("="*60)
+        print("="*70)
         for task_idx in range(self.num_tasks):
             score = self.best["scores"][task_idx]
             epoch = self.best["epochs"][task_idx]
             metric = "RMSE" if self.task_configs[task_idx]['type'] == "regression" else "Accuracy"
+            name = self.task_configs[task_idx]['name']
             if score is not None:
-                print(f"Task {task_idx} ({self.task_configs[task_idx]['name']}): {metric}={score:.4f} @ epoch {epoch}")
+                print(f"Task {task_idx} ({name:25s}): {metric}={score:.4f} @ epoch {epoch}")
             else:
-                print(f"Task {task_idx} ({self.task_configs[task_idx]['name']}): No improvement")
-        print("="*60 + "\n")
+                print(f"Task {task_idx} ({name:25s}): No improvement")
+        print("="*70 + "\n")

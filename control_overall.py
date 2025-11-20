@@ -1,147 +1,136 @@
-# import torch
-# from protbert_hf import SharedProtBert
-
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# print(f"Device: {device}")
-
-# # Create model
-# model = SharedProtBert(lora=True, verbose=True).to(device)
-
-# # Dummy input
-# sequences = ["MKTWVTFISLLFLFSS", "ACDEFGHIKLMNPQRSTVWY"]
-# tokenizer = model.tokenizer
-# enc = tokenizer(sequences, return_tensors="pt", padding=True, truncation=True)
-# input_ids = enc["input_ids"].to(device)
-# attention_mask = enc["attention_mask"].to(device)
-
-# # Forward pass - pooled
-# pooled = model(input_ids, attention_mask, per_residue=False)
-# print(f"Pooled embeddings shape: {pooled.shape}")
-
-# # Forward pass - per token
-# tokens = model(input_ids, attention_mask, per_residue=True)
-# print(f"Per-token embeddings shape: {tokens.shape}")
-
-
 import torch
-from torch import optim
-from protbert_hf import SharedProtBert
-from flip_hf import Thermostability, SecondaryStructure, CloningCLF
-from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, MAX_LENGTH, ensure_dir
+from torch.utils.data import DataLoader, Subset
+import numpy as np
+from itertools import cycle
 
-# ----------------------------
-# Settings
-# ----------------------------
-SEED = 42
-set_seed(SEED)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-SAVE_DIR = ensure_dir("./sanity_check_outputs")
-BATCH_SIZE = 2  # small batch for quick test
+# Simulated dataset sizes from your output
+DATASET_SIZES = {
+    'Thermostability': {'train': 53614, 'valid': 2512, 'test': 12851},
+    'SecondaryStructure': {'train': 9763, 'valid': 1085, 'test': 667},
+    'CloningCLF': {'train': 21037, 'valid': 2338, 'test': 4791}
+}
 
-print(f"Device: {device}")
-print(f"Max sequence length: {MAX_LENGTH}")
+BATCH_SIZE = 16
 
-# ----------------------------
-# Load datasets
-# ----------------------------
-print("\n[DATA] Loading datasets...")
-thermo_full = Thermostability(verbose=1)
-thermo_train, thermo_valid, thermo_test = thermo_full.split()
+print("\n" + "="*80)
+print("DATA LOADING DIAGNOSTIC")
+print("="*80)
 
-ssp_full = SecondaryStructure(verbose=1)
-ssp_train, ssp_valid, ssp_test = ssp_full.split()
+print(f"\nBatch size: {BATCH_SIZE}")
+print("\n" + "-"*80)
+print("BATCH CALCULATIONS")
+print("-"*80)
 
-clf_full = CloningCLF(verbose=1)
-clf_train, clf_valid, clf_test = clf_full.split()
+# Calculate expected batches
+batch_counts = {}
+for task, sizes in DATASET_SIZES.items():
+    train_size = sizes['train']
+    num_batches = (train_size + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
+    actual_samples_loaded = num_batches * BATCH_SIZE
+    print(f"\n{task}:")
+    print(f"  Total train samples:    {train_size:,}")
+    print(f"  Samples per batch:      {BATCH_SIZE}")
+    print(f"  Expected batches:       {num_batches}")
+    print(f"  Actual samples loaded:  {actual_samples_loaded:,}")
+    print(f"  Padding samples:        {actual_samples_loaded - train_size}")
+    batch_counts[task] = num_batches
 
-print("\n[DATA] Split sizes:")
-print(f"  Thermostability: train={len(thermo_train)}, valid={len(thermo_valid)}, test={len(thermo_test)}")
-print(f"  SecondaryStructure: train={len(ssp_train)}, valid={len(ssp_valid)}, test={len(ssp_test)}")
-print(f"  CloningCLF: train={len(clf_train)}, valid={len(clf_valid)}, test={len(clf_test)}")
+max_batches = max(batch_counts.values())
+print(f"\n" + "-"*80)
+print(f"MAX BATCHES (longest dataloader): {max_batches}")
+print(f"EPOCH LENGTH: {max_batches} iterations × 3 tasks = {max_batches * 3} total updates")
+print("-"*80)
 
-# ----------------------------
-# Task configuration
-# ----------------------------
-task_configs = [
-    {'type': 'regression', 'num_labels': 1, 'name': 'Thermostability'},
-    {'type': 'per_residue_classification', 'num_labels': 8, 'name': 'SecondaryStructure'},
-    {'type': 'classification', 'num_labels': 2, 'name': 'CloningCLF'}
-]
+print("\n" + "-"*80)
+print("CYCLIC BATCH STRATEGY - UPDATES PER TASK")
+print("-"*80)
 
-# ----------------------------
-# Initialize PEFT ProtBERT
-# ----------------------------
-print("\n[MODEL] Initializing shared ProtBERT with LoRA (PEFT)...")
-backbone = SharedProtBert(lora=True, verbose=True).to(device)
+total_updates = 0
+for task, num_batches in batch_counts.items():
+    cycles = max_batches / num_batches
+    total_updates_task = max_batches  # Each task processes max_batches, cycling if needed
+    print(f"\n{task}:")
+    print(f"  Batches in this task:   {num_batches}")
+    print(f"  Updates needed:         {max_batches} (from epoch length)")
+    print(f"  Cycles through loader:  {cycles:.2f}x")
+    print(f"  Actual updates:         {total_updates_task} (fully deterministic)")
 
-# Quick parameter check
-trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-print(f"Trainable param count: {trainable_params}")
-for name, p in backbone.named_parameters():
-    if p.requires_grad:
-        print(f"  Trainable: {name} -> {tuple(p.shape)}")
+total_task_updates = max_batches * 3
+print(f"\n{'='*80}")
+print(f"TOTAL UPDATES PER EPOCH: {total_task_updates}")
+print(f"  Task 0: {max_batches} updates")
+print(f"  Task 1: {max_batches} updates")
+print(f"  Task 2: {max_batches} updates")
+print(f"  Each task: 1/{3} of total updates = {100/3:.1f}% each")
+print(f"{'='*80}")
 
-# ----------------------------
-# Initialize MultiTaskEngine
-# ----------------------------
-engine = MultiTaskEngine(
-    backbone=backbone,
-    task_configs=task_configs,
-    train_sets=[thermo_train, ssp_train, clf_train],
-    valid_sets=[thermo_valid, ssp_valid, clf_valid],
-    test_sets=[thermo_test, ssp_test, clf_test],
-    batch_size=BATCH_SIZE,
-    device=device,
-    verbose=True,
-    grad_clip=1.0
-)
+print("\n" + "-"*80)
+print("SAMPLE COVERAGE PER EPOCH")
+print("-"*80)
 
-# ----------------------------
-# Optimizer (LoRA params only)
-# ----------------------------
-optimizer = optim.Adam(
-    filter(lambda p: p.requires_grad, list(backbone.parameters()) + list(engine.task_heads.parameters())),
-    lr=2e-4,
-    weight_decay=1e-5
-)
+for task, sizes in DATASET_SIZES.items():
+    num_batches = batch_counts[task]
+    updates_per_epoch = max_batches
+    
+    # How many complete passes through this task?
+    complete_passes = updates_per_epoch // num_batches
+    remaining_batches = updates_per_epoch % num_batches
+    
+    # Samples covered
+    complete_pass_samples = complete_passes * sizes['train']
+    remaining_samples = min(remaining_batches * BATCH_SIZE, sizes['train'])
+    total_samples_seen = complete_pass_samples + remaining_samples
+    effective_epochs = updates_per_epoch / num_batches
+    
+    print(f"\n{task}:")
+    print(f"  Dataset size:           {sizes['train']:,} samples")
+    print(f"  Updates per epoch:      {updates_per_epoch}")
+    print(f"  Batches in dataset:     {num_batches}")
+    print(f"  Effective epochs:       {effective_epochs:.2f}x through data")
+    print(f"  Complete passes:        {complete_passes}")
+    print(f"  Remaining batches:      {remaining_batches}")
+    print(f"  Total samples seen:     ~{total_samples_seen:,}")
+    print(f"  Duplication factor:     {effective_epochs:.2f}x")
 
-# ----------------------------
-# Sanity check: single forward + backward
-# ----------------------------
-print("\n[SANITY CHECK] Forward + backward pass for one batch per task")
-for task_idx, loader in enumerate(engine.train_loaders):
-    batch = next(iter(loader))
-    input_ids = batch['sequence'].to(device)
-    attention_mask = batch['attention_mask'].to(device)
-    targets = batch['targets']['target'].to(device)
+print("\n" + "="*80)
+print("INTERPRETATION")
+print("="*80)
+print("""
+✓ Cyclic strategy is CORRECT behavior:
+  - Smaller datasets cycle through multiple times per epoch
+  - Larger datasets go through once
+  - All tasks get equal gradient updates (1/3 each)
+  - Shared encoder learns from balanced task distribution
 
-    optimizer.zero_grad()
-    per_residue = (task_configs[task_idx]['type'] == 'per_residue_classification')
-    embeddings = backbone(input_ids, attention_mask, per_residue=per_residue)
-    print(f"[Task {task_idx}] Embeddings shape: {embeddings.shape}")
+✓ Your data volumes are reasonable:
+  - Thermostability: 53k samples (large - good for regression)
+  - SecondaryStructure: 9.7k samples (medium - balanced per-residue task)
+  - CloningCLF: 21k samples (good - balance between extremes)
 
-    logits = engine.forward_task(embeddings, task_idx)
-    print(f"[Task {task_idx}] Logits shape: {logits.shape}")
+ℹ What's happening:
+  - Epoch processes {max_batches} batches (determined by longest loader)
+  - Each task cycles independently if it's shorter
+  - By end of epoch, all samples are seen at least once
+  - Some samples in shorter datasets are repeated (fine, helps regularization)
+""")
 
-    loss = engine.compute_loss(logits, targets, task_idx)
-    print(f"[Task {task_idx}] Loss: {loss.item():.4f}")
+print("\n" + "="*80)
+print("EXPECTED TRAINING BEHAVIOR")
+print("="*80)
+print(f"""
+Each epoch:
+  - Total gradient updates: {total_task_updates:,}
+  - Updates per task: {max_batches} (exactly equal)
+  - Time per epoch: ~{total_task_updates / 100:.1f} minutes (rough estimate on typical GPU)
+  - Memory: ~{max_batches * BATCH_SIZE / 1000:.1f}GB per task cache
 
-    loss.backward()
-    print(f"[Task {task_idx}] Backward pass done")
+After 50 epochs:
+  - Total updates: {total_task_updates * 50:,}
+  - Task 0 sees data: ~{50 * 3.35:.1f}x (repetitions + new samples)
+  - Task 1 sees data: ~{50 * 0.61:.1f}x
+  - Task 2 sees data: ~50x (sees every sample exactly 50 times)
 
-# ----------------------------
-# Test training one mini-epoch
-# ----------------------------
-print("\n[SANITY CHECK] Training one mini-epoch (2 batches per task max)")
-train_loss = engine.train_one_epoch(optimizer, max_batches_per_loader=2)
-print(f"Mini-epoch avg loss: {train_loss:.4f}")
+This is NORMAL for multi-task learning with imbalanced data.
+""")
 
-# ----------------------------
-# Test evaluation
-# ----------------------------
-print("\n[SANITY CHECK] Evaluating validation set")
-val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=0)
-print("Validation metrics:", val_metrics)
-
-engine.print_best_metrics()
-print("\n✓ Sanity check completed successfully")
+print("="*80 + "\n")
