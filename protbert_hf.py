@@ -33,9 +33,6 @@ class LoRALinear(nn.Module):
         self.B = nn.Parameter(torch.zeros(out_features, r))
         self.dropout = nn.Dropout(dropout)
 
-        # ✓ FIXED: Initialize BOTH A and B with small random values
-        # Zero B initialization causes gradient explosion during early training
-        # when combined with non-zero A gradients
         nn.init.normal_(self.A, std=0.02)
         nn.init.normal_(self.B, std=0.02)  # Critical fix: don't keep B at zero!
 
@@ -88,8 +85,8 @@ class ProtBertWithLoRA(nn.Module):
         self.readout = readout
 
         # Freeze BERT backbone
-        for p in self.bert.parameters():
-            p.requires_grad = False
+        #for p in self.bert.parameters():
+        #    p.requires_grad = False
 
         # Inject LoRA layers
         self.inject_lora_correct(lora_rank, lora_alpha, lora_dropout)
