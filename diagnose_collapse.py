@@ -9,6 +9,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MAX_LENGTH = 512
 
 def collate_fn(batch, tokenizer, max_length=MAX_LENGTH):
+    """Same as main script"""
     sequences = [item['sequence'] for item in batch]
     targets = [item['targets']['target'] for item in batch]
 
@@ -81,7 +82,9 @@ loss_fn_2 = nn.CrossEntropyLoss()
 
 optimizer = torch.optim.Adam(
     list(backbone.parameters()) + 
-    [head_0, head_1, head_2],
+    list(head_0.parameters()) +
+    list(head_1.parameters()) +
+    list(head_2.parameters()),
     lr=5e-4
 )
 
