@@ -8,9 +8,9 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-SANITY_CHECK = True  
-EPOCHS = 50
-BATCH_SIZE = 16
+SANITY_CHECK = False  
+EPOCHS = 3
+BATCH_SIZE = 32
 MAX_LENGTH = 512
 SEED = 42
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1"
@@ -18,7 +18,7 @@ SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1"
 # ============================================================================
 # HYPERPARAMETERS - OPTIMIZED FOR CYCLIC MULTI-TASK LEARNING
 # ============================================================================
-LR = 3e-4              # Reduced learning rate for stability
+LR = 1e-3            # Reduced learning rate for stability
 WEIGHT_DECAY = 1e-4    # L2 regularization
 GRAD_CLIP = 1.0
 
