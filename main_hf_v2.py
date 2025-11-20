@@ -1,107 +1,109 @@
-import torch
-import numpy as np
 import os
-from torch.optim import AdamW
+import torch
+import json
+import numpy as np
 
-from protbert_hf import SharedProtBert
-from engine_hf_with_task_specific_encoder import MultiTaskEngine
+from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
+from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-SEED = 42
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+SANITY_CHECK = False    
+EPOCHS = 5                
 BATCH_SIZE = 16
-SANITY_CHECK = True
+MAX_LENGTH = 512
+SEED = 42
+DEBUG_INTERVAL = 100      # Log embeddings/logits every 100 batches
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting"
-DEBUG_INTERVAL = 100
 
-EPOCHS = 2
+set_seed(SEED)
 
-# Learning rate
-LR = 1e-4
+print("\n[DATA] Loading datasets...")
+thermo_train = Thermostability(split='train')
+thermo_valid = Thermostability(split='valid')
+thermo_test  = Thermostability(split='test')
 
-def set_seed(seed):
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+ssp_train = SecondaryStructure(split='train')
+ssp_valid = SecondaryStructure(split='valid')
+ssp_test  = SecondaryStructure(split='test')
 
-def ensure_dir(path):
-    os.makedirs(path, exist_ok=True)
-    return path
+clf_train = CloningCLF(split='train')
+clf_valid = CloningCLF(split='valid')
+clf_test  = CloningCLF(split='test')
 
-def main():
-    set_seed(SEED)
-    save_dir = ensure_dir(SAVE_DIR)
-    
-    # Load backbone
-    backbone = SharedProtBert(
-        model_name="Rostlab/prot_bert_bfd",
-        lora=True,
-        lora_rank=16,
-        lora_alpha=32,
-        lora_dropout=0.1,
-        freeze_backbone=True,
-        verbose=True
-    )
+train_sets = [thermo_train, ssp_train, clf_train]
+valid_sets = [thermo_valid, ssp_valid, clf_valid]
+test_sets  = [thermo_test,  ssp_test,  clf_test]
 
-    # Task configurations
-    task_configs = [
-        {"name": "thermo", "type": "regression", "num_labels": 1},
-        {"name": "ssp", "type": "per_residue_classification", "num_labels": 8},
-        {"name": "clf", "type": "sequence_classification", "num_labels": 2}
-    ]
+task_configs = [
+    {'type':'regression', 'num_labels':1, 'name':'Thermostability'},
+    {'type':'per_residue_classification', 'num_labels':8, 'name':'SecondaryStructure'},
+    {'type':'sequence_classification', 'num_labels':2, 'name':'CloningCLF'}
+]
 
-    # Load datasets
-    train_sets = [Thermostability(split="train"), SecondaryStructure(split="train"), CloningCLF(split="train")]
-    valid_sets = [Thermostability(split="valid"), SecondaryStructure(split="valid"), CloningCLF(split="valid")]
-    test_sets = [Thermostability(split="test"), SecondaryStructure(split="test"), CloningCLF(split="test")]
+print("\n[MODEL] Initializing Shared ProtBERT with LoRA (PEFT)...")
+backbone = SharedProtBert(
+    model_name="Rostlab/prot_bert_bfd",
+    readout="mean",
+    lora=True,
+    lora_rank=16,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    freeze_backbone=True,
+    verbose=True
+)
 
-    # Initialize engine
-    engine = MultiTaskEngine(
-        backbone=backbone,
-        task_configs=task_configs,
-        train_sets=train_sets,
-        valid_sets=valid_sets,
-        test_sets=test_sets,
-        batch_size=BATCH_SIZE,
-        device=DEVICE,
-        save_dir=save_dir,
-        verbose=True
-    )
+engine = MultiTaskEngine(
+    backbone=backbone,
+    task_configs=task_configs,
+    train_sets=train_sets,
+    valid_sets=valid_sets,
+    test_sets=test_sets,
+    batch_size=BATCH_SIZE,
+    device=DEVICE,
+    save_dir=SAVE_DIR,
+    max_length=MAX_LENGTH,
+    verbose=True
+)
 
-    if SANITY_CHECK:
-        print("[SANITY CHECK] Running one batch per task...")
-        engine.train_one_epoch(optimizer=AdamW(list(backbone.parameters()), lr=LR), max_batches_per_loader=1)
-        print("[SANITY CHECK] Done. Everything works!")
-        return
+if SANITY_CHECK:
+    print("\n[SANITY CHECK] Forward + backward pass for one batch per task")
+    engine.train_one_epoch(optimizer=torch.optim.Adam(
+        list(backbone.parameters()) + list(engine.task_heads.parameters()),
+        lr=1e-3
+    ), max_batches_per_loader=1)
+    engine.evaluate(engine.valid_loaders)
+    print("\n✓ Sanity check completed successfully\n")
+    exit(0)
 
-    # Optimizer
-    optimizer = AdamW(list(backbone.parameters()) + list(engine.task_heads.parameters()), lr=LR)
+optimizer = torch.optim.Adam(
+    list(backbone.parameters()) + list(engine.task_heads.parameters()),
+    lr=1e-3
+)
 
-    # Training loop
-    for epoch in range(EPOCHS):
-        print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
-        avg_loss = engine.train_one_epoch(optimizer)
-        print(f"[EPOCH] Average training loss: {avg_loss:.4f}")
+for epoch in range(EPOCHS):
+    print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
+    avg_loss = engine.train_one_epoch(optimizer)
+    print(f"[Epoch {epoch+1}] Average training loss: {avg_loss:.4f}")
 
-        # Validation
-        val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
+    val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
+    engine.history["train_loss"].append(avg_loss)
+    engine.history["val_metrics"].append(val_metrics)
+    engine.history["dynamic_weights"].append(engine.dynamic_weight_log[-1])
+    engine.history["gradient_norms"].append(engine.gradient_norms_log[-1])
 
-        # Print best so far
-        engine.print_best_metrics()
+    history_path = os.path.join(SAVE_DIR, f"history_epoch{epoch+1}.json")
+    with open(history_path, 'w') as f:
+        json.dump(engine.history, f, indent=2)
+    print(f"[INFO] Saved training history to {history_path}")
 
-        # Save model + PEFT weights after each epoch
-        epoch_save_dir = os.path.join(save_dir, f"epoch_{epoch+1}")
-        ensure_dir(epoch_save_dir)
-        backbone.model.save_pretrained(epoch_save_dir)
-        for i, head in enumerate(engine.task_heads):
-            torch.save(head.state_dict(), os.path.join(epoch_save_dir, f"task_head_{i}.pt"))
-        print(f"[SAVE] Saved backbone + task heads to {epoch_save_dir}")
+print("\n[TEST] Evaluating final model on test sets...")
+test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
+engine.history["test_metrics"] = test_metrics
 
-    # Test evaluation
-    print("\n[TEST] Evaluating on test sets...")
-    test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
-    print("[DONE] Training + evaluation completed!")
+final_metrics_path = os.path.join(SAVE_DIR, "final_metrics.json")
+with open(final_metrics_path, 'w') as f:
+    json.dump(test_metrics, f, indent=2)
+print(f"[INFO] Saved test metrics to {final_metrics_path}")
 
-if __name__ == "__main__":
-    main()
+engine.print_best_metrics()
