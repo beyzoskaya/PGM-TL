@@ -8,7 +8,7 @@ from itertools import cycle
 from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
 
 MAX_LENGTH = 512
-DEBUG_INTERVAL = 100  # Log embeddings/logits every 100 batches
+DEBUG_INTERVAL = 100
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
@@ -21,6 +21,7 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 def regression_metrics(preds, targets):
+    """Calculate regression metrics"""
     preds = preds.squeeze(-1)
     targets = targets.squeeze(-1)
     mse = ((preds - targets) ** 2).mean().item()
@@ -29,7 +30,8 @@ def regression_metrics(preds, targets):
     return {'mse': mse, 'rmse': rmse, 'mae': mae}
 
 def classification_metrics(preds, targets, ignore_index=-100):
-    if preds.dim() == 3:  # per-residue
+    """Calculate classification metrics"""
+    if preds.dim() == 3:  # per-residue: [B, L, C]
         B, L, C = preds.shape
         preds_flat = preds.view(B*L, C)
         targets_flat = targets.view(B*L)
@@ -40,13 +42,14 @@ def classification_metrics(preds, targets, ignore_index=-100):
         correct = (pred_labels[mask] == targets_flat[mask]).sum().item()
         acc = correct / mask.sum().item()
         return {'accuracy': acc}
-    else:  # sequence classification
+    else:  # sequence-level: [B, C]
         pred_labels = preds.argmax(dim=-1)
         targets_flat = targets.view(-1)
         acc = (pred_labels == targets_flat).sum().item() / targets_flat.numel()
         return {'accuracy': acc}
 
 def collate_fn(batch, tokenizer, max_length=MAX_LENGTH):
+    """Collate batch for tokenization and padding"""
     sequences = [item['sequence'] for item in batch]
     targets = [item['targets']['target'] for item in batch]
 
@@ -54,14 +57,16 @@ def collate_fn(batch, tokenizer, max_length=MAX_LENGTH):
     input_ids = encodings['input_ids']
     attention_mask = encodings['attention_mask']
 
-    # Process targets
+    # Process targets based on type
     if isinstance(targets[0], (int, float)):
-        targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(-1)  # Ensure [B,1]
+        # Regression: convert to [B, 1]
+        targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(-1)
     else:
+        # Classification: pad targets to match sequence length
         max_len = input_ids.size(1)
         padded_targets = []
         for t in targets:
-            t_tensor = torch.tensor(t, dtype=torch.long)
+            t_tensor = torch.tensor(t, dtype=torch.long) if isinstance(t, list) else torch.tensor([t], dtype=torch.long)
             if len(t_tensor) < max_len:
                 pad_len = max_len - len(t_tensor)
                 t_tensor = torch.cat([t_tensor, torch.full((pad_len,), -100, dtype=torch.long)])
@@ -76,19 +81,8 @@ def collate_fn(batch, tokenizer, max_length=MAX_LENGTH):
         'targets': {'target': targets}
     }
 
-def debug_embeddings(task_idx, embeddings):
-    emean = embeddings.mean().item()
-    emax = embeddings.max().item()
-    emin = embeddings.min().item()
-    print(f"[EMB DEBUG][Task {task_idx}] shape={tuple(embeddings.shape)}, mean={emean:.4f}, min={emin:.4f}, max={emax:.4f}")
-
-def debug_logits(task_idx, logits):
-    mean = logits.mean().item()
-    mx = logits.max().item()
-    mn = logits.min().item()
-    print(f"[LOGIT DEBUG][Task {task_idx}] shape={tuple(logits.shape)}, mean={mean:.4f}, min={mn:.4f}, max={mx:.4f}")
-
 def debug_grad_norm(model):
+    """Debug gradient norms"""
     total_grad_norm = 0.0
     num_params = 0
     zero_grads = 0
@@ -103,10 +97,8 @@ def debug_grad_norm(model):
     return total_grad_norm, num_params, zero_grads
 
 class MultiTaskEngine(nn.Module):
-    """
-    Multi-task engine with uncertainty weighting (log_vars) for task losses.
-    Supports regression, per-residue classification, and sequence classification.
-    """
+    """Multi-task learning engine with uncertainty weighting"""
+    
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
                  batch_size=16, device='cuda', save_dir=None, max_length=MAX_LENGTH,
                  verbose=True, grad_clip=1.0):
@@ -120,6 +112,8 @@ class MultiTaskEngine(nn.Module):
         self.grad_clip = grad_clip
 
         tokenizer = self.backbone.tokenizer
+        
+        # Create data loaders
         self.train_loaders = [
             DataLoader(ds, batch_size=batch_size, shuffle=True,
                        collate_fn=lambda b, tok=tokenizer: collate_fn(b, tok, max_length=max_length))
@@ -137,13 +131,15 @@ class MultiTaskEngine(nn.Module):
         ]
 
         hidden_dim = backbone.hidden_size
+        
+        # Build task-specific heads
         self.task_heads = nn.ModuleList()
         for cfg in task_configs:
             if cfg['type'] == 'regression':
                 self.task_heads.append(build_regression_head(hidden_dim, cfg['num_labels']).to(device))
             elif cfg['type'] == 'per_residue_classification':
                 self.task_heads.append(build_token_classification_head(hidden_dim, cfg['num_labels']).to(device))
-            else:
+            else:  # sequence_classification
                 self.task_heads.append(build_sequence_classification_head(hidden_dim, cfg['num_labels']).to(device))
 
         # Loss functions
@@ -153,46 +149,59 @@ class MultiTaskEngine(nn.Module):
                 self.loss_fns.append(nn.MSELoss())
             elif cfg['type'] == 'per_residue_classification':
                 self.loss_fns.append(nn.CrossEntropyLoss(ignore_index=-100))
-            else:
+            else:  # sequence_classification
                 self.loss_fns.append(nn.CrossEntropyLoss())
 
-        # Log vars for uncertainty weighting
+        # Uncertainty weighting parameters
         self.log_vars = nn.Parameter(torch.zeros(self.num_tasks, device=device))
 
-        # History & bookkeeping
-        self.history = {"train_loss": [], "val_metrics": [], "test_metrics": [],
-                        "log_vars": [], "gradient_norms": []}
+        # History
+        self.history = {
+            "train_loss": [], 
+            "val_metrics": [], 
+            "test_metrics": [],
+            "log_vars": [], 
+            "gradient_norms": []
+        }
         self.best = {"scores": [None]*self.num_tasks, "epochs": [None]*self.num_tasks}
         self.save_dir = ensure_dir(save_dir) if save_dir else None
 
     def forward_task(self, embeddings, task_idx):
+        """Forward pass through task head"""
         return self.task_heads[task_idx](embeddings)
 
     def compute_task_loss(self, logits, targets, task_idx):
+        """Compute loss for a single task"""
         cfg = self.task_configs[task_idx]
-        if cfg['type'] == 'per_residue_classification':
+        
+        if cfg['type'] == 'regression':
+            # Ensure targets are [B, 1]
+            if targets.dim() == 1:
+                targets = targets.unsqueeze(-1)
+            logits = logits.squeeze(-1) if logits.dim() == 2 and logits.size(-1) == 1 else logits
+            return self.loss_fns[task_idx](logits, targets.squeeze(-1))
+            
+        elif cfg['type'] == 'per_residue_classification':
+            # Flatten for cross-entropy: [B*L, C] and [B*L]
             B, L, C = logits.shape
             logits_flat = logits.view(B*L, C)
             targets_flat = targets.view(B*L)
             return self.loss_fns[task_idx](logits_flat, targets_flat)
-        elif cfg['type'] == 'regression':
-            if targets.dim() == 1:
-                targets = targets.unsqueeze(-1)  # Ensure [B,1]
-            return self.loss_fns[task_idx](logits, targets)
-        else:
-            return self.loss_fns[task_idx](logits, targets)
+            
+        else:  # sequence_classification
+            # logits: [B, C], targets: [B]
+            targets_flat = targets.view(-1)
+            return self.loss_fns[task_idx](logits, targets_flat.long())
 
-    def compute_total_loss(self, logits_list, targets_list):
-        total_loss = 0.0
-        per_task_losses = []
-        for i, (logits, targets) in enumerate(zip(logits_list, targets_list)):
-            task_loss = self.compute_task_loss(logits, targets, i)
-            per_task_losses.append(task_loss.detach().cpu().item())
-            weighted_loss = (0.5 * torch.exp(-self.log_vars[i]) * task_loss + 0.5 * self.log_vars[i])
-            total_loss += weighted_loss
-        return total_loss, per_task_losses
+    def compute_total_loss(self, task_idx, logits, targets):
+        """Compute weighted loss with uncertainty weighting"""
+        task_loss = self.compute_task_loss(logits, targets, task_idx)
+        # Uncertainty weighting: lower weight for high-uncertainty tasks
+        weighted_loss = 0.5 * torch.exp(-self.log_vars[task_idx]) * task_loss + 0.5 * self.log_vars[task_idx]
+        return weighted_loss, task_loss.detach().item()
 
     def train_one_epoch(self, optimizer, max_batches_per_loader=None):
+        """Train for one epoch with interleaved sampling"""
         self.backbone.train()
         for head in self.task_heads:
             head.train()
@@ -207,6 +216,7 @@ class MultiTaskEngine(nn.Module):
             task_idx = next(task_cycle)
             if task_idx not in active_iterators:
                 continue
+                
             try:
                 batch = next(iterators[task_idx])
             except StopIteration:
@@ -215,17 +225,16 @@ class MultiTaskEngine(nn.Module):
 
             input_ids = batch['sequence'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
-            targets = batch['targets']['target']
-            if torch.is_tensor(targets):
-                targets = targets.to(self.device)
+            targets = batch['targets']['target'].to(self.device)
 
             optimizer.zero_grad()
+            
             per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
             embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
             logits = self.forward_task(embeddings, task_idx)
 
-            total_batch_loss, _ = self.compute_total_loss([logits], [targets])
-            total_batch_loss.backward()
+            weighted_loss, raw_loss = self.compute_total_loss(task_idx, logits, targets)
+            weighted_loss.backward()
 
             torch.nn.utils.clip_grad_norm_(
                 list(self.backbone.parameters()) + list(self.task_heads.parameters()),
@@ -233,12 +242,13 @@ class MultiTaskEngine(nn.Module):
             )
             optimizer.step()
 
-            total_loss += total_batch_loss.item()
+            total_loss += weighted_loss.item()
             updates += 1
 
             if updates % DEBUG_INTERVAL == 0:
                 grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
-                print(f"[DEBUG][Batch {updates}] Grad norm={grad_norm:.4e}, Zero grads={zero_grads}")
+                if self.verbose:
+                    print(f"[Batch {updates}] Task {task_idx}: loss={raw_loss:.4f}, grad_norm={grad_norm:.4e}")
 
             if max_batches_per_loader is not None and updates >= max_batches_per_loader * self.num_tasks:
                 break
@@ -248,9 +258,11 @@ class MultiTaskEngine(nn.Module):
         return avg_loss
 
     def evaluate(self, loaders, split_name="Validation", epoch=None):
+        """Evaluate on all tasks"""
         self.backbone.eval()
         for head in self.task_heads:
             head.eval()
+        
         all_metrics = []
 
         with torch.no_grad():
@@ -259,9 +271,7 @@ class MultiTaskEngine(nn.Module):
                 for batch in loader:
                     input_ids = batch['sequence'].to(self.device)
                     attention_mask = batch['attention_mask'].to(self.device)
-                    targets = batch['targets']['target']
-                    if torch.is_tensor(targets):
-                        targets = targets.to(self.device)
+                    targets = batch['targets']['target'].to(self.device)
 
                     per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
                     embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
@@ -283,12 +293,13 @@ class MultiTaskEngine(nn.Module):
                     else:
                         current_score = avg_metrics['accuracy']
                         better = self.best["scores"][task_idx] is None or current_score > self.best["scores"][task_idx]
+                    
                     if better:
                         self.best["scores"][task_idx] = current_score
                         self.best["epochs"][task_idx] = epoch
 
                 if self.verbose:
-                    print(f"[{split_name}] Task {task_idx}: {avg_metrics}")
+                    print(f"  [{split_name}] Task {task_idx}: {avg_metrics}")
 
         return all_metrics
 
@@ -299,7 +310,7 @@ class MultiTaskEngine(nn.Module):
         for task_idx in range(self.num_tasks):
             score = self.best["scores"][task_idx]
             epoch = self.best["epochs"][task_idx]
-            metric = "RMSE" if self.task_configs[task_idx]['type']=="regression" else "Accuracy"
+            metric = "RMSE" if self.task_configs[task_idx]['type'] == "regression" else "Accuracy"
             if score is not None:
                 print(f"Task {task_idx}: {metric}={score:.4f} @ epoch {epoch}")
         print("="*60 + "\n")

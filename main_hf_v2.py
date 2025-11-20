@@ -2,9 +2,8 @@ import os
 import torch
 import json
 import numpy as np
-from itertools import cycle
 
-from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
+from protbert_hf import SharedProtBert
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
@@ -14,36 +13,37 @@ EPOCHS = 5
 BATCH_SIZE = 16
 MAX_LENGTH = 512
 SEED = 42
-DEBUG_INTERVAL = 100
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/uncertainty_weighting"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/uncertainty_weighting_v2"
 
 set_seed(SEED)
-os.makedirs(SAVE_DIR, exist_ok=True)
+ensure_dir(SAVE_DIR)
 
 print("\n[DATA] Loading datasets...")
-thermo_train = Thermostability(split='train')
-thermo_valid = Thermostability(split='valid')
-thermo_test  = Thermostability(split='test')
+# Load each dataset once, then split into train/valid/test
+thermo_full = Thermostability(verbose=1)
+thermo_train, thermo_valid, thermo_test = thermo_full.split()
 
-ssp_train = SecondaryStructure(split='train')
-ssp_valid = SecondaryStructure(split='valid')
-ssp_test  = SecondaryStructure(split='test')
+ssp_full = SecondaryStructure(verbose=1)
+ssp_train, ssp_valid, ssp_test = ssp_full.split()
 
-clf_train = CloningCLF(split='train')
-clf_valid = CloningCLF(split='valid')
-clf_test  = CloningCLF(split='test')
+clf_full = CloningCLF(verbose=1)
+clf_train, clf_valid, clf_test = clf_full.split()
+
+print(f"\n[DATA] Thermostability: train={len(thermo_train)}, valid={len(thermo_valid)}, test={len(thermo_test)}")
+print(f"[DATA] SecondaryStructure: train={len(ssp_train)}, valid={len(ssp_valid)}, test={len(ssp_test)}")
+print(f"[DATA] CloningCLF: train={len(clf_train)}, valid={len(clf_valid)}, test={len(clf_test)}")
 
 train_sets = [thermo_train, ssp_train, clf_train]
 valid_sets = [thermo_valid, ssp_valid, clf_valid]
-test_sets  = [thermo_test,  ssp_test,  clf_test]
+test_sets = [thermo_test, ssp_test, clf_test]
 
 task_configs = [
-    {'type':'regression', 'num_labels':1, 'name':'Thermostability'},
-    {'type':'per_residue_classification', 'num_labels':8, 'name':'SecondaryStructure'},
-    {'type':'sequence_classification', 'num_labels':2, 'name':'CloningCLF'}
+    {'type': 'regression', 'num_labels': 1, 'name': 'Thermostability'},
+    {'type': 'per_residue_classification', 'num_labels': 8, 'name': 'SecondaryStructure'},
+    {'type': 'sequence_classification', 'num_labels': 2, 'name': 'CloningCLF'}
 ]
 
-print("\n[MODEL] Initializing Shared ProtBERT with LoRA (PEFT)...")
+print("\n[MODEL] Initializing Shared ProtBERT with LoRA...")
 backbone = SharedProtBert(
     model_name="Rostlab/prot_bert_bfd",
     readout="mean",
@@ -51,10 +51,12 @@ backbone = SharedProtBert(
     lora_rank=32,
     lora_alpha=32,
     lora_dropout=0.1,
-    freeze_backbone=True,   # freeze backbone except top layers
+    freeze_backbone=True,
+    unfrozen_layers=4,
     verbose=True
 )
 
+print("\n[ENGINE] Creating MultiTaskEngine...")
 engine = MultiTaskEngine(
     backbone=backbone,
     task_configs=task_configs,
@@ -65,15 +67,21 @@ engine = MultiTaskEngine(
     device=DEVICE,
     save_dir=SAVE_DIR,
     max_length=MAX_LENGTH,
-    verbose=True
+    verbose=True,
+    grad_clip=1.0
 )
 
+# Optimizer includes LoRA parameters + task heads + uncertainty weights
 optimizer = torch.optim.Adam(
-    list(backbone.parameters()) + list(engine.task_heads.parameters()) + [engine.log_vars],
-    lr=1e-3
+    list(backbone.parameters()) + 
+    list(engine.task_heads.parameters()) + 
+    [engine.log_vars],
+    lr=1e-3,
+    weight_decay=1e-5
 )
 
 def safe_history(history_dict):
+    """Convert tensors to serializable format"""
     def convert(obj):
         if torch.is_tensor(obj):
             return obj.detach().cpu().tolist()
@@ -90,102 +98,102 @@ def safe_history(history_dict):
     return convert(history_dict)
 
 if SANITY_CHECK:
-    print("\n[SANITY CHECK] Forward + backward pass for 1 batch per task")
+    print("\n" + "="*60)
+    print("[SANITY CHECK] Running 1 batch per task")
+    print("="*60)
 
     avg_loss = engine.train_one_epoch(optimizer, max_batches_per_loader=1)
+    print(f"[SANITY] Training loss: {avg_loss:.4f}")
+    
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=0)
+    print(f"[SANITY] Validation metrics: {val_metrics}")
 
+    # Save sanity check results
     log_vars_safe = [float(lv) for lv in engine.log_vars]
     grad_norms_safe = engine.history["gradient_norms"][-1] if engine.history["gradient_norms"] else None
 
     engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
     engine.history["log_vars"].append(log_vars_safe)
-    engine.history["gradient_norms"].append(grad_norms_safe)
 
-    sanity_history_path = os.path.join(SAVE_DIR, "sanity_history.json")
+    sanity_history_path = os.path.join(SAVE_DIR, "sanity_check_history.json")
     with open(sanity_history_path, 'w') as f:
         json.dump(safe_history(engine.history), f, indent=2)
-    print(f"[SANITY] History saved successfully to {sanity_history_path}")
+    print(f"✓ Sanity check history saved to {sanity_history_path}")
 
-    sanity_model_path = os.path.join(SAVE_DIR, "sanity_model.pt")
+    sanity_model_path = os.path.join(SAVE_DIR, "sanity_check_model.pt")
     torch.save({
         'backbone_state_dict': backbone.state_dict(),
         'task_heads_state_dict': engine.task_heads.state_dict(),
-        'log_vars_state_dict': engine.log_vars.detach(),
+        'log_vars': engine.log_vars.detach().cpu(),
         'optimizer_state_dict': optimizer.state_dict(),
         'epoch': 0
     }, sanity_model_path)
-    print(f"[SANITY] Model checkpoint saved to {sanity_model_path}")
-
-    for task_idx, cfg in enumerate(task_configs):
-        head_path = os.path.join(SAVE_DIR, f"sanity_head_task{task_idx}_{cfg['name']}.pt")
-        torch.save(engine.task_heads[task_idx].state_dict(), head_path)
-        print(f"[SANITY] Head for task {task_idx} saved to {head_path}")
-
+    print(f"✓ Sanity check model saved to {sanity_model_path}")
+    
+    print("[SANITY] Attempting to reload model...")
     checkpoint = torch.load(sanity_model_path, map_location=DEVICE)
     backbone.load_state_dict(checkpoint['backbone_state_dict'])
     engine.task_heads.load_state_dict(checkpoint['task_heads_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    print("[SANITY] Checkpoint loaded successfully. ✅")
-
+    print("✓ Model reloaded successfully!")
+    
+    print("\n[SANITY] Sanity check passed! Exiting...")
     exit(0)
 
 # Full training loop
+print("\n" + "="*60)
+print(f"STARTING FULL TRAINING: {EPOCHS} epochs")
+print("="*60)
+
 for epoch in range(EPOCHS):
-    print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
+    print(f"\n[EPOCH {epoch+1}/{EPOCHS}]")
+    print("-" * 60)
 
+    # Train
     avg_loss = engine.train_one_epoch(optimizer)
-    print(f"[Epoch {epoch+1}] Overall average training loss: {avg_loss:.4f}")
+    print(f"✓ Training loss: {avg_loss:.4f}")
 
-    val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
+    # Validate
+    val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch+1)
 
+    # Save history
     log_vars_safe = [float(lv) for lv in engine.log_vars]
     grad_norms_safe = engine.history["gradient_norms"][-1] if engine.history["gradient_norms"] else None
 
     engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
     engine.history["log_vars"].append(log_vars_safe)
-    engine.history["gradient_norms"].append(grad_norms_safe)
 
-    overall_path = os.path.join(SAVE_DIR, f"best_model_epoch{epoch+1}.pt")
+    # Save checkpoint
+    ckpt_path = os.path.join(SAVE_DIR, f"checkpoint_epoch{epoch+1}.pt")
     torch.save({
         'backbone_state_dict': backbone.state_dict(),
         'task_heads_state_dict': engine.task_heads.state_dict(),
-        'log_vars_state_dict': engine.log_vars.detach(),
+        'log_vars': engine.log_vars.detach().cpu(),
         'optimizer_state_dict': optimizer.state_dict(),
         'epoch': epoch+1
-    }, overall_path)
-    print(f"[INFO] Saved overall checkpoint to {overall_path}")
+    }, ckpt_path)
+    print(f"✓ Checkpoint saved: {ckpt_path}")
 
-    for task_idx, cfg in enumerate(task_configs):
-        improved = False
-        if cfg['type'] == 'regression':
-            metric_val = val_metrics[task_idx]['rmse']
-            if engine.best["scores"][task_idx] == metric_val:
-                improved = True
-        else:
-            metric_val = val_metrics[task_idx]['accuracy']
-            if engine.best["scores"][task_idx] == metric_val:
-                improved = True
-
-        if improved:
-            head_path = os.path.join(SAVE_DIR, f"best_head_task{task_idx}_{cfg['name']}.pt")
-            torch.save(engine.task_heads[task_idx].state_dict(), head_path)
-            print(f"[INFO] Saved best head for task {task_idx} ({cfg['name']}) to {head_path}")
-
-    history_path = os.path.join(SAVE_DIR, f"history_epoch{epoch+1}.json")
+    # Save history
+    history_path = os.path.join(SAVE_DIR, "history.json")
     with open(history_path, 'w') as f:
         json.dump(safe_history(engine.history), f, indent=2)
-    print(f"[INFO] Saved training history to {history_path}")
 
-print("\n[TEST] Evaluating final model on test sets...")
+# Final test evaluation
+print("\n" + "="*60)
+print("[TEST] Final evaluation on test set")
+print("="*60)
 test_metrics = engine.evaluate(engine.test_loaders, split_name="Test")
 engine.history["test_metrics"] = test_metrics
 
-final_metrics_path = os.path.join(SAVE_DIR, "final_metrics.json")
-with open(final_metrics_path, 'w') as f:
+# Save final results
+final_path = os.path.join(SAVE_DIR, "final_results.json")
+with open(final_path, 'w') as f:
     json.dump(safe_history(engine.history), f, indent=2)
-print(f"[INFO] Saved final metrics and history to {final_metrics_path}")
+print(f"✓ Final results saved: {final_path}")
 
 engine.print_best_metrics()
+
+print("\n✓ Training complete!")
