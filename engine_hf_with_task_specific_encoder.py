@@ -198,10 +198,12 @@ class MultiTaskEngine:
             else:
                 raise ValueError(f"Unknown task type {cfg['type']}")
 
+        # Dynamic weighting state
         self.running_losses = torch.ones(self.num_tasks, device=device)
         self.dynamic_weight_log = []
         self.gradient_norms_log = []
 
+        # History and best tracking
         self.history = {
             "train_loss": [],
             "val_metrics": [],
@@ -399,10 +401,7 @@ class MultiTaskEngine:
         return avg_loss
 
     def evaluate(self, loaders, split_name="Validation", epoch=None):
-        """
-        Evaluate on all tasks. Returns metrics per task.
-        Also tracks best performance per task for checkpoint selection.
-        """
+   
         self.backbone.eval()
         for head in self.task_heads:
             head.eval()
@@ -467,7 +466,6 @@ class MultiTaskEngine:
         return all_task_metrics
 
     def print_best_metrics(self):
-        """Print best metrics achieved for each task"""
         print("\n" + "="*60)
         print("BEST VALIDATION METRICS PER TASK")
         print("="*60)
@@ -484,7 +482,7 @@ class MultiTaskEngine:
 if __name__ == "__main__":
     set_seed(SEED)
     
-    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting_v3"
+    SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting_v3_fixed"
     ensure_dir(SAVE_DIR)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -536,14 +534,14 @@ if __name__ == "__main__":
     # FIXED: Higher learning rate for LoRA-only training
     optimizer = optim.Adam(
         list(backbone.parameters()) + list(engine.task_heads.parameters()),
-        lr=5e-4,  # Increased from 1e-4 for better convergence
+        lr=2e-4,  # Reduced from 5e-4 for better stability with improved init
         weight_decay=1e-5
     )
 
     NUM_EPOCHS = 5  # Increased to see learning progress
     print(f"\n{'='*60}")
     print(f"STARTING TRAINING: {NUM_EPOCHS} epochs")
-    print(f"Learning rate: 5e-4, Gradient clip: 1.0")
+    print(f"Learning rate: 2e-4, Gradient clip: 1.0")
     print(f"{'='*60}\n")
 
     for epoch in range(1, NUM_EPOCHS + 1):

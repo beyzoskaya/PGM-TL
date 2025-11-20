@@ -4,7 +4,7 @@ from transformers import AutoModel, AutoTokenizer
 import math
 
 # ============================================================
-# LoRA Layer 
+# LoRA Layer
 # ============================================================
 class LoRALinear(nn.Module):
     """LoRA applied to linear layers: W = W_0 + (dropout(x) @ A^T @ B^T) * scaling"""
@@ -33,10 +33,11 @@ class LoRALinear(nn.Module):
         self.B = nn.Parameter(torch.zeros(out_features, r))
         self.dropout = nn.Dropout(dropout)
 
-        # ✓ FIXED: Initialize A with small random values (not zeros!)
+        # ✓ FIXED: Initialize BOTH A and B with small random values
+        # Zero B initialization causes gradient explosion during early training
+        # when combined with non-zero A gradients
         nn.init.normal_(self.A, std=0.02)
-        # Keep B at zero (standard LoRA practice)
-        nn.init.zeros_(self.B)
+        nn.init.normal_(self.B, std=0.02)  # Critical fix: don't keep B at zero!
 
     def forward(self, x):
         # lora_update = x @ A.T @ B.T * scaling
