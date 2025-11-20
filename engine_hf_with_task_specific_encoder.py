@@ -3,14 +3,11 @@ from torch import nn, optim
 from torch.utils.data import DataLoader
 import numpy as np
 import os
-import json
 from itertools import cycle
 
 from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
-from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 
 MAX_LENGTH = 512
-SEED = 42
 DEBUG_INTERVAL = 100  # Log embeddings/logits every 100 batches
 
 def ensure_dir(path):
@@ -105,17 +102,22 @@ def debug_grad_norm(model):
     total_grad_norm = float(np.sqrt(total_grad_norm))
     return total_grad_norm, num_params, zero_grads
 
-class MultiTaskEngine:
+class MultiTaskEngine(nn.Module):
+    """
+    Multi-task engine with uncertainty weighting (log_vars) for task losses.
+    Supports regression, per-residue classification, and sequence classification.
+    """
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
                  batch_size=16, device='cuda', save_dir=None, max_length=MAX_LENGTH,
                  verbose=True, grad_clip=1.0):
+        super().__init__()
         self.device = device
         self.backbone = backbone.to(device)
         self.task_configs = task_configs
+        self.num_tasks = len(task_configs)
         self.max_length = max_length
         self.verbose = verbose
         self.grad_clip = grad_clip
-        self.num_tasks = len(task_configs)
 
         tokenizer = self.backbone.tokenizer
         self.train_loaders = [
@@ -135,29 +137,29 @@ class MultiTaskEngine:
         ]
 
         hidden_dim = backbone.hidden_size
-        # Task-specific heads
         self.task_heads = nn.ModuleList()
         for cfg in task_configs:
             if cfg['type'] == 'regression':
-                head = build_regression_head(hidden_dim, cfg['num_labels'])
+                self.task_heads.append(build_regression_head(hidden_dim, cfg['num_labels']).to(device))
             elif cfg['type'] == 'per_residue_classification':
-                head = build_token_classification_head(hidden_dim, cfg['num_labels'])
+                self.task_heads.append(build_token_classification_head(hidden_dim, cfg['num_labels']).to(device))
             else:
-                head = build_sequence_classification_head(hidden_dim, cfg['num_labels'])
-            self.task_heads.append(head.to(device))
+                self.task_heads.append(build_sequence_classification_head(hidden_dim, cfg['num_labels']).to(device))
 
         # Loss functions
         self.loss_fns = []
         for cfg in task_configs:
             if cfg['type'] == 'regression':
                 self.loss_fns.append(nn.MSELoss())
-            else:
+            elif cfg['type'] == 'per_residue_classification':
                 self.loss_fns.append(nn.CrossEntropyLoss(ignore_index=-100))
+            else:
+                self.loss_fns.append(nn.CrossEntropyLoss())
 
-        # Uncertainty weighting: log(sigma^2) per task
+        # Log vars for uncertainty weighting
         self.log_vars = nn.Parameter(torch.zeros(self.num_tasks, device=device))
 
-        self.gradient_norms_log = []
+        # History & bookkeeping
         self.history = {"train_loss": [], "val_metrics": [], "test_metrics": [],
                         "log_vars": [], "gradient_norms": []}
         self.best = {"scores": [None]*self.num_tasks, "epochs": [None]*self.num_tasks}
@@ -174,18 +176,22 @@ class MultiTaskEngine:
             return self.loss_fns[task_idx](logits, targets)
         elif cfg_type == 'per_residue_classification':
             B, L, C = logits.shape
-            return self.loss_fns[task_idx](logits.view(-1, C), targets.view(-1))
+            return self.loss_fns[task_idx](logits.view(B*L, C), targets.view(B*L))
         else:
             return self.loss_fns[task_idx](logits, targets.long())
 
     def compute_total_loss(self, logits_list, targets_list):
+        """
+        Compute total loss using uncertainty weighting:
+        loss = sum(1/(2*exp(log_var)) * task_loss + 0.5 * log_var)
+        """
         total_loss = 0.0
         per_task_losses = []
         for i, (logits, targets) in enumerate(zip(logits_list, targets_list)):
             task_loss = self.compute_task_loss(logits, targets, i)
-            weighted_loss = task_loss / (2 * torch.exp(self.log_vars[i])) + 0.5 * self.log_vars[i]
+            per_task_losses.append(task_loss.detach().cpu().item())
+            weighted_loss = (0.5 * torch.exp(-self.log_vars[i]) * task_loss + 0.5 * self.log_vars[i])
             total_loss += weighted_loss
-            per_task_losses.append(task_loss.item())
         return total_loss, per_task_losses
 
     def train_one_epoch(self, optimizer, max_batches_per_loader=None):
@@ -196,10 +202,8 @@ class MultiTaskEngine:
         iterators = [iter(loader) for loader in self.train_loaders]
         task_cycle = cycle(range(self.num_tasks))
         active_iterators = list(range(self.num_tasks))
-
         total_loss = 0.0
         updates = 0
-        batch_counts = [0]*self.num_tasks
 
         while len(active_iterators) > 0:
             task_idx = next(task_cycle)
@@ -211,11 +215,6 @@ class MultiTaskEngine:
                 active_iterators.remove(task_idx)
                 continue
 
-            if max_batches_per_loader and batch_counts[task_idx] >= max_batches_per_loader:
-                active_iterators.remove(task_idx)
-                continue
-
-            batch_counts[task_idx] += 1
             input_ids = batch['sequence'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
             targets = batch['targets']['target']
@@ -225,19 +224,13 @@ class MultiTaskEngine:
             optimizer.zero_grad()
             per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
             embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
-            if updates % DEBUG_INTERVAL == 0:
-                debug_embeddings(task_idx, embeddings)
-
             logits = self.forward_task(embeddings, task_idx)
-            if updates % DEBUG_INTERVAL == 0:
-                debug_logits(task_idx, logits)
 
-            # Compute weighted loss using uncertainty weighting
-            total_batch_loss, per_task_losses = self.compute_total_loss([logits], [targets])
+            total_batch_loss, _ = self.compute_total_loss([logits], [targets])
             total_batch_loss.backward()
 
             torch.nn.utils.clip_grad_norm_(
-                list(self.backbone.parameters()) + list(self.task_heads.parameters()) + [self.log_vars],
+                list(self.backbone.parameters()) + list(self.task_heads.parameters()),
                 max_norm=self.grad_clip
             )
             optimizer.step()
@@ -248,11 +241,9 @@ class MultiTaskEngine:
             if updates % DEBUG_INTERVAL == 0:
                 grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
                 print(f"[DEBUG][Batch {updates}] Grad norm={grad_norm:.4e}, Zero grads={zero_grads}")
-                print(f"[DEBUG][Batch {updates}] Log vars: {[float(lv) for lv in self.log_vars]}")
 
         avg_loss = total_loss / max(1, updates)
-        self.gradient_norms_log.append(debug_grad_norm(self.backbone))
-        self.history["log_vars"].append([float(lv) for lv in self.log_vars])
+        self.history["gradient_norms"].append(debug_grad_norm(self.backbone))
         return avg_loss
 
     def evaluate(self, loaders, split_name="Validation", epoch=None):
@@ -263,7 +254,7 @@ class MultiTaskEngine:
 
         with torch.no_grad():
             for task_idx, loader in enumerate(loaders):
-                task_metrics = []
+                acc = []
                 for batch in loader:
                     input_ids = batch['sequence'].to(self.device)
                     attention_mask = batch['attention_mask'].to(self.device)
@@ -279,9 +270,9 @@ class MultiTaskEngine:
                         metrics = regression_metrics(logits.cpu(), targets.cpu())
                     else:
                         metrics = classification_metrics(logits.cpu(), targets.cpu())
-                    task_metrics.append(metrics)
+                    acc.append(metrics)
 
-                avg_metrics = {k: float(np.mean([m[k] for m in task_metrics])) for k in task_metrics[0]}
+                avg_metrics = {k: float(np.mean([a[k] for a in acc])) for k in acc[0].keys()}
                 all_metrics.append(avg_metrics)
 
                 # Track best

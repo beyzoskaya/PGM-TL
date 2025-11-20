@@ -48,10 +48,10 @@ backbone = SharedProtBert(
     model_name="Rostlab/prot_bert_bfd",
     readout="mean",
     lora=True,
-    lora_rank=32,           # increased rank for more capacity
+    lora_rank=32,
     lora_alpha=32,
     lora_dropout=0.1,
-    freeze_backbone=True,   # freeze except top layers
+    freeze_backbone=True,   # freeze backbone except top layers
     verbose=True
 )
 
@@ -96,9 +96,8 @@ if SANITY_CHECK:
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=0)
 
     log_vars_safe = [float(lv) for lv in engine.log_vars]
-    grad_norms_safe = [float(x) if isinstance(x,float) else int(x) for x in engine.gradient_norms_log[-1]]
+    grad_norms_safe = engine.history["gradient_norms"][-1] if engine.history["gradient_norms"] else None
 
-    # Save temporary history
     engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
     engine.history["log_vars"].append(log_vars_safe)
@@ -132,7 +131,7 @@ if SANITY_CHECK:
 
     exit(0)
 
-# Full training loop (only runs if SANITY_CHECK=False)
+# Full training loop
 for epoch in range(EPOCHS):
     print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
 
@@ -142,7 +141,7 @@ for epoch in range(EPOCHS):
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
 
     log_vars_safe = [float(lv) for lv in engine.log_vars]
-    grad_norms_safe = [float(x) if isinstance(x,float) else int(x) for x in engine.gradient_norms_log[-1]]
+    grad_norms_safe = engine.history["gradient_norms"][-1] if engine.history["gradient_norms"] else None
 
     engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
