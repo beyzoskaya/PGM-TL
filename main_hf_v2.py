@@ -2,18 +2,20 @@ import os
 import torch
 import json
 import numpy as np
+from itertools import cycle
 
 from protbert_hf import SharedProtBert, build_regression_head, build_token_classification_head, build_sequence_classification_head
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
+# ====================== CONFIG ======================
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-SANITY_CHECK = False    
-EPOCHS = 5                
+SANITY_CHECK = False
+EPOCHS = 5
 BATCH_SIZE = 16
 MAX_LENGTH = 512
 SEED = 42
-DEBUG_INTERVAL = 100      # Log embeddings/logits every 100 batches
+DEBUG_INTERVAL = 100
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/dynamic_weighting"
 
 set_seed(SEED)
@@ -68,10 +70,10 @@ engine = MultiTaskEngine(
 
 if SANITY_CHECK:
     print("\n[SANITY CHECK] Forward + backward pass for one batch per task")
-    engine.train_one_epoch(optimizer=torch.optim.Adam(
-        list(backbone.parameters()) + list(engine.task_heads.parameters()),
-        lr=1e-3
-    ), max_batches_per_loader=1)
+    engine.train_one_epoch(
+        optimizer=torch.optim.Adam(list(backbone.parameters()) + list(engine.task_heads.parameters()), lr=1e-3),
+        max_batches_per_loader=1
+    )
     engine.evaluate(engine.valid_loaders)
     print("\n✓ Sanity check completed successfully\n")
     exit(0)
@@ -83,15 +85,24 @@ optimizer = torch.optim.Adam(
 
 for epoch in range(EPOCHS):
     print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
+    
+    # 1️⃣ Train one epoch
     avg_loss = engine.train_one_epoch(optimizer)
     print(f"[Epoch {epoch+1}] Average training loss: {avg_loss:.4f}")
 
+    # 2️⃣ Evaluate on validation
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch)
+    
+    # 3️⃣ Update dynamic weights EMA
+    dyn_weights = engine.update_dynamic_weights_epoch()
+
+    # 4️⃣ Append metrics/history
     engine.history["train_loss"].append(avg_loss)
     engine.history["val_metrics"].append(val_metrics)
-    engine.history["dynamic_weights"].append(engine.dynamic_weight_log[-1])
+    engine.history["dynamic_weights"].append(dyn_weights)
     engine.history["gradient_norms"].append(engine.gradient_norms_log[-1])
 
+    # 5️⃣ Save intermediate history
     history_path = os.path.join(SAVE_DIR, f"history_epoch{epoch+1}.json")
     with open(history_path, 'w') as f:
         json.dump(engine.history, f, indent=2)
