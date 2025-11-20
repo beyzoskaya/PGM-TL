@@ -1,5 +1,5 @@
 import torch
-from protbert_fixed import SharedProtBert
+from protbert_hf import SharedProtBert
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 bp = SharedProtBert(use_lora=False, freeze_backbone=True, verbose=True, device=device)
