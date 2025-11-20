@@ -98,8 +98,8 @@ def debug_grad_norm(model):
 
 class MultiTaskEngine(nn.Module):
     """
-    Multi-task learning engine with simple fixed task weighting.
-    No uncertainty weighting - simpler and easier to debug.
+    Multi-task learning engine with FIXED task cycling.
+    Each epoch processes all batches from all tasks exactly once.
     """
     
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
@@ -115,9 +115,7 @@ class MultiTaskEngine(nn.Module):
         self.grad_clip = grad_clip
 
         # Task weights: CRITICAL - per-residue tasks need much higher weights
-        # because their gradients are diluted across sequence length
         if task_weights is None:
-            # Default: boost per-residue and sequence tasks to compensate for gradient dilution
             self.task_weights = torch.tensor([1.0, 5.0, 3.0], dtype=torch.float32, device=device)
         else:
             self.task_weights = torch.tensor(task_weights, dtype=torch.float32, device=device)
@@ -186,21 +184,18 @@ class MultiTaskEngine(nn.Module):
         cfg = self.task_configs[task_idx]
         
         if cfg['type'] == 'regression':
-            # Ensure targets are [B, 1]
             if targets.dim() == 1:
                 targets = targets.unsqueeze(-1)
             logits = logits.squeeze(-1) if logits.dim() == 2 and logits.size(-1) == 1 else logits
             return self.loss_fns[task_idx](logits, targets.squeeze(-1))
             
         elif cfg['type'] == 'per_residue_classification':
-            # Flatten for cross-entropy: [B*L, C] and [B*L]
             B, L, C = logits.shape
             logits_flat = logits.view(B*L, C)
             targets_flat = targets.view(B*L)
             return self.loss_fns[task_idx](logits_flat, targets_flat)
             
         else:  # sequence_classification
-            # logits: [B, C], targets: [B]
             targets_flat = targets.view(-1)
             return self.loss_fns[task_idx](logits, targets_flat.long())
 
@@ -210,61 +205,56 @@ class MultiTaskEngine(nn.Module):
         weighted_loss = self.task_weights[task_idx] * task_loss
         return weighted_loss, task_loss.detach().item()
 
-    def train_one_epoch(self, optimizer, max_batches_per_loader=None):
-        """Train for one epoch with interleaved sampling"""
+    def train_one_epoch(self, optimizer):
+        """
+        Train for one epoch.
+        FIXED: Process batches from each task in sequence, not interleaved.
+        This ensures all tasks get trained equally.
+        """
         self.backbone.train()
         for head in self.task_heads:
             head.train()
 
-        iterators = [iter(loader) for loader in self.train_loaders]
-        task_cycle = cycle(range(self.num_tasks))
-        active_iterators = list(range(self.num_tasks))
         total_loss = 0.0
         per_task_losses = [0.0] * self.num_tasks
         per_task_counts = [0] * self.num_tasks
         updates = 0
 
-        while len(active_iterators) > 0:
-            task_idx = next(task_cycle)
-            if task_idx not in active_iterators:
-                continue
-                
-            try:
-                batch = next(iterators[task_idx])
-            except StopIteration:
-                active_iterators.remove(task_idx)
-                continue
+        if self.verbose:
+            print(f"[Epoch] Processing {self.num_tasks} tasks sequentially...")
 
-            input_ids = batch['sequence'].to(self.device)
-            attention_mask = batch['attention_mask'].to(self.device)
-            targets = batch['targets']['target'].to(self.device)
-
-            optimizer.zero_grad()
+        # Process each task's batches sequentially
+        for task_idx in range(self.num_tasks):
+            loader = self.train_loaders[task_idx]
             
-            per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
-            embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
-            logits = self.forward_task(embeddings, task_idx)
+            for batch_num, batch in enumerate(loader):
+                input_ids = batch['sequence'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+                targets = batch['targets']['target'].to(self.device)
 
-            weighted_loss, raw_loss = self.compute_weighted_loss(task_idx, logits, targets)
-            weighted_loss.backward()
+                optimizer.zero_grad()
+                
+                per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
+                embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
+                logits = self.forward_task(embeddings, task_idx)
 
-            torch.nn.utils.clip_grad_norm_(
-                list(self.backbone.parameters()) + list(self.task_heads.parameters()),
-                max_norm=self.grad_clip
-            )
-            optimizer.step()
+                weighted_loss, raw_loss = self.compute_weighted_loss(task_idx, logits, targets)
+                weighted_loss.backward()
 
-            total_loss += weighted_loss.item()
-            per_task_losses[task_idx] += raw_loss
-            per_task_counts[task_idx] += 1
-            updates += 1
+                torch.nn.utils.clip_grad_norm_(
+                    list(self.backbone.parameters()) + list(self.task_heads.parameters()),
+                    max_norm=self.grad_clip
+                )
+                optimizer.step()
 
-            if updates % DEBUG_INTERVAL == 0 and self.verbose:
-                grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
-                print(f"[Batch {updates}] Task {task_idx}: loss={raw_loss:.4f}, grad_norm={grad_norm:.4e}")
+                total_loss += weighted_loss.item()
+                per_task_losses[task_idx] += raw_loss
+                per_task_counts[task_idx] += 1
+                updates += 1
 
-            if max_batches_per_loader is not None and updates >= max_batches_per_loader * self.num_tasks:
-                break
+                if updates % DEBUG_INTERVAL == 0 and self.verbose:
+                    grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
+                    print(f"[Batch {updates}] Task {task_idx}: loss={raw_loss:.4f}, grad_norm={grad_norm:.4e}")
 
         avg_loss = total_loss / max(1, updates)
         avg_per_task = [per_task_losses[i] / max(1, per_task_counts[i]) for i in range(self.num_tasks)]

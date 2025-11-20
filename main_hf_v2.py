@@ -22,7 +22,7 @@ GRAD_CLIP = 1.0
 LORA_RANK = 16         # Reduced from 32
 LORA_ALPHA = 16        # Match rank
 LORA_DROPOUT = 0.05    # Reduced from 0.1
-UNFROZEN_LAYERS = 2    # Reduced from 4
+UNFROZEN_LAYERS = 4    # Reduced from 4
 # CRITICAL: Much higher weights for per-residue and sequence tasks
 # because their gradients are diluted across sequence length
 TASK_WEIGHTS = [1.0, 5.0, 3.0]  # Task 1 needs 5x, Task 2 needs 3x boost
