@@ -101,8 +101,8 @@ input_ids = batch['sequence'].to(DEVICE)
 attention_mask = batch['attention_mask'].to(DEVICE)
 targets = batch['targets']['target'].to(DEVICE)
 
-# Save initial weights
-init_weight_0 = head_0[3].weight.data.clone()
+# Save initial weights (head_0 structure: LayerNorm, Dropout, Linear, ReLU, Dropout, Linear)
+init_weight_0 = head_0[2].weight.data.clone()  # First Linear layer
 
 optimizer.zero_grad()
 embeddings = backbone(input_ids, attention_mask, per_residue=False)
@@ -128,7 +128,7 @@ for name, p in backbone.named_parameters():
 if not has_grad:
     print("❌ WARNING: Backbone has NO gradients for Task 0!")
 
-head_grad = head_0[3].weight.grad
+head_grad = head_0[2].weight.grad  # First Linear layer
 if head_grad is not None and head_grad.abs().sum() > 0:
     print(f"✓ Head 0 has gradient: norm={head_grad.norm().item():.6e}")
 else:
@@ -137,7 +137,7 @@ else:
 optimizer.step()
 
 # Check if weights changed
-weight_change = (head_0[3].weight.data - init_weight_0).abs().sum().item()
+weight_change = (head_0[2].weight.data - init_weight_0).abs().sum().item()
 print(f"Head 0 weight change after step: {weight_change:.6e}")
 if weight_change < 1e-8:
     print("⚠️  WARNING: Head weights NOT updating!")
@@ -192,7 +192,7 @@ if not has_grad:
     print("❌ CRITICAL: Backbone has NO gradients for Task 1!")
     print("   This is why accuracy is frozen!")
 
-head_grad = head_1[2].weight.grad
+head_grad = head_1[2].weight.grad  # Linear layer in head_1
 if head_grad is not None:
     print(f"✓ Head 1 has gradient: norm={head_grad.norm().item():.6e}")
 else:
