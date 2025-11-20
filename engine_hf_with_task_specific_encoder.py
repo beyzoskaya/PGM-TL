@@ -169,16 +169,15 @@ class MultiTaskEngine(nn.Module):
         return self.task_heads[task_idx](embeddings)
 
     def compute_task_loss(self, logits, targets, task_idx):
-        cfg_type = self.task_configs[task_idx]['type']
-        if cfg_type == 'regression':
-            if logits.dim() > 1 and logits.size(-1) == 1:
-                logits = logits.squeeze(-1)
-            return self.loss_fns[task_idx](logits, targets)
-        elif cfg_type == 'per_residue_classification':
+        cfg = self.task_configs[task_idx]
+        if cfg['type'] == 'per_residue_classification':
+            # logits: [B, L, C], targets: [B, L]
             B, L, C = logits.shape
-            return self.loss_fns[task_idx](logits.view(B*L, C), targets.view(B*L))
+            logits_flat = logits.view(B*L, C)
+            targets_flat = targets.view(B*L)
+            return self.loss_fns[task_idx](logits_flat, targets_flat)
         else:
-            return self.loss_fns[task_idx](logits, targets.long())
+            return self.loss_fns[task_idx](logits, targets)
 
     def compute_total_loss(self, logits_list, targets_list):
         """
