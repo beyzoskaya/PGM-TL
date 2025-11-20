@@ -8,12 +8,22 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-SANITY_CHECK = True      
-EPOCHS = 5
+SANITY_CHECK = False  # Set to True only for first run
+EPOCHS = 10
 BATCH_SIZE = 16
 MAX_LENGTH = 512
 SEED = 42
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/uncertainty_weighting_v2"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/simplified_v3"
+
+# HYPERPARAMETERS - OPTIMIZED FOR LEARNING
+LR = 5e-4              # Reduced from 1e-3
+WEIGHT_DECAY = 1e-4    # Added for regularization
+GRAD_CLIP = 1.0
+LORA_RANK = 16         # Reduced from 32
+LORA_ALPHA = 16        # Match rank
+LORA_DROPOUT = 0.05    # Reduced from 0.1
+UNFROZEN_LAYERS = 2    # Reduced from 4
+TASK_WEIGHTS = [1.0, 1.5, 1.0]  # Help Task 1 (harder) learn more
 
 set_seed(SEED)
 ensure_dir(SAVE_DIR)
@@ -44,15 +54,19 @@ task_configs = [
 ]
 
 print("\n[MODEL] Initializing Shared ProtBERT with LoRA...")
+print(f"  LoRA rank={LORA_RANK}, alpha={LORA_ALPHA}, dropout={LORA_DROPOUT}")
+print(f"  Unfrozen layers={UNFROZEN_LAYERS}")
+print(f"  Task weights={TASK_WEIGHTS}")
+
 backbone = SharedProtBert(
     model_name="Rostlab/prot_bert_bfd",
     readout="mean",
     lora=True,
-    lora_rank=32,
-    lora_alpha=32,
-    lora_dropout=0.1,
+    lora_rank=LORA_RANK,
+    lora_alpha=LORA_ALPHA,
+    lora_dropout=LORA_DROPOUT,
     freeze_backbone=True,
-    unfrozen_layers=4,
+    unfrozen_layers=UNFROZEN_LAYERS,
     verbose=True
 )
 
@@ -68,17 +82,19 @@ engine = MultiTaskEngine(
     save_dir=SAVE_DIR,
     max_length=MAX_LENGTH,
     verbose=True,
-    grad_clip=1.0
+    grad_clip=GRAD_CLIP,
+    task_weights=TASK_WEIGHTS
 )
 
-# Optimizer includes LoRA parameters + task heads + uncertainty weights
+# Optimizer: only include backbone params + task head params (no log_vars now)
 optimizer = torch.optim.Adam(
     list(backbone.parameters()) + 
-    list(engine.task_heads.parameters()) + 
-    [engine.log_vars],
-    lr=1e-3,
-    weight_decay=1e-5
+    list(engine.task_heads.parameters()),
+    lr=LR,
+    weight_decay=WEIGHT_DECAY
 )
+
+print(f"\n[OPTIMIZER] lr={LR}, weight_decay={WEIGHT_DECAY}, grad_clip={GRAD_CLIP}")
 
 def safe_history(history_dict):
     """Convert tensors to serializable format"""
@@ -103,42 +119,35 @@ if SANITY_CHECK:
     print("="*60)
 
     avg_loss = engine.train_one_epoch(optimizer, max_batches_per_loader=1)
-    print(f"[SANITY] Training loss: {avg_loss:.4f}")
+    print(f"✓ Training loss: {avg_loss:.4f}")
     
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=0)
-    print(f"[SANITY] Validation metrics: {val_metrics}")
 
     # Save sanity check results
-    log_vars_safe = [float(lv) for lv in engine.log_vars]
-    grad_norms_safe = engine.history["gradient_norms"][-1] if engine.history["gradient_norms"] else None
-
     engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
-    engine.history["log_vars"].append(log_vars_safe)
 
     sanity_history_path = os.path.join(SAVE_DIR, "sanity_check_history.json")
     with open(sanity_history_path, 'w') as f:
         json.dump(safe_history(engine.history), f, indent=2)
-    print(f"✓ Sanity check history saved to {sanity_history_path}")
+    print(f"✓ Sanity check history saved")
 
     sanity_model_path = os.path.join(SAVE_DIR, "sanity_check_model.pt")
     torch.save({
         'backbone_state_dict': backbone.state_dict(),
         'task_heads_state_dict': engine.task_heads.state_dict(),
-        'log_vars': engine.log_vars.detach().cpu(),
         'optimizer_state_dict': optimizer.state_dict(),
         'epoch': 0
     }, sanity_model_path)
-    print(f"✓ Sanity check model saved to {sanity_model_path}")
+    print(f"✓ Sanity check model saved")
     
-    print("[SANITY] Attempting to reload model...")
     checkpoint = torch.load(sanity_model_path, map_location=DEVICE)
     backbone.load_state_dict(checkpoint['backbone_state_dict'])
     engine.task_heads.load_state_dict(checkpoint['task_heads_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    print("✓ Model reloaded successfully!")
+    print("✓ Model reload successful!")
     
-    print("\n[SANITY] Sanity check passed! Exiting...")
+    print("\n✓ Sanity check PASSED! Ready for full training.\n")
     exit(0)
 
 # Full training loop
@@ -152,34 +161,35 @@ for epoch in range(EPOCHS):
 
     # Train
     avg_loss = engine.train_one_epoch(optimizer)
-    print(f"✓ Training loss: {avg_loss:.4f}")
 
     # Validate
     val_metrics = engine.evaluate(engine.valid_loaders, split_name="Validation", epoch=epoch+1)
 
     # Save history
-    log_vars_safe = [float(lv) for lv in engine.log_vars]
-    grad_norms_safe = engine.history["gradient_norms"][-1] if engine.history["gradient_norms"] else None
-
     engine.history["train_loss"].append(float(avg_loss))
     engine.history["val_metrics"].append(val_metrics)
-    engine.history["log_vars"].append(log_vars_safe)
 
     # Save checkpoint
     ckpt_path = os.path.join(SAVE_DIR, f"checkpoint_epoch{epoch+1}.pt")
     torch.save({
         'backbone_state_dict': backbone.state_dict(),
         'task_heads_state_dict': engine.task_heads.state_dict(),
-        'log_vars': engine.log_vars.detach().cpu(),
         'optimizer_state_dict': optimizer.state_dict(),
         'epoch': epoch+1
     }, ckpt_path)
-    print(f"✓ Checkpoint saved: {ckpt_path}")
+    print(f"✓ Checkpoint saved")
 
     # Save history
     history_path = os.path.join(SAVE_DIR, "history.json")
     with open(history_path, 'w') as f:
         json.dump(safe_history(engine.history), f, indent=2)
+
+    # Print summary
+    if epoch > 0:
+        prev_loss = engine.history["train_loss"][-2]
+        curr_loss = engine.history["train_loss"][-1]
+        improvement = (prev_loss - curr_loss) / prev_loss * 100
+        print(f"Loss improvement: {improvement:.2f}%")
 
 # Final test evaluation
 print("\n" + "="*60)
@@ -192,8 +202,9 @@ engine.history["test_metrics"] = test_metrics
 final_path = os.path.join(SAVE_DIR, "final_results.json")
 with open(final_path, 'w') as f:
     json.dump(safe_history(engine.history), f, indent=2)
-print(f"✓ Final results saved: {final_path}")
+print(f"✓ Final results saved")
 
 engine.print_best_metrics()
 
 print("\n✓ Training complete!")
+print(f"✓ Results saved to: {SAVE_DIR}")

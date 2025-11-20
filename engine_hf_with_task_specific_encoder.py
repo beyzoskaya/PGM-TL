@@ -97,11 +97,14 @@ def debug_grad_norm(model):
     return total_grad_norm, num_params, zero_grads
 
 class MultiTaskEngine(nn.Module):
-    """Multi-task learning engine with uncertainty weighting"""
+    """
+    Multi-task learning engine with simple fixed task weighting.
+    No uncertainty weighting - simpler and easier to debug.
+    """
     
     def __init__(self, backbone, task_configs, train_sets, valid_sets, test_sets,
                  batch_size=16, device='cuda', save_dir=None, max_length=MAX_LENGTH,
-                 verbose=True, grad_clip=1.0):
+                 verbose=True, grad_clip=1.0, task_weights=None):
         super().__init__()
         self.device = device
         self.backbone = backbone.to(device)
@@ -110,6 +113,12 @@ class MultiTaskEngine(nn.Module):
         self.max_length = max_length
         self.verbose = verbose
         self.grad_clip = grad_clip
+
+        # Task weights: higher weight for harder tasks
+        if task_weights is None:
+            self.task_weights = torch.ones(self.num_tasks, device=device)
+        else:
+            self.task_weights = torch.tensor(task_weights, dtype=torch.float32, device=device)
 
         tokenizer = self.backbone.tokenizer
         
@@ -152,19 +161,19 @@ class MultiTaskEngine(nn.Module):
             else:  # sequence_classification
                 self.loss_fns.append(nn.CrossEntropyLoss())
 
-        # Uncertainty weighting parameters
-        self.log_vars = nn.Parameter(torch.zeros(self.num_tasks, device=device))
-
         # History
         self.history = {
             "train_loss": [], 
             "val_metrics": [], 
             "test_metrics": [],
-            "log_vars": [], 
+            "per_task_losses": [],
             "gradient_norms": []
         }
         self.best = {"scores": [None]*self.num_tasks, "epochs": [None]*self.num_tasks}
         self.save_dir = ensure_dir(save_dir) if save_dir else None
+        
+        if self.verbose:
+            print(f"[Engine] Task weights: {[f'{w:.2f}' for w in self.task_weights.cpu().numpy()]}")
 
     def forward_task(self, embeddings, task_idx):
         """Forward pass through task head"""
@@ -193,11 +202,10 @@ class MultiTaskEngine(nn.Module):
             targets_flat = targets.view(-1)
             return self.loss_fns[task_idx](logits, targets_flat.long())
 
-    def compute_total_loss(self, task_idx, logits, targets):
-        """Compute weighted loss with uncertainty weighting"""
+    def compute_weighted_loss(self, task_idx, logits, targets):
+        """Compute weighted loss with fixed task weights"""
         task_loss = self.compute_task_loss(logits, targets, task_idx)
-        # Uncertainty weighting: lower weight for high-uncertainty tasks
-        weighted_loss = 0.5 * torch.exp(-self.log_vars[task_idx]) * task_loss + 0.5 * self.log_vars[task_idx]
+        weighted_loss = self.task_weights[task_idx] * task_loss
         return weighted_loss, task_loss.detach().item()
 
     def train_one_epoch(self, optimizer, max_batches_per_loader=None):
@@ -210,6 +218,8 @@ class MultiTaskEngine(nn.Module):
         task_cycle = cycle(range(self.num_tasks))
         active_iterators = list(range(self.num_tasks))
         total_loss = 0.0
+        per_task_losses = [0.0] * self.num_tasks
+        per_task_counts = [0] * self.num_tasks
         updates = 0
 
         while len(active_iterators) > 0:
@@ -233,7 +243,7 @@ class MultiTaskEngine(nn.Module):
             embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
             logits = self.forward_task(embeddings, task_idx)
 
-            weighted_loss, raw_loss = self.compute_total_loss(task_idx, logits, targets)
+            weighted_loss, raw_loss = self.compute_weighted_loss(task_idx, logits, targets)
             weighted_loss.backward()
 
             torch.nn.utils.clip_grad_norm_(
@@ -243,18 +253,26 @@ class MultiTaskEngine(nn.Module):
             optimizer.step()
 
             total_loss += weighted_loss.item()
+            per_task_losses[task_idx] += raw_loss
+            per_task_counts[task_idx] += 1
             updates += 1
 
-            if updates % DEBUG_INTERVAL == 0:
+            if updates % DEBUG_INTERVAL == 0 and self.verbose:
                 grad_norm, num_params, zero_grads = debug_grad_norm(self.backbone)
-                if self.verbose:
-                    print(f"[Batch {updates}] Task {task_idx}: loss={raw_loss:.4f}, grad_norm={grad_norm:.4e}")
+                print(f"[Batch {updates}] Task {task_idx}: loss={raw_loss:.4f}, grad_norm={grad_norm:.4e}")
 
             if max_batches_per_loader is not None and updates >= max_batches_per_loader * self.num_tasks:
                 break
 
         avg_loss = total_loss / max(1, updates)
+        avg_per_task = [per_task_losses[i] / max(1, per_task_counts[i]) for i in range(self.num_tasks)]
+        
         self.history["gradient_norms"].append(debug_grad_norm(self.backbone))
+        self.history["per_task_losses"].append(avg_per_task)
+        
+        if self.verbose:
+            print(f"[Epoch Summary] Avg loss: {avg_loss:.4f}, Per-task: {[f'{l:.4f}' for l in avg_per_task]}")
+        
         return avg_loss
 
     def evaluate(self, loaders, split_name="Validation", epoch=None):
@@ -312,5 +330,7 @@ class MultiTaskEngine(nn.Module):
             epoch = self.best["epochs"][task_idx]
             metric = "RMSE" if self.task_configs[task_idx]['type'] == "regression" else "Accuracy"
             if score is not None:
-                print(f"Task {task_idx}: {metric}={score:.4f} @ epoch {epoch}")
+                print(f"Task {task_idx} ({self.task_configs[task_idx]['name']}): {metric}={score:.4f} @ epoch {epoch}")
+            else:
+                print(f"Task {task_idx} ({self.task_configs[task_idx]['name']}): No improvement")
         print("="*60 + "\n")
