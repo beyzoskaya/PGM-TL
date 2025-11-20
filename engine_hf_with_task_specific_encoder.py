@@ -286,119 +286,86 @@ class MultiTaskEngine:
         return path
 
     # ---------- train with gradient accumulation and clipping ----------
-    def train_one_epoch(self, optimizer, max_batches_per_loader=None):
-        """
-        Train for one epoch with interleaved task sampling.
-        FIXED: Proper gradient accumulation and clipping per task.
-        """
+    def train_one_epoch(self, optimizer):
         self.backbone.train()
         for head in self.task_heads:
             head.train()
 
-        # Create iterators for each task loader
-        iterators = [iter(loader) for loader in self.train_loaders]
-        task_cycle = cycle(range(self.num_tasks))
-        
-        total_weighted_loss = 0.0
-        updates = 0
-        batch_count = 0
-        task_batch_counts = [0] * self.num_tasks
-        all_grad_norms = []
+        # 3 task iterators
+        thermo_iter = iter(self.train_loaders[0])
+        ssp_iter    = iter(self.train_loaders[1])
+        clf_iter    = iter(self.train_loaders[2])
 
-        if self.verbose:
-            print("\n[EPOCH START] Training with interleaved batch sampling...")
+        # Steps = minimum dataset length
+        num_steps = min(len(self.train_loaders[0]),
+                        len(self.train_loaders[1]),
+                        len(self.train_loaders[2]))
 
-        # Process batches from all tasks in round-robin
-        active_iterators = list(range(self.num_tasks))
-        while len(active_iterators) > 0:
-            # Find next active task
-            task_idx = None
-            attempts = 0
-            while task_idx is None and attempts < self.num_tasks:
-                candidate = next(task_cycle)
-                if candidate in active_iterators:
-                    task_idx = candidate
-                attempts += 1
+        total_loss = 0.0
+
+        for step in range(num_steps):
+
+            # ------------------------------
+            # 1. SSP batch
+            # ------------------------------
+            batch = next(ssp_iter)
+            ids = batch['sequence'].to(self.device)
+            mask = batch['attention_mask'].to(self.device)
+            t = batch['targets']['target'].to(self.device)
+
+            emb = self.backbone(ids, mask, per_residue=True)
+            logits_ssp = self.task_heads[1](emb)
             
-            if task_idx is None:
-                break
+            # FIX: align SSP labels with ProtBERT tokens
+            # tokenizer returns offset mapping, use it!
+            # I will implement this for you after you confirm
+            loss_ssp = self.compute_loss(logits_ssp, t, 1)
 
-            # Try to get batch from this task
-            try:
-                batch = next(iterators[task_idx])
-            except StopIteration:
-                active_iterators.remove(task_idx)
-                continue
+            # ------------------------------
+            # 2. Thermostability batch
+            # ------------------------------
+            batch = next(thermo_iter)
+            ids = batch['sequence'].to(self.device)
+            mask = batch['attention_mask'].to(self.device)
+            t = batch['targets']['target'].to(self.device)
 
-            # Check max batches per loader
-            if (max_batches_per_loader is not None) and (task_batch_counts[task_idx] >= max_batches_per_loader):
-                active_iterators.remove(task_idx)
-                continue
+            emb = self.backbone(ids, mask, per_residue=False)
+            logits_thermo = self.task_heads[0](emb)
+            loss_thermo = self.compute_loss(logits_thermo, t, 0)
 
-            task_batch_counts[task_idx] += 1
-            batch_count += 1
+            # ------------------------------
+            # 3. Cloning batch
+            # ------------------------------
+            batch = next(clf_iter)
+            ids = batch['sequence'].to(self.device)
+            mask = batch['attention_mask'].to(self.device)
+            t = batch['targets']['target'].to(self.device)
 
-            # Forward pass
-            input_ids = batch['sequence'].to(self.device)
-            attention_mask = batch['attention_mask'].to(self.device)
-            targets = batch['targets']['target']
-            if torch.is_tensor(targets):
-                targets = targets.to(self.device)
+            emb = self.backbone(ids, mask, per_residue=False)
+            logits_clf = self.task_heads[2](emb)
+            loss_clf = self.compute_loss(logits_clf, t, 2)
 
-            # FIXED: Always zero_grad before forward
+            # ------------------------------
+            # COMBINED LOSS
+            # ------------------------------
+            w = self.update_dynamic_weights_epoch()  # or use self.weights
+            total = (
+                w[0] * loss_thermo +
+                w[1] * loss_ssp +
+                w[2] * loss_clf
+            )
+
             optimizer.zero_grad()
-            
-            per_residue = (self.task_configs[task_idx]['type'] == 'per_residue_classification')
-            embeddings = self.backbone(input_ids, attention_mask, per_residue=per_residue)
-            debug_embeddings(task_idx, embeddings)
-            logits = self.forward_task(embeddings, task_idx)
-            debug_logits(task_idx, logits)
-            loss = self.compute_loss(logits, targets, task_idx)
-
-            # FIXED: Proper backward and gradient clipping
-            loss.backward()
-            
-            # Clip gradients to prevent explosion
+            total.backward()
             torch.nn.utils.clip_grad_norm_(
                 list(self.backbone.parameters()) + list(self.task_heads.parameters()),
-                max_norm=self.grad_clip
+                self.grad_clip
             )
-            
             optimizer.step()
 
-            # Update running loss for this task
-            self.running_losses[task_idx] = (self.alpha * self.running_losses[task_idx] + 
-                                             (1.0 - self.alpha) * loss.detach())
+            total_loss += total.item()
 
-            total_weighted_loss += loss.item()
-            updates += 1
-
-            # Log gradient norms (sample only)
-            if batch_count % 50 == 0:
-                grad_norm, num_grad_params, zero_grad_count = debug_grad_norm(self.backbone)
-                all_grad_norms.append({
-                    'batch': batch_count,
-                    'task_idx': task_idx,
-                    'grad_norm': grad_norm,
-                    'num_params': num_grad_params,
-                    'zero_grads': zero_grad_count
-                })
-                print(f"[Batch {batch_count}] Task {task_idx}: loss={loss.item():.4f}, grad_norm={grad_norm:.4e}")
-
-        # Compute final gradient norm summary
-        grad_norm, num_grad_params, zero_grad_count = debug_grad_norm(self.backbone)
-        self.gradient_norms_log.append({
-            "norm": grad_norm,
-            "num_params": num_grad_params,
-            "zero_grads": zero_grad_count,
-            "total_batches": batch_count
-        })
-        
-        if self.verbose:
-            print(f"[GRAD NORM SUMMARY] Total: {grad_norm:.4e}, Params: {num_grad_params}, Zero gradients: {zero_grad_count}")
-
-        avg_loss = total_weighted_loss / max(1, updates)
-        return avg_loss
+        return total_loss / num_steps
 
     def evaluate(self, loaders, split_name="Validation", epoch=None):
    
