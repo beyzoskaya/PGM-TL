@@ -177,7 +177,7 @@ class MultiTaskEngine:
             return self.loss_fns[task_idx](logits, targets)
         elif cfg_type == 'per_residue_classification':
             B, L, C = logits.shape
-            print(f"[LOSS DEBUG] logits shape: {logits.shape}, targets shape: {targets.shape}")
+            #print(f"[LOSS DEBUG] logits shape: {logits.shape}, targets shape: {targets.shape}")
             return self.loss_fns[task_idx](logits.view(-1, C), targets.view(-1))
         else:
             return self.loss_fns[task_idx](logits, targets.long())
