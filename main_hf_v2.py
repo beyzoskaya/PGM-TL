@@ -8,7 +8,7 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-SANITY_CHECK = True
+SANITY_CHECK = False
 EPOCHS = 10
 BATCH_SIZE = 16
 MAX_LENGTH = 512
