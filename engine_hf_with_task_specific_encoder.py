@@ -114,9 +114,11 @@ class MultiTaskEngine(nn.Module):
         self.verbose = verbose
         self.grad_clip = grad_clip
 
-        # Task weights: higher weight for harder tasks
+        # Task weights: CRITICAL - per-residue tasks need much higher weights
+        # because their gradients are diluted across sequence length
         if task_weights is None:
-            self.task_weights = torch.ones(self.num_tasks, device=device)
+            # Default: boost per-residue and sequence tasks to compensate for gradient dilution
+            self.task_weights = torch.tensor([1.0, 5.0, 3.0], dtype=torch.float32, device=device)
         else:
             self.task_weights = torch.tensor(task_weights, dtype=torch.float32, device=device)
 

@@ -8,7 +8,7 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from engine_hf_with_task_specific_encoder import MultiTaskEngine, set_seed, ensure_dir
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-SANITY_CHECK = False
+SANITY_CHECK = False  # Set to True only for first run
 EPOCHS = 10
 BATCH_SIZE = 16
 MAX_LENGTH = 512
@@ -23,7 +23,9 @@ LORA_RANK = 16         # Reduced from 32
 LORA_ALPHA = 16        # Match rank
 LORA_DROPOUT = 0.05    # Reduced from 0.1
 UNFROZEN_LAYERS = 2    # Reduced from 4
-TASK_WEIGHTS = [1.0, 1.5, 1.0]  # Help Task 1 (harder) learn more
+# CRITICAL: Much higher weights for per-residue and sequence tasks
+# because their gradients are diluted across sequence length
+TASK_WEIGHTS = [1.0, 5.0, 3.0]  # Task 1 needs 5x, Task 2 needs 3x boost
 
 set_seed(SEED)
 ensure_dir(SAVE_DIR)

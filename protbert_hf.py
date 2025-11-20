@@ -63,7 +63,8 @@ class SharedProtBert(nn.Module):
         last_hidden = outputs.last_hidden_state
 
         if per_residue:
-            return last_hidden
+            normed = self.pool_norm(last_hidden)  # ✅ Apply norm!
+            return normed
 
         # Sequence-level pooling
         if self.readout == "mean":
