@@ -1,136 +1,211 @@
 import torch
-from torch.utils.data import DataLoader, Subset
 import numpy as np
-from itertools import cycle
+import os
+from torch.utils.data import DataLoader
 
-# Simulated dataset sizes from your output
-DATASET_SIZES = {
-    'Thermostability': {'train': 53614, 'valid': 2512, 'test': 12851},
-    'SecondaryStructure': {'train': 9763, 'valid': 1085, 'test': 667},
-    'CloningCLF': {'train': 21037, 'valid': 2338, 'test': 4791}
-}
+from flip_hf import Thermostability, SecondaryStructure, CloningCLF
+from protbert_hf import SharedProtBert
+from engine_hf_with_task_specific_encoder import MultiTaskEngine, multitask_collate_fn
 
-BATCH_SIZE = 16
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-print("\n" + "="*80)
-print("DATA LOADING DIAGNOSTIC")
-print("="*80)
+def print_header(msg):
+    print(f"\n" + "="*60)
+    print(f"DIAGNOSE: {msg}")
+    print("="*60)
 
-print(f"\nBatch size: {BATCH_SIZE}")
-print("\n" + "-"*80)
-print("BATCH CALCULATIONS")
-print("-"*80)
+def diagnose():
+    print_header(f"System Check - Device: {DEVICE}")
 
-# Calculate expected batches
-batch_counts = {}
-for task, sizes in DATASET_SIZES.items():
-    train_size = sizes['train']
-    num_batches = (train_size + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
-    actual_samples_loaded = num_batches * BATCH_SIZE
-    print(f"\n{task}:")
-    print(f"  Total train samples:    {train_size:,}")
-    print(f"  Samples per batch:      {BATCH_SIZE}")
-    print(f"  Expected batches:       {num_batches}")
-    print(f"  Actual samples loaded:  {actual_samples_loaded:,}")
-    print(f"  Padding samples:        {actual_samples_loaded - train_size}")
-    batch_counts[task] = num_batches
-
-max_batches = max(batch_counts.values())
-print(f"\n" + "-"*80)
-print(f"MAX BATCHES (longest dataloader): {max_batches}")
-print(f"EPOCH LENGTH: {max_batches} iterations × 3 tasks = {max_batches * 3} total updates")
-print("-"*80)
-
-print("\n" + "-"*80)
-print("CYCLIC BATCH STRATEGY - UPDATES PER TASK")
-print("-"*80)
-
-total_updates = 0
-for task, num_batches in batch_counts.items():
-    cycles = max_batches / num_batches
-    total_updates_task = max_batches  # Each task processes max_batches, cycling if needed
-    print(f"\n{task}:")
-    print(f"  Batches in this task:   {num_batches}")
-    print(f"  Updates needed:         {max_batches} (from epoch length)")
-    print(f"  Cycles through loader:  {cycles:.2f}x")
-    print(f"  Actual updates:         {total_updates_task} (fully deterministic)")
-
-total_task_updates = max_batches * 3
-print(f"\n{'='*80}")
-print(f"TOTAL UPDATES PER EPOCH: {total_task_updates}")
-print(f"  Task 0: {max_batches} updates")
-print(f"  Task 1: {max_batches} updates")
-print(f"  Task 2: {max_batches} updates")
-print(f"  Each task: 1/{3} of total updates = {100/3:.1f}% each")
-print(f"{'='*80}")
-
-print("\n" + "-"*80)
-print("SAMPLE COVERAGE PER EPOCH")
-print("-"*80)
-
-for task, sizes in DATASET_SIZES.items():
-    num_batches = batch_counts[task]
-    updates_per_epoch = max_batches
+    # =================================================================
+    # 1. DATASET LOADING & TARGET INSPECTION
+    # =================================================================
+    print_header("1. Loading Datasets & Checking Raw Types")
     
-    # How many complete passes through this task?
-    complete_passes = updates_per_epoch // num_batches
-    remaining_batches = updates_per_epoch % num_batches
+    # Load subsets
+    ds_thermo = Thermostability(verbose=0)
+    ds_ssp = SecondaryStructure(verbose=0)
+    ds_clf = CloningCLF(verbose=0)
+
+    # Check Thermostability Raw
+    sample_thermo = ds_thermo[0]
+    val_thermo = sample_thermo['targets']['target']
+    print(f"[Thermo] Raw sample: {val_thermo}")
+    if not isinstance(val_thermo, float):
+        print("  ❌ ERROR: Thermo target is not a float!")
+    else:
+        print("  ✅ Type Check Passed (Float)")
+
+    # Check SSP Raw
+    sample_ssp = ds_ssp[0]
+    val_ssp = sample_ssp['targets']['target']
+    print(f"[SSP]    Raw sample length: {len(val_ssp)} (Seq len: {len(sample_ssp['sequence'])})")
+    if not isinstance(val_ssp, list):
+        print("  ❌ ERROR: SSP target is not a list!")
+    else:
+        print("  ✅ Type Check Passed (List)")
+
+    # Check Cloning Raw
+    sample_clf = ds_clf[0]
+    val_clf = sample_clf['targets']['target']
+    print(f"[Clone]  Raw sample: {val_clf}")
+    if not isinstance(val_clf, int):
+        print("  ❌ ERROR: Cloning target is not an int!")
+    else:
+        print("  ✅ Type Check Passed (Int)")
+
+    # =================================================================
+    # 2. NORMALIZATION CHECK
+    # =================================================================
+    print_header("2. Verifying Thermostability Normalization")
     
-    # Samples covered
-    complete_pass_samples = complete_passes * sizes['train']
-    remaining_samples = min(remaining_batches * BATCH_SIZE, sizes['train'])
-    total_samples_seen = complete_pass_samples + remaining_samples
-    effective_epochs = updates_per_epoch / num_batches
+    # Extract raw values
+    raw_values = [x['targets']['target'] for x in ds_thermo if x['targets']['target'] is not None]
+    raw_mean = np.mean(raw_values)
+    raw_std = np.std(raw_values)
+    print(f"  Raw Mean: {raw_mean:.4f} | Raw Std: {raw_std:.4f}")
     
-    print(f"\n{task}:")
-    print(f"  Dataset size:           {sizes['train']:,} samples")
-    print(f"  Updates per epoch:      {updates_per_epoch}")
-    print(f"  Batches in dataset:     {num_batches}")
-    print(f"  Effective epochs:       {effective_epochs:.2f}x through data")
-    print(f"  Complete passes:        {complete_passes}")
-    print(f"  Remaining batches:      {remaining_batches}")
-    print(f"  Total samples seen:     ~{total_samples_seen:,}")
-    print(f"  Duplication factor:     {effective_epochs:.2f}x")
+    # Apply Normalization (Simulating main.py logic)
+    print("  >> Applying Normalization...")
+    for i in range(len(ds_thermo.sequences)):
+        t = ds_thermo.targets['target'][i]
+        if t is not None:
+            ds_thermo.targets['target'][i] = (t - raw_mean) / raw_std
+            
+    # Check new values
+    new_values = [x['targets']['target'] for x in ds_thermo if x['targets']['target'] is not None]
+    new_mean = np.mean(new_values)
+    new_std = np.std(new_values)
+    print(f"  New Mean: {new_mean:.4f} | New Std: {new_std:.4f}")
+    
+    if abs(new_mean) < 1e-5 and abs(new_std - 1.0) < 1e-5:
+        print("  ✅ Normalization Successful (Mean~0, Std~1)")
+    else:
+        print("  ❌ WARNING: Normalization logic might be off.")
 
-print("\n" + "="*80)
-print("INTERPRETATION")
-print("="*80)
-print("""
-✓ Cyclic strategy is CORRECT behavior:
-  - Smaller datasets cycle through multiple times per epoch
-  - Larger datasets go through once
-  - All tasks get equal gradient updates (1/3 each)
-  - Shared encoder learns from balanced task distribution
+    # =================================================================
+    # 3. COLLATE & PADDING CHECK
+    # =================================================================
+    print_header("3. Testing Collate & Padding Logic")
+    
+    # Initialize Tokenizer via Model class (lightweight)
+    print("  Initializing Tokenizer...")
+    backbone = SharedProtBert(lora_rank=8, unfrozen_layers=0) # Lightweight init
+    tokenizer = backbone.tokenizer
+    
+    # Create a Mixed Batch: One short SSP, One Long SSP
+    # We take two samples from SSP dataset
+    batch_samples = [ds_ssp[0], ds_ssp[1]] 
+    
+    print(f"  Sample 1 Length: {len(batch_samples[0]['sequence'])}")
+    print(f"  Sample 2 Length: {len(batch_samples[1]['sequence'])}")
+    
+    collated = multitask_collate_fn(batch_samples, tokenizer)
+    
+    inp_shape = collated['input_ids'].shape
+    tgt_shape = collated['targets'].shape
+    
+    print(f"  Collated Input Shape: {inp_shape}")
+    print(f"  Collated Target Shape: {tgt_shape}")
+    
+    if inp_shape[1] == tgt_shape[1]:
+        print("  ✅ Sequence Lengths Match")
+    else:
+        print("  ❌ ERROR: Mismatch between Input and Target lengths!")
 
-✓ Your data volumes are reasonable:
-  - Thermostability: 53k samples (large - good for regression)
-  - SecondaryStructure: 9.7k samples (medium - balanced per-residue task)
-  - CloningCLF: 21k samples (good - balance between extremes)
+    # Check for -100 padding
+    # The shorter sequence should be padded with -100 at the end
+    print("  Checking padding values in target...")
+    found_ignore_index = (collated['targets'] == -100).any()
+    if found_ignore_index:
+        print("  ✅ Found -100 in targets (Padding logic works)")
+    else:
+        print("  ⚠️ WARNING: No -100 found (Maybe sequences were same length?)")
 
-ℹ What's happening:
-  - Epoch processes {max_batches} batches (determined by longest loader)
-  - Each task cycles independently if it's shorter
-  - By end of epoch, all samples are seen at least once
-  - Some samples in shorter datasets are repeated (fine, helps regularization)
-""")
+    # =================================================================
+    # 4. MODEL & ENGINE BUILD
+    # =================================================================
+    print_header("4. Building Model & Engine")
+    
+    task_configs = [
+        {'name': 'Thermo', 'type': 'regression', 'num_labels': 1},
+        {'name': 'SSP', 'type': 'token_classification', 'num_labels': 8},
+        {'name': 'Clone', 'type': 'sequence_classification', 'num_labels': 2}
+    ]
+    
+    engine = MultiTaskEngine(
+        backbone=backbone,
+        task_configs=task_configs,
+        train_sets=[ds_thermo], # Dummy sets just to init
+        valid_sets=None,
+        device=DEVICE
+    )
+    
+    # Check Gradients
+    trainable_params = sum(p.numel() for p in engine.parameters() if p.requires_grad)
+    print(f"  Total Trainable Parameters: {trainable_params:,}")
+    if trainable_params > 0:
+        print("  ✅ Model has trainable parameters")
+    else:
+        print("  ❌ ERROR: Model is completely frozen!")
 
-print("\n" + "="*80)
-print("EXPECTED TRAINING BEHAVIOR")
-print("="*80)
-print(f"""
-Each epoch:
-  - Total gradient updates: {total_task_updates:,}
-  - Updates per task: {max_batches} (exactly equal)
-  - Time per epoch: ~{total_task_updates / 100:.1f} minutes (rough estimate on typical GPU)
-  - Memory: ~{max_batches * BATCH_SIZE / 1000:.1f}GB per task cache
+    # =================================================================
+    # 5. FORWARD PASS & LOSS CHECK
+    # =================================================================
+    print_header("5. Running Forward Pass (One Batch Per Task)")
+    
+    engine.train()
+    
+    # Test Thermo
+    print("\n  [Testing Thermostability Forward]")
+    batch_thermo = multitask_collate_fn([ds_thermo[0], ds_thermo[1]], tokenizer)
+    inputs = batch_thermo['input_ids'].to(DEVICE)
+    mask = batch_thermo['attention_mask'].to(DEVICE)
+    targets = batch_thermo['targets'].to(DEVICE)
+    
+    emb = engine.backbone(inputs, mask, task_type='sequence')
+    preds = engine.heads[0](emb)
+    loss = engine.loss_fns[0](preds, targets)
+    print(f"    > Input Shape: {inputs.shape}")
+    print(f"    > Logits Shape: {preds.shape}")
+    print(f"    > Loss: {loss.item():.4f}")
+    if torch.isnan(loss): print("    ❌ LOSS IS NAN"); exit()
+    else: print("    ✅ Forward pass successful")
 
-After 50 epochs:
-  - Total updates: {total_task_updates * 50:,}
-  - Task 0 sees data: ~{50 * 3.35:.1f}x (repetitions + new samples)
-  - Task 1 sees data: ~{50 * 0.61:.1f}x
-  - Task 2 sees data: ~50x (sees every sample exactly 50 times)
+    # Test SSP
+    print("\n  [Testing Secondary Structure Forward]")
+    batch_ssp = multitask_collate_fn([ds_ssp[0], ds_ssp[1]], tokenizer)
+    inputs = batch_ssp['input_ids'].to(DEVICE)
+    mask = batch_ssp['attention_mask'].to(DEVICE)
+    targets = batch_ssp['targets'].to(DEVICE)
+    
+    emb = engine.backbone(inputs, mask, task_type='token')
+    preds = engine.heads[1](emb)
+    # View logic matches engine
+    loss = engine.loss_fns[1](preds.view(-1, 8), targets.view(-1)) 
+    print(f"    > Input Shape: {inputs.shape}")
+    print(f"    > Logits Shape: {preds.shape}")
+    print(f"    > Loss: {loss.item():.4f}")
+    if torch.isnan(loss): print("    ❌ LOSS IS NAN"); exit()
+    else: print("    ✅ Forward pass successful")
 
-This is NORMAL for multi-task learning with imbalanced data.
-""")
+    # Test Cloning
+    print("\n  [Testing Cloning Forward]")
+    batch_clf = multitask_collate_fn([ds_clf[0], ds_clf[1]], tokenizer)
+    inputs = batch_clf['input_ids'].to(DEVICE)
+    mask = batch_clf['attention_mask'].to(DEVICE)
+    targets = batch_clf['targets'].to(DEVICE)
+    
+    emb = engine.backbone(inputs, mask, task_type='sequence')
+    preds = engine.heads[2](emb)
+    loss = engine.loss_fns[2](preds, targets)
+    print(f"    > Input Shape: {inputs.shape}")
+    print(f"    > Logits Shape: {preds.shape}")
+    print(f"    > Loss: {loss.item():.4f}")
+    if torch.isnan(loss): print("    ❌ LOSS IS NAN"); exit()
+    else: print("    ✅ Forward pass successful")
 
-print("="*80 + "\n")
+    print_header("DIAGNOSIS COMPLETE - ALL SYSTEMS GO")
+
+if __name__ == "__main__":
+    diagnose()
