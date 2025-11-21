@@ -6,6 +6,7 @@ import logging
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
+from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
 
 # --- CONFIGURATION ---
 SEED = 42
@@ -101,6 +102,16 @@ def main():
         batch_size=BATCH_SIZE,
         device=DEVICE
     )
+
+    #engine = MultiTaskEngineUncertanityWeighting(
+    #    backbone=backbone,
+    #    task_configs=task_configs,
+    #    train_sets=train_sets,
+    #    valid_sets=valid_sets,
+    #    test_sets=test_sets,
+    #    batch_size=BATCH_SIZE,
+    #    device=DEVICE
+    #)
 
     optimizer = torch.optim.AdamW(engine.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
 
