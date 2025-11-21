@@ -7,7 +7,7 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
-TARGET_TASK = 'Thermostability' 
+TARGET_TASK = 'SecStructure' 
 
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -19,9 +19,9 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Epochs: Small datasets need more epochs to converge than the huge SSP dataset
 if TARGET_TASK == 'SecStructure':
-    EPOCHS = 5   # Huge dataset (approx 3351 steps/epoch)
+    EPOCHS = 5  
 else:
-    EPOCHS = 50  # Small datasets (Thermostability/Cloning) need more passes
+    EPOCHS = 50  
 
 LEARNING_RATE = 1e-4
 
