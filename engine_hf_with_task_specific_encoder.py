@@ -124,6 +124,13 @@ class MultiTaskEngine(nn.Module):
             optimizer.zero_grad()
             step_loss_sum = 0
             
+            # --- DEBUG TRIGGER ---
+            # Activate debug prints on the first step and every 500 steps
+            should_debug = (step == 0) or (step % 500 == 0)
+            
+            if should_debug:
+                print(f"\n--- DEBUG STEP {step} ---")
+
             for i in range(len(self.task_configs)):
                 batch = next(iterators[i])
                 input_ids = batch['input_ids'].to(self.device)
@@ -133,13 +140,28 @@ class MultiTaskEngine(nn.Module):
                 is_token_task = (self.task_configs[i]['type'] in ['token_classification', 'per_residue_classification'])
                 task_mode = 'token' if is_token_task else 'sequence'
                 
-                embeddings = self.backbone(input_ids, mask, task_type=task_mode)
+                # Pass debug flag to backbone
+                embeddings = self.backbone(input_ids, mask, task_type=task_mode, debug=should_debug)
                 logits = self.heads[i](embeddings)
 
                 if is_token_task:
                     loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
                 else:
                     loss = self.loss_fns[i](logits, targets)
+
+                # --- HEAD & LOSS DEBUG ---
+                if should_debug:
+                    task_name = self.task_configs[i]['name']
+                    print(f"  [Task {i}: {task_name}] Loss: {loss.item():.4f}")
+                    
+                    if self.task_configs[i]['type'] == 'regression':
+                        print(f"    > Sample Preds (Raw): {logits[:3].flatten().detach().cpu().numpy()}")
+                        print(f"    > Sample Targets:     {targets[:3].flatten().detach().cpu().numpy()}")
+                    elif not is_token_task: # Cloning
+                        probs = torch.softmax(logits[:3], dim=1)
+                        print(f"    > Sample Probs:   {probs.detach().cpu().numpy()}")
+                        print(f"    > Sample Targets: {targets[:3].detach().cpu().numpy()}")
+                # -------------------------
 
                 weighted_loss = loss * self.task_weights[i]
                 weighted_loss.backward()

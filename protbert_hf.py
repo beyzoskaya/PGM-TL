@@ -55,7 +55,7 @@ class SharedProtBert(nn.Module):
     def hidden_size(self):
         return self.base_model.config.hidden_size
 
-    def forward(self, input_ids, attention_mask, task_type):
+    def forward(self, input_ids, attention_mask, task_type, debug=False):
         """
         task_type: 
             - 'token': Returns (Batch, Seq_Len, Hidden) for Secondary Structure
@@ -64,38 +64,21 @@ class SharedProtBert(nn.Module):
         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state = outputs.last_hidden_state
 
-        if task_type == 'token':
-            # Return per-residue embeddings
-            return last_hidden_state
+        if debug:
+            print(f"    [Backbone Debug] Input IDs Shape: {input_ids.shape}")
+            print(f"    [Backbone Debug] Raw Embeddings: Mean={last_hidden_state.mean().item():.4f} | Std={last_hidden_state.std().item():.4f}")
+
+        if task_type == 'token': 
+            return last_hidden_state 
         
-        else:
-            # Mean Pooling (Attention-Weighted)
-            # This is mathematically better than just taking the [CLS] token for proteins
+        else: 
             input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
             sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
             sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
             pooled = sum_embeddings / sum_mask
+            
+            if debug:
+                print(f"    [Backbone Debug] Pooled Embedding (Sequence): Mean={pooled.mean().item():.4f} | Std={pooled.std().item():.4f}")
+                
             return pooled
 
-def build_regression_head(hidden_dim, num_labels=1, dropout_rate=0.2):
-    return nn.Sequential(
-        nn.LayerNorm(hidden_dim),
-        nn.Dropout(dropout_rate),
-        nn.Linear(hidden_dim, hidden_dim // 2),
-        nn.ReLU(),
-        nn.Dropout(dropout_rate),
-        nn.Linear(hidden_dim // 2, num_labels)
-    )
-
-def build_token_classification_head(hidden_dim, num_labels, dropout_rate=0.3):
-    return nn.Sequential(
-        nn.LayerNorm(hidden_dim),
-        nn.Dropout(dropout_rate),
-        nn.Linear(hidden_dim, num_labels)
-    )
-
-def build_sequence_classification_head(hidden_dim, num_labels, dropout_rate=0.2):
-    return nn.Sequential(
-        nn.Dropout(dropout_rate),
-        nn.Linear(hidden_dim, num_labels)
-    )

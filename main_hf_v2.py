@@ -121,7 +121,7 @@ def main():
         # B. VALIDATION
         engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
 
-        # C. TEST (Run every epoch as requested)
+        # C. TEST 
         engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
         
         # D. SAVE
