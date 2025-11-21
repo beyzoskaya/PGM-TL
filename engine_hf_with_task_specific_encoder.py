@@ -210,6 +210,8 @@ class MultiTaskEngine(nn.Module):
 
         self.backbone.eval()
         for h in self.heads: h.eval()
+
+        metrics_output = {}
         
         print(f"\n[{split_name}] Evaluating...")
 
@@ -265,9 +267,15 @@ class MultiTaskEngine(nn.Module):
                 
                 if is_reg:
                     print(f"  {task_name}: MSE (Loss) = {avg_loss:.4f}")
+                    metrics_output[task_name] = {"MSE": avg_loss}
                 elif is_token:
                     acc = correct / total_tokens if total_tokens > 0 else 0
                     print(f"  {task_name}: Loss = {avg_loss:.4f} | Accuracy = {acc:.4f}")
+                    metrics_output[task_name] = {"Loss": avg_loss, "Accuracy": acc}
                 else:
                     acc = correct / total_samples if total_samples > 0 else 0
                     print(f"  {task_name}: Loss = {avg_loss:.4f} | Accuracy = {acc:.4f}")
+                    metrics_output[task_name] = {"Loss": avg_loss, "Accuracy": acc}
+
+        return metrics_output
+            
