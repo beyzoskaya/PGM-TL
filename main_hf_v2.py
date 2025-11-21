@@ -27,24 +27,29 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 def normalize_regression_targets(train_ds, valid_ds, test_ds):
+
     print("\n[Data] Normalizing Thermostability targets...")
-    train_values = [x for x in train_ds.targets['target'] if x is not None]
+
+    full_dataset = train_ds.dataset 
+    
+    train_indices = train_ds.indices
+    all_raw_targets = full_dataset.targets['target']
+    
+    train_values = [all_raw_targets[i] for i in train_indices if all_raw_targets[i] is not None]
+    
     mean = np.mean(train_values)
     std = np.std(train_values)
-    print(f"  Mean: {mean:.4f} | Std: {std:.4f}")
     
-    def apply_norm(ds):
-        new_targets = []
-        for t in ds.targets['target']:
-            if t is None:
-                new_targets.append(None)
-            else:
-                new_targets.append((t - mean) / std)
-        ds.targets['target'] = new_targets
+    print(f"  Mean: {mean:.4f} | Std: {std:.4f}")
 
-    apply_norm(train_ds)
-    apply_norm(valid_ds)
-    apply_norm(test_ds)
+    new_targets = []
+    for t in all_raw_targets:
+        if t is None:
+            new_targets.append(None)
+        else:
+            new_targets.append((t - mean) / std)
+            
+    full_dataset.targets['target'] = new_targets
     print("  ✓ Normalization complete.")
 
 def main():
