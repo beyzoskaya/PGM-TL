@@ -1,0 +1,310 @@
+Running on cuda with Batch Size 16
+
+[1/5] Loading Datasets...
+README.md: 3.14kB [00:00, 7.61MB/s]
+data/train-00000-of-00001.parquet: 100% 1.86M/1.86M [00:01<00:00, 1.46MB/s]
+data/valid-00000-of-00001.parquet: 100% 77.0k/77.0k [00:00<00:00, 149kB/s]
+data/test-00000-of-00001.parquet: 100% 121k/121k [00:00<00:00, 235kB/s]
+Generating train split: 100% 53614/53614 [00:00<00:00, 1101489.14 examples/s]
+Generating valid split: 100% 2512/2512 [00:00<00:00, 857289.80 examples/s]
+Generating test split: 100% 12851/12851 [00:00<00:00, 2379840.20 examples/s]
+
+[Data] Normalizing Thermostability targets...
+  Mean: 0.1791 | Std: 0.5662
+  ✓ Normalization complete.
+README.md: 4.01kB [00:00, 18.0MB/s]
+data/train-00000-of-00001.parquet: 100% 3.73M/3.73M [00:00<00:00, 5.92MB/s]
+data/test-00000-of-00001.parquet: 100% 205k/205k [00:00<00:00, 396kB/s]
+Generating train split: 100% 10848/10848 [00:00<00:00, 218878.52 examples/s]
+Generating test split: 100% 667/667 [00:00<00:00, 128666.73 examples/s]
+README.md: 2.96kB [00:00, 13.6MB/s]
+data/train-00000-of-00001.parquet: 100% 7.51M/7.51M [00:00<00:00, 12.5MB/s]
+data/test-00000-of-00001.parquet: 100% 1.52M/1.52M [00:00<00:00, 2.95MB/s]
+Generating train split: 100% 23375/23375 [00:00<00:00, 1144974.26 examples/s]
+Generating test split: 100% 4791/4791 [00:00<00:00, 934386.24 examples/s]
+  Thermo Train: 53614 | SSP Train: 9763 | Cloning Train: 21037
+
+[2/5] Initializing SharedProtBert (LoRA + Top 2 Unfrozen)...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+tokenizer_config.json: 100% 86.0/86.0 [00:00<00:00, 954kB/s]
+config.json: 100% 361/361 [00:00<00:00, 4.04MB/s]
+vocab.txt: 100% 81.0/81.0 [00:00<00:00, 760kB/s]
+special_tokens_map.json: 100% 112/112 [00:00<00:00, 1.21MB/s]
+pytorch_model.bin: 100% 1.68G/1.68G [00:02<00:00, 663MB/s] 
+model.safetensors:   0% 792k/1.68G [00:01<51:21, 546kB/s][SharedProtBert] Unfreezing top 2 transformer layers...
+model.safetensors:  68% 1.15G/1.68G [00:02<00:00, 846MB/s][SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+[3/5] Setting up MultiTask Engine...
+model.safetensors: 100% 1.68G/1.68G [00:02<00:00, 680MB/s]
+
+[4/5] Starting Training Loop...
+
+============================== EPOCH 1/10 ==============================
+
+[Train] Starting epoch with 3351 steps...
+  Step 0/3351 | Combined Loss: 3.7590
+  Step 50/3351 | Combined Loss: 3.9504
+  Step 100/3351 | Combined Loss: 3.0289
+  Step 150/3351 | Combined Loss: 2.5733
+  Step 200/3351 | Combined Loss: 2.2467
+  Step 250/3351 | Combined Loss: 2.1233
+  Step 300/3351 | Combined Loss: 2.8157
+  Step 350/3351 | Combined Loss: 2.1978
+  Step 400/3351 | Combined Loss: 1.9606
+  Step 450/3351 | Combined Loss: 1.9334
+  Step 500/3351 | Combined Loss: 1.9236
+  Step 550/3351 | Combined Loss: 2.2579
+  Step 600/3351 | Combined Loss: 2.1873
+  Step 650/3351 | Combined Loss: 2.1212
+  Step 700/3351 | Combined Loss: 2.3288
+  Step 750/3351 | Combined Loss: 1.7506
+  Step 800/3351 | Combined Loss: 2.7418
+  Step 850/3351 | Combined Loss: 1.6071
+  Step 900/3351 | Combined Loss: 1.5377
+  Step 950/3351 | Combined Loss: 2.1631
+  Step 1000/3351 | Combined Loss: 1.6421
+  Step 1050/3351 | Combined Loss: 1.9438
+  Step 1100/3351 | Combined Loss: 1.8012
+  Step 1150/3351 | Combined Loss: 2.0351
+  Step 1200/3351 | Combined Loss: 1.6971
+  Step 1250/3351 | Combined Loss: 2.8260
+  Step 1300/3351 | Combined Loss: 1.7952
+  Step 1350/3351 | Combined Loss: 2.6243
+  Step 1400/3351 | Combined Loss: 2.1297
+  Step 1450/3351 | Combined Loss: 2.1360
+  Step 1500/3351 | Combined Loss: 2.1372
+  Step 1550/3351 | Combined Loss: 1.6696
+  Step 1600/3351 | Combined Loss: 1.8402
+  Step 1650/3351 | Combined Loss: 1.2764
+  Step 1700/3351 | Combined Loss: 1.8534
+  Step 1750/3351 | Combined Loss: 1.6134
+  Step 1800/3351 | Combined Loss: 1.5172
+  Step 1850/3351 | Combined Loss: 2.2144
+  Step 1900/3351 | Combined Loss: 2.0614
+  Step 1950/3351 | Combined Loss: 1.6137
+  Step 2000/3351 | Combined Loss: 1.7126
+  Step 2050/3351 | Combined Loss: 1.7625
+  Step 2100/3351 | Combined Loss: 1.6577
+  Step 2150/3351 | Combined Loss: 1.9338
+  Step 2200/3351 | Combined Loss: 2.1718
+  Step 2250/3351 | Combined Loss: 1.4058
+  Step 2300/3351 | Combined Loss: 1.4411
+  Step 2350/3351 | Combined Loss: 1.8112
+  Step 2400/3351 | Combined Loss: 1.8767
+  Step 2450/3351 | Combined Loss: 1.8607
+  Step 2500/3351 | Combined Loss: 1.9563
+  Step 2550/3351 | Combined Loss: 1.7547
+  Step 2600/3351 | Combined Loss: 1.7900
+  Step 2650/3351 | Combined Loss: 1.8184
+  Step 2700/3351 | Combined Loss: 2.2638
+  Step 2750/3351 | Combined Loss: 2.0362
+  Step 2800/3351 | Combined Loss: 2.1492
+  Step 2850/3351 | Combined Loss: 2.1967
+  Step 2900/3351 | Combined Loss: 1.7559
+  Step 2950/3351 | Combined Loss: 1.5726
+  Step 3000/3351 | Combined Loss: 1.5806
+  Step 3050/3351 | Combined Loss: 1.9178
+  Step 3100/3351 | Combined Loss: 1.6489
+  Step 3150/3351 | Combined Loss: 1.6997
+  Step 3200/3351 | Combined Loss: 1.9922
+  Step 3250/3351 | Combined Loss: 1.5623
+  Step 3300/3351 | Combined Loss: 1.7584
+  Step 3350/3351 | Combined Loss: 1.3535
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 1.9711
+  >> Thermostability: MSE: 0.6057
+  >> SecStructure: Loss: 0.0034 | Acc: 0.6949
+  >> Cloning: Loss: 0.4928 | Acc: 0.7488
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4287
+  SecStructure: Loss = 0.8064 | Accuracy = 0.7150
+  Cloning: Loss = 0.4738 | Accuracy = 0.7861
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.3822
+  SecStructure: Loss = 0.8529 | Accuracy = 0.6965
+  Cloning: Loss = 0.4944 | Accuracy = 0.7673
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1/model_epoch_1.pt
+
+============================== EPOCH 2/10 ==============================
+
+[Train] Starting epoch with 3351 steps...
+  Step 0/3351 | Combined Loss: 1.6195
+  Step 50/3351 | Combined Loss: 1.6550
+  Step 100/3351 | Combined Loss: 1.6703
+  Step 150/3351 | Combined Loss: 1.4286
+  Step 200/3351 | Combined Loss: 1.2983
+  Step 250/3351 | Combined Loss: 1.7185
+  Step 300/3351 | Combined Loss: 1.6279
+  Step 350/3351 | Combined Loss: 1.3385
+  Step 400/3351 | Combined Loss: 1.4264
+  Step 450/3351 | Combined Loss: 1.6487
+  Step 500/3351 | Combined Loss: 1.7887
+  Step 550/3351 | Combined Loss: 1.9280
+  Step 600/3351 | Combined Loss: 1.6654
+  Step 650/3351 | Combined Loss: 1.3461
+  Step 700/3351 | Combined Loss: 1.5920
+  Step 750/3351 | Combined Loss: 1.5447
+  Step 800/3351 | Combined Loss: 1.9309
+  Step 850/3351 | Combined Loss: 1.8128
+  Step 900/3351 | Combined Loss: 1.9191
+  Step 950/3351 | Combined Loss: 1.5538
+  Step 1000/3351 | Combined Loss: 1.8134
+  Step 1050/3351 | Combined Loss: 1.8607
+  Step 1100/3351 | Combined Loss: 1.7424
+  Step 1150/3351 | Combined Loss: 1.6271
+  Step 1200/3351 | Combined Loss: 1.2469
+  Step 1250/3351 | Combined Loss: 1.3278
+  Step 1300/3351 | Combined Loss: 1.6088
+  Step 1350/3351 | Combined Loss: 1.2537
+  Step 1400/3351 | Combined Loss: 1.2760
+  Step 1450/3351 | Combined Loss: 1.6024
+  Step 1500/3351 | Combined Loss: 1.5429
+  Step 1550/3351 | Combined Loss: 1.2212
+  Step 1600/3351 | Combined Loss: 1.5908
+  Step 1650/3351 | Combined Loss: 1.1886
+  Step 1700/3351 | Combined Loss: 1.4190
+  Step 1750/3351 | Combined Loss: 1.3556
+  Step 1800/3351 | Combined Loss: 1.7320
+  Step 1850/3351 | Combined Loss: 1.3404
+  Step 1900/3351 | Combined Loss: 0.9279
+  Step 1950/3351 | Combined Loss: 1.1018
+  Step 2000/3351 | Combined Loss: 1.6797
+  Step 2050/3351 | Combined Loss: 1.0899
+  Step 2100/3351 | Combined Loss: 1.5341
+  Step 2150/3351 | Combined Loss: 1.4235
+  Step 2200/3351 | Combined Loss: 1.5480
+  Step 2250/3351 | Combined Loss: 1.1481
+  Step 2300/3351 | Combined Loss: 1.2367
+  Step 2350/3351 | Combined Loss: 1.5220
+  Step 2400/3351 | Combined Loss: 1.3175
+  Step 2450/3351 | Combined Loss: 1.9986
+  Step 2500/3351 | Combined Loss: 1.5549
+  Step 2550/3351 | Combined Loss: 1.3532
+  Step 2600/3351 | Combined Loss: 1.5176
+  Step 2650/3351 | Combined Loss: 1.3610
+  Step 2700/3351 | Combined Loss: 1.4174
+  Step 2750/3351 | Combined Loss: 1.0584
+  Step 2800/3351 | Combined Loss: 1.1462
+  Step 2850/3351 | Combined Loss: 1.2118
+  Step 2900/3351 | Combined Loss: 1.3951
+  Step 2950/3351 | Combined Loss: 1.5242
+  Step 3000/3351 | Combined Loss: 1.4622
+  Step 3050/3351 | Combined Loss: 1.1265
+  Step 3100/3351 | Combined Loss: 1.5923
+  Step 3150/3351 | Combined Loss: 1.2078
+  Step 3200/3351 | Combined Loss: 0.8253
+  Step 3250/3351 | Combined Loss: 1.4170
+  Step 3300/3351 | Combined Loss: 1.3525
+  Step 3350/3351 | Combined Loss: 1.1163
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 1.4758
+  >> Thermostability: MSE: 0.4692
+  >> SecStructure: Loss: 0.0028 | Acc: 0.7442
+  >> Cloning: Loss: 0.2859 | Acc: 0.8740
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4434
+  SecStructure: Loss = 0.8124 | Accuracy = 0.7176
+  Cloning: Loss = 0.5601 | Accuracy = 0.7707
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2236
+  SecStructure: Loss = 0.8649 | Accuracy = 0.6957
+  Cloning: Loss = 0.6052 | Accuracy = 0.7581
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1/model_epoch_2.pt
+
+============================== EPOCH 3/10 ==============================
+
+[Train] Starting epoch with 3351 steps...
+  Step 0/3351 | Combined Loss: 1.4084
+  Step 50/3351 | Combined Loss: 1.3664
+  Step 100/3351 | Combined Loss: 1.0291
+  Step 150/3351 | Combined Loss: 1.1509
+  Step 200/3351 | Combined Loss: 1.0311
+  Step 250/3351 | Combined Loss: 1.4944
+  Step 300/3351 | Combined Loss: 1.1045
+  Step 350/3351 | Combined Loss: 1.1993
+  Step 400/3351 | Combined Loss: 1.3398
+  Step 450/3351 | Combined Loss: 1.1444
+  Step 500/3351 | Combined Loss: 1.4788
+  Step 550/3351 | Combined Loss: 0.9401
+  Step 600/3351 | Combined Loss: 1.0514
+  Step 650/3351 | Combined Loss: 1.1380
+  Step 700/3351 | Combined Loss: 1.4743
+  Step 750/3351 | Combined Loss: 1.0931
+  Step 800/3351 | Combined Loss: 1.2677
+  Step 850/3351 | Combined Loss: 1.6625
+  Step 900/3351 | Combined Loss: 1.7092
+  Step 950/3351 | Combined Loss: 1.3590
+  Step 1000/3351 | Combined Loss: 1.2830
+  Step 1050/3351 | Combined Loss: 1.0122
+  Step 1100/3351 | Combined Loss: 1.1534
+  Step 1150/3351 | Combined Loss: 0.8990
+  Step 1200/3351 | Combined Loss: 1.2229
+  Step 1250/3351 | Combined Loss: 1.1010
+  Step 1300/3351 | Combined Loss: 1.1923
+  Step 1350/3351 | Combined Loss: 1.2982
+  Step 1400/3351 | Combined Loss: 1.1645
+  Step 1450/3351 | Combined Loss: 1.0531
+  Step 1500/3351 | Combined Loss: 0.8383
+  Step 1550/3351 | Combined Loss: 1.3337
+  Step 1600/3351 | Combined Loss: 1.3212
+  Step 1650/3351 | Combined Loss: 0.8964
+  Step 1700/3351 | Combined Loss: 1.2207
+  Step 1750/3351 | Combined Loss: 1.6682
+  Step 1800/3351 | Combined Loss: 1.0690
+  Step 1850/3351 | Combined Loss: 1.2037
+  Step 1900/3351 | Combined Loss: 1.0713
+  Step 1950/3351 | Combined Loss: 1.1799
+  Step 2000/3351 | Combined Loss: 1.1664
+  Step 2050/3351 | Combined Loss: 1.0627
+  Step 2100/3351 | Combined Loss: 0.9289
+  Step 2150/3351 | Combined Loss: 1.2859
+  Step 2200/3351 | Combined Loss: 0.8409
+  Step 2250/3351 | Combined Loss: 1.3423
+  Step 2300/3351 | Combined Loss: 0.9257
+  Step 2350/3351 | Combined Loss: 0.9944
+  Step 2400/3351 | Combined Loss: 1.1066
+  Step 2450/3351 | Combined Loss: 1.4482
+  Step 2500/3351 | Combined Loss: 1.0209
+  Step 2550/3351 | Combined Loss: 1.2339
+  Step 2600/3351 | Combined Loss: 1.2144
+  Step 2650/3351 | Combined Loss: 0.9128
+  Step 2700/3351 | Combined Loss: 1.0439
+  Step 2750/3351 | Combined Loss: 0.9343
+  Step 2800/3351 | Combined Loss: 1.2827
+  Step 2850/3351 | Combined Loss: 1.0416
+  Step 2900/3351 | Combined Loss: 1.2555
+  Step 2950/3351 | Combined Loss: 1.0032
+  Step 3000/3351 | Combined Loss: 1.2583
+  Step 3050/3351 | Combined Loss: 0.9784
+  Step 3100/3351 | Combined Loss: 1.4049
+  Step 3150/3351 | Combined Loss: 1.1868
+  Step 3200/3351 | Combined Loss: 1.0139
+  Step 3250/3351 | Combined Loss: 1.1095
+  Step 3300/3351 | Combined Loss: 1.2969
+  Step 3350/3351 | Combined Loss: 1.1296
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 1.1761
+  >> Thermostability: MSE: 0.3942
+  >> SecStructure: Loss: 0.0027 | Acc: 0.7609
+  >> Cloning: Loss: 0.1105 | Acc: 0.9590
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.3885
+  SecStructure: Loss = 0.8304 | Accuracy = 0.7152
+  Cloning: Loss = 0.8762 | Accuracy = 0.7618
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2205
+  SecStructure: Loss = 0.8826 | Accuracy = 0.6964
+  Cloning: Loss = 0.9543 | Accuracy = 0.7483
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1/model_epoch_3.pt

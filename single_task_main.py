@@ -7,7 +7,7 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_with_task_specific_encoder import MultiTaskEngine
 
-TARGET_TASK = 'SecStructure' 
+TARGET_TASK = 'Cloning' 
 
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
