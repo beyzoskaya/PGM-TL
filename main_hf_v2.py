@@ -12,14 +12,15 @@ from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeigh
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16        
-EPOCHS = 10
+EPOCHS = 5
 LEARNING_RATE = 1e-4
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Model Config
 LORA_RANK = 16
-UNFROZEN_LAYERS = 2
+#UNFROZEN_LAYERS = 2
+UNFROZEN_LAYERS = 0 #FIXME: Try freezing all except LoRA for both single task and multi task 
 
 def set_seed(seed):
     torch.manual_seed(seed)

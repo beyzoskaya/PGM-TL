@@ -4,9 +4,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
 from itertools import cycle
-import re
+import os
+import csv
+import datetime
 
 def multitask_collate_fn(batch, tokenizer):
+    """Same collate function as before"""
     sequences = []
     for item in batch:
         seq = item['sequence']
@@ -51,19 +54,35 @@ def multitask_collate_fn(batch, tokenizer):
 
 class MultiTaskEngineUncertanityWeighting(nn.Module):
     def __init__(self, backbone, task_configs, train_sets, valid_sets, 
-                 test_sets=None, batch_size=8, device='cuda'):
+                 test_sets=None, batch_size=8, device='cuda', save_dir="."):
         super().__init__()
         self.backbone = backbone.to(device)
         self.device = device
         self.task_configs = task_configs
         self.batch_size = batch_size
-        
+        self.save_dir = save_dir
+
         # --- NOVELTY 1: Learnable Log-Variance Parameters ---
-        # We do NOT use static task_weights anymore.
-        # We initialize with 0.0 (which implies sigma=1, equivalent to equal weighting initially)
+        # Initialize at 0.0 (Sigma=1.0)
         self.log_vars = nn.Parameter(torch.zeros(len(task_configs), device=device))
 
-        # Heads & Loss Fns
+        # --- LOGGING SETUP ---
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 1. CSV for Sigmas (Plotting)
+        self.sigma_log_path = os.path.join(save_dir, "training_dynamics_sigmas.csv")
+        if not os.path.exists(self.sigma_log_path):
+            with open(self.sigma_log_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                header = ["Epoch", "Step"] + [f"Sigma_{cfg['name']}" for cfg in task_configs] + [f"Loss_{cfg['name']}" for cfg in task_configs]
+                writer.writerow(header)
+
+        # 2. Text file for Gradient Analysis (Inspection)
+        self.grad_log_path = os.path.join(save_dir, "gradient_conflict_log.txt")
+        with open(self.grad_log_path, 'a') as f:
+            f.write(f"\n\n--- NEW TRAINING RUN STARTED: {datetime.datetime.now()} ---\n")
+
+        # --- HEADS & LOSSES ---
         self.heads = nn.ModuleList()
         self.loss_fns = []
         hidden_dim = backbone.hidden_size
@@ -96,36 +115,54 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
         self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in valid_sets] if valid_sets else None
         self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in test_sets] if test_sets else None
 
-    def analyze_gradients(self, losses):
+    def analyze_gradients(self, losses, step, epoch):
         """
-        NOVELTY 2: Computes Cosine Similarity between task gradients.
+        Computes Cosine Similarity and logs it to file.
         """
         grads = []
-        # 1. Compute gradients for each task separately
+        trainable_params = [p for p in self.backbone.parameters() if p.requires_grad]
+        
+        if not trainable_params: 
+            return # Nothing to analyze if backbone is totally frozen (shouldn't happen with LoRA)
+
+        # 1. Compute gradients
         for loss in losses:
-            # Get grads ONLY for trainable params (LoRA + Unfrozen) to save memory
-            # retain_graph=True is needed because we backward multiple times
-            g = torch.autograd.grad(loss, 
-                                    [p for p in self.backbone.parameters() if p.requires_grad], 
-                                    retain_graph=True, 
-                                    allow_unused=True)
-            # Flatten into a single vector
+            g = torch.autograd.grad(loss, trainable_params, retain_graph=True, allow_unused=True)
             flat_g = torch.cat([x.flatten() for x in g if x is not None])
             grads.append(flat_g)
         
-        # 2. Compute Pairwise Cosine Similarity
+        # 2. Compute Similarity & Log
+        log_msg = f"\n[Epoch {epoch} Step {step}] Gradient Cosine Similarity:\n"
         num_tasks = len(grads)
-        print("\n  [Gradient Conflict Analysis]")
-        print("  Cosine Similarity (-1.0 = Conflict, +1.0 = Agreement):")
         
         for i in range(num_tasks):
             for j in range(i + 1, num_tasks):
                 sim = F.cosine_similarity(grads[i].unsqueeze(0), grads[j].unsqueeze(0))
                 t1 = self.task_configs[i]['name']
                 t2 = self.task_configs[j]['name']
-                print(f"    > {t1} vs {t2}: {sim.item():.4f}")
+                log_msg += f"  > {t1} vs {t2}: {sim.item():.4f}\n"
+        
+        # Write to file
+        with open(self.grad_log_path, 'a') as f:
+            f.write(log_msg)
+        
+        # Also print to console for monitoring
+        print(log_msg)
 
-    def train_one_epoch(self, optimizer):
+    def log_dynamics(self, epoch, step, losses):
+        """
+        Saves current Sigma values and Raw Losses to CSV
+        """
+        sigmas = torch.exp(self.log_vars).detach().cpu().numpy().tolist()
+        raw_losses = [l.item() for l in losses]
+        
+        row = [epoch, step] + sigmas + raw_losses
+        
+        with open(self.sigma_log_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(row)
+
+    def train_one_epoch(self, optimizer, epoch_index=1):
         self.backbone.train()
         for h in self.heads: h.train()
 
@@ -136,17 +173,18 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
         epoch_loss = 0
         task_stats = {i: {'loss': 0.0, 'total': 0, 'correct': 0} for i in range(len(self.task_configs))}
         
-        print(f"\n[Train] Starting epoch with {max_steps} steps...")
-        print(f"[Novelty] Initial Task Sigmas (Uncertainty): {torch.exp(self.log_vars).detach().cpu().numpy()}")
-
+        print(f"\n[Train] Starting Epoch {epoch_index} with {max_steps} steps...")
+        
         for step in range(max_steps):
             optimizer.zero_grad()
             step_loss_sum = 0
+            raw_losses_list = []
             
-            # Collect raw losses for gradient analysis
-            raw_losses_for_analysis = []
+            # Analyze gradients occasionally (e.g., step 50, then every 500 steps)
+            should_analyze_grads = (step == 50) or (step % 500 == 0 and step > 0)
             
-            should_analyze = (step == 50) or (step % 1000 == 0 and step > 0)
+            # Log sigmas more frequently (every 100 steps)
+            should_log_sigmas = (step % 100 == 0)
 
             for i in range(len(self.task_configs)):
                 batch = next(iterators[i])
@@ -156,30 +194,25 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
 
                 is_token_task = (self.task_configs[i]['type'] in ['token_classification', 'per_residue_classification'])
                 
-                # Forward
                 embeddings = self.backbone(input_ids, mask, task_type='token' if is_token_task else 'sequence')
                 logits = self.heads[i](embeddings)
 
-                # Loss
                 if is_token_task:
                     loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
                 else:
                     loss = self.loss_fns[i](logits, targets)
                 
-                # Save for analysis BEFORE weighting
-                if should_analyze:
-                    raw_losses_for_analysis.append(loss)
+                # Store raw loss for logging/analysis
+                raw_losses_list.append(loss)
 
-                # --- NOVELTY: ADAPTIVE UNCERTAINTY WEIGHTING ---
-                # Formula: Loss * exp(-log_var) + log_var
-                # If log_var is high (high uncertainty), the gradient is scaled down.
+                # Uncertainty Weighting Formula
                 precision = torch.exp(-self.log_vars[i])
                 weighted_loss = (precision * loss) + self.log_vars[i]
                 
                 weighted_loss.backward()
                 step_loss_sum += weighted_loss.item()
                 
-                # Stats
+                # Stats accumulation
                 with torch.no_grad():
                     batch_size = input_ids.size(0)
                     task_stats[i]['loss'] += loss.item() * batch_size
@@ -197,20 +230,23 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
                         task_stats[i]['correct'] += (preds == targets).sum().item()
                         task_stats[i]['total'] += batch_size
 
-            # --- NOVELTY: ANALYZE GRADIENTS ---
-            if should_analyze:
-                self.analyze_gradients(raw_losses_for_analysis)
-                # Print current Sigma values
-                sigmas = torch.exp(self.log_vars).detach().cpu().numpy()
-                print(f"  [Adaptive Weights] Sigmas: {sigmas} (Higher = Less Weight)")
+            # --- SAVINGS & ANALYSIS ---
+            if should_analyze_grads:
+                self.analyze_gradients(raw_losses_list, step, epoch_index)
+            
+            if should_log_sigmas:
+                self.log_dynamics(epoch_index, step, raw_losses_list)
 
             torch.nn.utils.clip_grad_norm_(self.backbone.parameters(), 1.0)
             optimizer.step()
             epoch_loss += step_loss_sum
 
             if step % 50 == 0:
-                print(f"  Step {step}/{max_steps} | Combined Loss (Weighted): {step_loss_sum:.4f}")
+                # Just for console visibility
+                sigmas_str = [f"{np.exp(v):.2f}" for v in self.log_vars.detach().cpu().numpy()]
+                print(f"  Step {step}/{max_steps} | Combined Loss: {step_loss_sum:.4f} | Sigmas: {sigmas_str}")
 
+        # Return metrics (same as before)
         results = {"combined_loss": epoch_loss / max_steps}
         for i, cfg in enumerate(self.task_configs):
             name = cfg['name']
@@ -224,7 +260,6 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
         return results
 
     def evaluate(self, loader_list=None, split_name="Validation"):
-        # Use exact same evaluation logic as before
         if loader_list is None: loader_list = self.valid_loaders
         if not loader_list: return {}
 

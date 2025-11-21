@@ -14,6 +14,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16
 LORA_RANK = 16
 UNFROZEN_LAYERS = 2
+#UNFROZEN_LAYERS = 0 #FIXME: Try freezing all except LoRA for both single task and multi task 
 SAVE_DIR = f"/content/drive/MyDrive/protein_multitask_outputs/baseline_{TARGET_TASK}"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
