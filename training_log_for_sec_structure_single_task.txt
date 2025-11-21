@@ -1,0 +1,193 @@
+==================================================
+SINGLE TASK BASELINE: SecStructure
+Device: cuda | Epochs: 5 | Batch: 16
+==================================================
+
+[1/5] Loading Data...
+README.md: 4.01kB [00:00, 8.84MB/s]
+data/train-00000-of-00001.parquet: 100% 3.73M/3.73M [00:01<00:00, 2.90MB/s]
+data/test-00000-of-00001.parquet: 100% 205k/205k [00:00<00:00, 398kB/s]
+Generating train split: 100% 10848/10848 [00:00<00:00, 152942.08 examples/s]
+Generating test split: 100% 667/667 [00:00<00:00, 129040.63 examples/s]
+  Train Size: 9763
+  Valid Size: 1085
+
+[2/5] Initializing SharedProtBert...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+tokenizer_config.json: 100% 86.0/86.0 [00:00<00:00, 123kB/s]
+config.json: 100% 361/361 [00:00<00:00, 2.79MB/s]
+vocab.txt: 100% 81.0/81.0 [00:00<00:00, 752kB/s]
+special_tokens_map.json: 100% 112/112 [00:00<00:00, 1.23MB/s]
+pytorch_model.bin: 100% 1.68G/1.68G [00:02<00:00, 592MB/s]
+model.safetensors:   0% 0.00/1.68G [00:00<?, ?B/s][SharedProtBert] Unfreezing top 2 transformer layers...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+[3/5] Initializing Engine...
+
+[4/5] Starting Single-Task Training (5 epochs)...
+
+========== EPOCH 1/5 ==========
+
+[Train] Starting epoch with 611 steps...
+
+--- DEBUG STEP 0 ---
+model.safetensors: 100% 1.68G/1.68G [00:02<00:00, 581MB/s]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 478])
+    [Backbone Debug] Raw Embeddings: Mean=0.0000 | Std=0.1062
+  [Task 0: SecStructure] Loss: 2.0866
+  Step 0/611 | Combined Loss: 2.0866
+  Step 50/611 | Combined Loss: 1.4724
+  Step 100/611 | Combined Loss: 1.1504
+  Step 150/611 | Combined Loss: 0.9749
+  Step 200/611 | Combined Loss: 1.0009
+  Step 250/611 | Combined Loss: 0.9307
+  Step 300/611 | Combined Loss: 0.9299
+  Step 350/611 | Combined Loss: 0.8712
+  Step 400/611 | Combined Loss: 0.8366
+  Step 450/611 | Combined Loss: 0.8732
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 491])
+    [Backbone Debug] Raw Embeddings: Mean=0.0023 | Std=0.2087
+  [Task 0: SecStructure] Loss: 0.9161
+  Step 500/611 | Combined Loss: 0.9161
+  Step 550/611 | Combined Loss: 0.9182
+  Step 600/611 | Combined Loss: 0.7688
+  [Train] Loss: 1.0129
+
+[VALIDATION] Evaluating...
+  SecStructure: Loss = 0.8461 | Accuracy = 0.7014
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_SecStructure/model_epoch_1.pt
+
+========== EPOCH 2/5 ==========
+
+[Train] Starting epoch with 611 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 639])
+    [Backbone Debug] Raw Embeddings: Mean=0.0020 | Std=0.2088
+  [Task 0: SecStructure] Loss: 0.8888
+  Step 0/611 | Combined Loss: 0.8888
+  Step 50/611 | Combined Loss: 0.7869
+  Step 100/611 | Combined Loss: 0.7915
+  Step 150/611 | Combined Loss: 0.7414
+  Step 200/611 | Combined Loss: 0.7258
+  Step 250/611 | Combined Loss: 0.8482
+  Step 300/611 | Combined Loss: 0.8922
+  Step 350/611 | Combined Loss: 0.9240
+  Step 400/611 | Combined Loss: 0.7408
+  Step 450/611 | Combined Loss: 0.8024
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 765])
+    [Backbone Debug] Raw Embeddings: Mean=0.0016 | Std=0.2100
+  [Task 0: SecStructure] Loss: 0.8019
+  Step 500/611 | Combined Loss: 0.8019
+  Step 550/611 | Combined Loss: 0.7827
+  Step 600/611 | Combined Loss: 0.7320
+  [Train] Loss: 0.8000
+
+[VALIDATION] Evaluating...
+  SecStructure: Loss = 0.7973 | Accuracy = 0.7167
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_SecStructure/model_epoch_2.pt
+
+========== EPOCH 3/5 ==========
+
+[Train] Starting epoch with 611 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 778])
+    [Backbone Debug] Raw Embeddings: Mean=0.0014 | Std=0.2053
+  [Task 0: SecStructure] Loss: 0.7798
+  Step 0/611 | Combined Loss: 0.7798
+  Step 50/611 | Combined Loss: 0.7320
+  Step 100/611 | Combined Loss: 0.7754
+  Step 150/611 | Combined Loss: 0.7536
+  Step 200/611 | Combined Loss: 0.6963
+  Step 250/611 | Combined Loss: 0.7330
+  Step 300/611 | Combined Loss: 0.7762
+  Step 350/611 | Combined Loss: 0.7062
+  Step 400/611 | Combined Loss: 0.6533
+  Step 450/611 | Combined Loss: 0.6563
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 720])
+    [Backbone Debug] Raw Embeddings: Mean=0.0011 | Std=0.1998
+  [Task 0: SecStructure] Loss: 0.7652
+  Step 500/611 | Combined Loss: 0.7652
+  Step 550/611 | Combined Loss: 0.6592
+  Step 600/611 | Combined Loss: 0.7439
+  [Train] Loss: 0.7379
+
+[VALIDATION] Evaluating...
+  SecStructure: Loss = 0.7816 | Accuracy = 0.7228
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_SecStructure/model_epoch_3.pt
+
+========== EPOCH 4/5 ==========
+
+[Train] Starting epoch with 611 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 587])
+    [Backbone Debug] Raw Embeddings: Mean=0.0016 | Std=0.2062
+  [Task 0: SecStructure] Loss: 0.7099
+  Step 0/611 | Combined Loss: 0.7099
+  Step 50/611 | Combined Loss: 0.6467
+  Step 100/611 | Combined Loss: 0.5104
+  Step 150/611 | Combined Loss: 0.6907
+  Step 200/611 | Combined Loss: 0.6962
+  Step 250/611 | Combined Loss: 0.6588
+  Step 300/611 | Combined Loss: 0.7662
+  Step 350/611 | Combined Loss: 0.7610
+  Step 400/611 | Combined Loss: 0.6485
+  Step 450/611 | Combined Loss: 0.5916
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 901])
+    [Backbone Debug] Raw Embeddings: Mean=0.0013 | Std=0.2032
+  [Task 0: SecStructure] Loss: 0.5890
+  Step 500/611 | Combined Loss: 0.5890
+  Step 550/611 | Combined Loss: 0.7549
+  Step 600/611 | Combined Loss: 0.6610
+  [Train] Loss: 0.6840
+
+[VALIDATION] Evaluating...
+  SecStructure: Loss = 0.7820 | Accuracy = 0.7252
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_SecStructure/model_epoch_4.pt
+
+========== EPOCH 5/5 ==========
+
+[Train] Starting epoch with 611 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 668])
+    [Backbone Debug] Raw Embeddings: Mean=0.0009 | Std=0.1953
+  [Task 0: SecStructure] Loss: 0.7251
+  Step 0/611 | Combined Loss: 0.7251
+  Step 50/611 | Combined Loss: 0.6189
+  Step 100/611 | Combined Loss: 0.7239
+  Step 150/611 | Combined Loss: 0.6268
+  Step 200/611 | Combined Loss: 0.6083
+  Step 250/611 | Combined Loss: 0.6106
+  Step 300/611 | Combined Loss: 0.6021
+  Step 350/611 | Combined Loss: 0.6337
+  Step 400/611 | Combined Loss: 0.6953
+  Step 450/611 | Combined Loss: 0.5387
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 725])
+    [Backbone Debug] Raw Embeddings: Mean=0.0008 | Std=0.1993
+  [Task 0: SecStructure] Loss: 0.6308
+  Step 500/611 | Combined Loss: 0.6308
+  Step 550/611 | Combined Loss: 0.6199
+  Step 600/611 | Combined Loss: 0.7598
+  [Train] Loss: 0.6344
+
+[VALIDATION] Evaluating...
+  SecStructure: Loss = 0.7860 | Accuracy = 0.7271
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_SecStructure/model_epoch_5.pt
+
+[5/5] Final Test Evaluation...
+
+[TEST] Evaluating...
+  SecStructure: Loss = 0.8441 | Accuracy = 0.7045
