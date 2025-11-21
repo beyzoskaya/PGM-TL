@@ -3,17 +3,28 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 from itertools import cycle
+import re
 
 def multitask_collate_fn(batch, tokenizer):
     """
     Handles batches where inputs are sequences and targets vary by task type.
-    Dynamically pads to the longest sequence in the *current batch* to save memory.
-    """
-    sequences = [item['sequence'] for item in batch]
+    Dynamically pads to the longest sequence in the *current batch*.
     
-    # 1. Tokenize
-    # padding=True: Pads to the longest sequence IN THIS BATCH (efficient)
-    # truncation=True: Cuts off if longer than max_length (usually 1024 for ProtBERT)
+    FIX: Adds whitespace between amino acids for ProtBERT tokenizer.
+    """
+    # 1. Prepare Sequences (Add spaces: "MKTV" -> "M K T V")
+    sequences = []
+    for item in batch:
+        seq = item['sequence']
+        # Ensure it is a string and add spaces between characters
+        if isinstance(seq, str):
+            # " ".join(list(seq)) turns "MKTV" into "M K T V"
+            sequences.append(" ".join(list(seq)))
+        else:
+            # Fallback if something weird happens
+            sequences.append("")
+    
+    # 2. Tokenize
     inputs = tokenizer(
         sequences, 
         return_tensors='pt', 
@@ -22,40 +33,42 @@ def multitask_collate_fn(batch, tokenizer):
         max_length=1024 
     )
     
-    # 2. Process Targets
-    # We extract the raw target value from the dictionary structure
+    # 3. Process Targets
     raw_targets = [item['targets']['target'] for item in batch]
-    
     target_tensor = None
     
-    # --- LOGIC TO DETECT TARGET TYPE ---
-    
-    # Case A: List of Ints -> Secondary Structure (Token Classification)
+    # Case A: Secondary Structure (List of Ints)
     if raw_targets[0] is not None and isinstance(raw_targets[0], list):
         batch_size = len(raw_targets)
-        max_seq_len = inputs['input_ids'].shape[1] # Match input length
+        max_seq_len = inputs['input_ids'].shape[1] 
         
-        # Create a tensor filled with -100 (PyTorch's default ignore_index)
+        # Fill with -100
         target_tensor = torch.full((batch_size, max_seq_len), -100, dtype=torch.long)
         
         for i, t_seq in enumerate(raw_targets):
-            # If target is shorter than padded seq, we fill valid parts
-            # If target is longer (truncation), we slice it
-            valid_len = min(len(t_seq), max_seq_len)
+            # ProtBERT adds [CLS] at start and [SEP] at end. 
+            # Our targets usually match the raw sequence length.
+            # We need to align targets to the tokenized input.
+            
+            # Input:  [CLS] M  K  T  V  [SEP]  (Len 6)
+            # Target:       0  1  2  3         (Len 4)
+            
+            # We map targets to indices 1:-1 (skipping CLS and SEP)
+            valid_len = min(len(t_seq), max_seq_len - 2) # -2 for CLS/SEP
+            
             if valid_len > 0:
-                target_tensor[i, :valid_len] = torch.tensor(t_seq[:valid_len], dtype=torch.long)
+                # Assign targets to the middle of the tensor
+                target_tensor[i, 1 : 1+valid_len] = torch.tensor(t_seq[:valid_len], dtype=torch.long)
 
-    # Case B: Float -> Thermostability (Regression)
+    # Case B: Thermostability (Float)
     elif raw_targets[0] is not None and isinstance(raw_targets[0], float):
-        target_tensor = torch.tensor(raw_targets, dtype=torch.float32).unsqueeze(1) # Shape [B, 1]
+        target_tensor = torch.tensor(raw_targets, dtype=torch.float32).unsqueeze(1)
 
-    # Case C: Int -> Cloning (Sequence Classification)
+    # Case C: Cloning (Int)
     elif raw_targets[0] is not None and isinstance(raw_targets[0], int):
-        target_tensor = torch.tensor(raw_targets, dtype=torch.long) # Shape [B]
+        target_tensor = torch.tensor(raw_targets, dtype=torch.long)
         
-    # Case D: Handle None/Missing (Evaluation with no targets)
     else:
-        # Fallback placeholder
         target_tensor = torch.zeros(len(raw_targets))
 
     return {
