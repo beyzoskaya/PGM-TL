@@ -1,0 +1,352 @@
+==================================================
+SINGLE TASK BASELINE: Cloning
+Device: cuda | Epochs: 5 | Batch: 16
+==================================================
+
+[1/5] Loading Data...
+  Train Size: 21037
+  Valid Size: 2338
+
+[2/5] Initializing SharedProtBert...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Unfreezing top 2 transformer layers...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+[3/5] Initializing Engine...
+
+[4/5] Starting Single-Task Training (5 epochs)...
+
+========== EPOCH 1/5 ==========
+
+[Train] Starting epoch with 1315 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 906])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1088
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0003 | Std=0.0514
+  [Task 0: Cloning] Loss: 0.7100
+    > Sample Probs:   [[0.48136634 0.51863366]
+ [0.48337772 0.51662225]
+ [0.4792959  0.52070403]]
+    > Sample Targets: [1 1 0]
+  Step 0/1315 | Combined Loss: 0.7100
+  Step 50/1315 | Combined Loss: 0.6543
+  Step 100/1315 | Combined Loss: 0.6616
+  Step 150/1315 | Combined Loss: 0.6527
+  Step 200/1315 | Combined Loss: 0.6986
+  Step 250/1315 | Combined Loss: 0.5654
+  Step 300/1315 | Combined Loss: 0.6854
+  Step 350/1315 | Combined Loss: 0.5676
+  Step 400/1315 | Combined Loss: 0.6298
+  Step 450/1315 | Combined Loss: 0.5144
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=0.0002 | Std=0.1351
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0004 | Std=0.0996
+  [Task 0: Cloning] Loss: 0.6714
+    > Sample Probs:   [[0.57055175 0.42944822]
+ [0.15330939 0.84669065]
+ [0.65198445 0.34801552]]
+    > Sample Targets: [1 1 1]
+  Step 500/1315 | Combined Loss: 0.6714
+  Step 550/1315 | Combined Loss: 0.3660
+  Step 600/1315 | Combined Loss: 0.4112
+  Step 650/1315 | Combined Loss: 0.5479
+  Step 700/1315 | Combined Loss: 0.3384
+  Step 750/1315 | Combined Loss: 0.5226
+  Step 800/1315 | Combined Loss: 0.6324
+  Step 850/1315 | Combined Loss: 0.6353
+  Step 900/1315 | Combined Loss: 0.4086
+  Step 950/1315 | Combined Loss: 0.3982
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 928])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1392
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0003 | Std=0.1120
+  [Task 0: Cloning] Loss: 0.4833
+    > Sample Probs:   [[0.8840446  0.11595544]
+ [0.04382047 0.95617956]
+ [0.8897816  0.11021842]]
+    > Sample Targets: [0 1 0]
+  Step 1000/1315 | Combined Loss: 0.4833
+  Step 1050/1315 | Combined Loss: 0.3296
+  Step 1100/1315 | Combined Loss: 0.6422
+  Step 1150/1315 | Combined Loss: 0.5130
+  Step 1200/1315 | Combined Loss: 0.3903
+  Step 1250/1315 | Combined Loss: 0.3249
+  Step 1300/1315 | Combined Loss: 0.3094
+  [Train] Loss: 0.5216
+
+[VALIDATION] Evaluating...
+  Cloning: Loss = 0.4467 | Accuracy = 0.7789
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_Cloning/model_epoch_1.pt
+
+========== EPOCH 2/5 ==========
+
+[Train] Starting epoch with 1315 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=0.0002 | Std=0.1363
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0005 | Std=0.0870
+  [Task 0: Cloning] Loss: 0.8089
+    > Sample Probs:   [[0.07273708 0.9272629 ]
+ [0.07553899 0.924461  ]
+ [0.3632083  0.63679177]]
+    > Sample Targets: [0 0 0]
+  Step 0/1315 | Combined Loss: 0.8089
+  Step 50/1315 | Combined Loss: 0.6885
+  Step 100/1315 | Combined Loss: 0.4040
+  Step 150/1315 | Combined Loss: 0.4326
+  Step 200/1315 | Combined Loss: 0.5831
+  Step 250/1315 | Combined Loss: 0.4515
+  Step 300/1315 | Combined Loss: 0.5005
+  Step 350/1315 | Combined Loss: 0.6518
+  Step 400/1315 | Combined Loss: 0.3690
+  Step 450/1315 | Combined Loss: 0.3068
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 888])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1438
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0000 | Std=0.1125
+  [Task 0: Cloning] Loss: 0.6751
+    > Sample Probs:   [[0.41800764 0.5819924 ]
+ [0.973486   0.026514  ]
+ [0.95107037 0.04892969]]
+    > Sample Targets: [1 0 1]
+  Step 500/1315 | Combined Loss: 0.6751
+  Step 550/1315 | Combined Loss: 0.4874
+  Step 600/1315 | Combined Loss: 0.5128
+  Step 650/1315 | Combined Loss: 0.3108
+  Step 700/1315 | Combined Loss: 0.1495
+  Step 750/1315 | Combined Loss: 0.5317
+  Step 800/1315 | Combined Loss: 0.4411
+  Step 850/1315 | Combined Loss: 0.5453
+  Step 900/1315 | Combined Loss: 0.5812
+  Step 950/1315 | Combined Loss: 0.3012
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 763])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0001 | Std=0.1750
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0001 | Std=0.1587
+  [Task 0: Cloning] Loss: 0.2782
+    > Sample Probs:   [[0.9922255  0.00777443]
+ [0.39675644 0.6032436 ]
+ [0.7226548  0.27734518]]
+    > Sample Targets: [0 0 0]
+  Step 1000/1315 | Combined Loss: 0.2782
+  Step 1050/1315 | Combined Loss: 0.3145
+  Step 1100/1315 | Combined Loss: 0.3466
+  Step 1150/1315 | Combined Loss: 0.3323
+  Step 1200/1315 | Combined Loss: 0.6432
+  Step 1250/1315 | Combined Loss: 0.6218
+  Step 1300/1315 | Combined Loss: 0.1419
+  [Train] Loss: 0.4043
+
+[VALIDATION] Evaluating...
+  Cloning: Loss = 0.4746 | Accuracy = 0.7883
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_Cloning/model_epoch_2.pt
+
+========== EPOCH 3/5 ==========
+
+[Train] Starting epoch with 1315 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 594])
+    [Backbone Debug] Raw Embeddings: Mean=0.0003 | Std=0.1650
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0002 | Std=0.1393
+  [Task 0: Cloning] Loss: 0.1907
+    > Sample Probs:   [[0.09416886 0.90583116]
+ [0.03449489 0.9655051 ]
+ [0.66331154 0.3366885 ]]
+    > Sample Targets: [1 1 0]
+  Step 0/1315 | Combined Loss: 0.1907
+  Step 50/1315 | Combined Loss: 0.3771
+  Step 100/1315 | Combined Loss: 0.3826
+  Step 150/1315 | Combined Loss: 0.0782
+  Step 200/1315 | Combined Loss: 0.6045
+  Step 250/1315 | Combined Loss: 0.5207
+  Step 300/1315 | Combined Loss: 0.2032
+  Step 350/1315 | Combined Loss: 0.4346
+  Step 400/1315 | Combined Loss: 0.3600
+  Step 450/1315 | Combined Loss: 0.3755
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1611
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0003 | Std=0.1353
+  [Task 0: Cloning] Loss: 0.3637
+    > Sample Probs:   [[0.06774201 0.93225795]
+ [0.02255464 0.97744536]
+ [0.8631493  0.13685066]]
+    > Sample Targets: [1 1 0]
+  Step 500/1315 | Combined Loss: 0.3637
+  Step 550/1315 | Combined Loss: 0.4048
+  Step 600/1315 | Combined Loss: 0.4693
+  Step 650/1315 | Combined Loss: 0.2467
+  Step 700/1315 | Combined Loss: 0.2636
+  Step 750/1315 | Combined Loss: 0.3195
+  Step 800/1315 | Combined Loss: 0.5467
+  Step 850/1315 | Combined Loss: 0.2307
+  Step 900/1315 | Combined Loss: 0.3008
+  Step 950/1315 | Combined Loss: 0.1322
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 946])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1638
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0003 | Std=0.1374
+  [Task 0: Cloning] Loss: 0.2330
+    > Sample Probs:   [[0.04515439 0.9548456 ]
+ [0.8151615  0.1848385 ]
+ [0.63928276 0.3607173 ]]
+    > Sample Targets: [1 0 0]
+  Step 1000/1315 | Combined Loss: 0.2330
+  Step 1050/1315 | Combined Loss: 0.2299
+  Step 1100/1315 | Combined Loss: 0.2323
+  Step 1150/1315 | Combined Loss: 0.1690
+  Step 1200/1315 | Combined Loss: 0.4103
+  Step 1250/1315 | Combined Loss: 0.6101
+  Step 1300/1315 | Combined Loss: 0.3285
+  [Train] Loss: 0.3322
+
+[VALIDATION] Evaluating...
+  Cloning: Loss = 0.4480 | Accuracy = 0.7857
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_Cloning/model_epoch_3.pt
+
+========== EPOCH 4/5 ==========
+
+[Train] Starting epoch with 1315 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1588
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0000 | Std=0.1326
+  [Task 0: Cloning] Loss: 0.2850
+    > Sample Probs:   [[0.7937422  0.20625779]
+ [0.06694709 0.93305284]
+ [0.9220488  0.07795119]]
+    > Sample Targets: [1 1 0]
+  Step 0/1315 | Combined Loss: 0.2850
+  Step 50/1315 | Combined Loss: 0.0783
+  Step 100/1315 | Combined Loss: 0.3363
+  Step 150/1315 | Combined Loss: 0.3538
+  Step 200/1315 | Combined Loss: 0.1568
+  Step 250/1315 | Combined Loss: 0.1137
+  Step 300/1315 | Combined Loss: 0.2853
+  Step 350/1315 | Combined Loss: 0.3894
+  Step 400/1315 | Combined Loss: 0.5481
+  Step 450/1315 | Combined Loss: 0.1154
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 971])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1624
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0003 | Std=0.1343
+  [Task 0: Cloning] Loss: 0.3958
+    > Sample Probs:   [[0.98870635 0.01129357]
+ [0.01914557 0.9808544 ]
+ [0.13244277 0.8675572 ]]
+    > Sample Targets: [0 1 1]
+  Step 500/1315 | Combined Loss: 0.3958
+  Step 550/1315 | Combined Loss: 0.1528
+  Step 600/1315 | Combined Loss: 0.3570
+  Step 650/1315 | Combined Loss: 0.4344
+  Step 700/1315 | Combined Loss: 0.2457
+  Step 750/1315 | Combined Loss: 0.2824
+  Step 800/1315 | Combined Loss: 0.2569
+  Step 850/1315 | Combined Loss: 0.1392
+  Step 900/1315 | Combined Loss: 0.4518
+  Step 950/1315 | Combined Loss: 0.3210
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=0.0006 | Std=0.1796
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0008 | Std=0.1619
+  [Task 0: Cloning] Loss: 0.1810
+    > Sample Probs:   [[0.9177797  0.08222035]
+ [0.93038374 0.06961624]
+ [0.01999781 0.98000216]]
+    > Sample Targets: [0 0 1]
+  Step 1000/1315 | Combined Loss: 0.1810
+  Step 1050/1315 | Combined Loss: 0.3980
+  Step 1100/1315 | Combined Loss: 0.1187
+  Step 1150/1315 | Combined Loss: 0.2355
+  Step 1200/1315 | Combined Loss: 0.1906
+  Step 1250/1315 | Combined Loss: 0.4148
+  Step 1300/1315 | Combined Loss: 0.1287
+  [Train] Loss: 0.2550
+
+[VALIDATION] Evaluating...
+  Cloning: Loss = 0.5486 | Accuracy = 0.7750
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_Cloning/model_epoch_4.pt
+
+========== EPOCH 5/5 ==========
+
+[Train] Starting epoch with 1315 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 653])
+    [Backbone Debug] Raw Embeddings: Mean=0.0005 | Std=0.1834
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0005 | Std=0.1613
+  [Task 0: Cloning] Loss: 0.1783
+    > Sample Probs:   [[0.61071926 0.38928077]
+ [0.9424789  0.05752109]
+ [0.01756019 0.98243976]]
+    > Sample Targets: [0 0 1]
+  Step 0/1315 | Combined Loss: 0.1783
+  Step 50/1315 | Combined Loss: 0.0325
+  Step 100/1315 | Combined Loss: 0.0632
+  Step 150/1315 | Combined Loss: 0.0303
+  Step 200/1315 | Combined Loss: 0.2199
+  Step 250/1315 | Combined Loss: 0.0705
+  Step 300/1315 | Combined Loss: 0.0815
+  Step 350/1315 | Combined Loss: 0.1980
+  Step 400/1315 | Combined Loss: 0.5996
+  Step 450/1315 | Combined Loss: 0.0492
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 805])
+    [Backbone Debug] Raw Embeddings: Mean=0.0003 | Std=0.1868
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0003 | Std=0.1720
+  [Task 0: Cloning] Loss: 0.2181
+    > Sample Probs:   [[0.96706563 0.03293434]
+ [0.01633899 0.983661  ]
+ [0.01384978 0.9861502 ]]
+    > Sample Targets: [0 1 1]
+  Step 500/1315 | Combined Loss: 0.2181
+  Step 550/1315 | Combined Loss: 0.3102
+  Step 600/1315 | Combined Loss: 0.1680
+  Step 650/1315 | Combined Loss: 0.0193
+  Step 700/1315 | Combined Loss: 0.0286
+  Step 750/1315 | Combined Loss: 0.1895
+  Step 800/1315 | Combined Loss: 0.0328
+  Step 850/1315 | Combined Loss: 0.0950
+  Step 900/1315 | Combined Loss: 0.3988
+  Step 950/1315 | Combined Loss: 0.1533
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 837])
+    [Backbone Debug] Raw Embeddings: Mean=0.0002 | Std=0.1888
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0002 | Std=0.1745
+  [Task 0: Cloning] Loss: 0.1362
+    > Sample Probs:   [[0.95611554 0.04388448]
+ [0.8408813  0.15911874]
+ [0.95439816 0.04560184]]
+    > Sample Targets: [0 0 0]
+  Step 1000/1315 | Combined Loss: 0.1362
+  Step 1050/1315 | Combined Loss: 0.0541
+  Step 1100/1315 | Combined Loss: 0.2156
+  Step 1150/1315 | Combined Loss: 0.0719
+  Step 1200/1315 | Combined Loss: 0.0668
+  Step 1250/1315 | Combined Loss: 0.1960
+  Step 1300/1315 | Combined Loss: 0.0820
+  [Train] Loss: 0.1799
+
+[VALIDATION] Evaluating...
+  Cloning: Loss = 0.5914 | Accuracy = 0.7746
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/baseline_Cloning/model_epoch_5.pt
+
+[5/5] Final Test Evaluation...
+
+[TEST] Evaluating...
+  Cloning: Loss = 0.5946 | Accuracy = 0.7704

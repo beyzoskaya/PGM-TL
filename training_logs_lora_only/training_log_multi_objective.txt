@@ -1,0 +1,1048 @@
+Running on cuda with Batch Size 16
+
+[1/5] Loading Datasets...
+
+[Data] Normalizing Thermostability targets...
+  Mean: 0.1791 | Std: 0.5662
+  ✓ Normalization complete.
+  Thermo Train: 53614 | SSP Train: 9763 | Cloning Train: 21037
+
+[2/5] Initializing SharedProtBert (LoRA + Top 0 Unfrozen)...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+[3/5] Setting up MultiTask Engine...
+
+[4/5] Starting Training Loop...
+
+============================== EPOCH 1/5 ==============================
+
+[Train] Starting epoch with 3351 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1065
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0009 | Std=0.0701
+  [Task 0: Thermostability] Loss: 0.9781
+    > Sample Preds (Raw): [-0.05122524 -0.028751   -0.03242888]
+    > Sample Targets:     [-0.8107252 -0.8107252  1.3968797]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 730])
+    [Backbone Debug] Raw Embeddings: Mean=0.0004 | Std=0.1089
+  [Task 1: SecStructure] Loss: 2.0841
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 713])
+    [Backbone Debug] Raw Embeddings: Mean=0.0003 | Std=0.1113
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0004 | Std=0.0530
+  [Task 2: Cloning] Loss: 0.6969
+    > Sample Probs:   [[0.48955876 0.51044124]
+ [0.48080885 0.5191911 ]
+ [0.48586464 0.51413536]]
+    > Sample Targets: [0 1 1]
+  Step 0/3351 | Combined Loss: 3.7590
+  Step 50/3351 | Combined Loss: 3.9454
+  Step 100/3351 | Combined Loss: 3.0474
+  Step 150/3351 | Combined Loss: 2.6296
+  Step 200/3351 | Combined Loss: 2.2629
+  Step 250/3351 | Combined Loss: 2.1449
+  Step 300/3351 | Combined Loss: 2.7438
+  Step 350/3351 | Combined Loss: 2.1739
+  Step 400/3351 | Combined Loss: 1.9218
+  Step 450/3351 | Combined Loss: 1.9858
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0014 | Std=0.1702
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0014 | Std=0.1598
+  [Task 0: Thermostability] Loss: 0.4356
+    > Sample Preds (Raw): [-0.04720626  0.4138769   1.6029127 ]
+    > Sample Targets:     [ 0.53149855 -0.51049095  1.8560615 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 289])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1864
+  [Task 1: SecStructure] Loss: 0.8990
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1017])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1870
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0000 | Std=0.1403
+  [Task 2: Cloning] Loss: 0.5885
+    > Sample Probs:   [[0.71652883 0.28347117]
+ [0.70847905 0.29152095]
+ [0.37110758 0.6288925 ]]
+    > Sample Targets: [0 0 1]
+  Step 500/3351 | Combined Loss: 1.9232
+  Step 550/3351 | Combined Loss: 2.2938
+  Step 600/3351 | Combined Loss: 2.2015
+  Step 650/3351 | Combined Loss: 2.1189
+  Step 700/3351 | Combined Loss: 2.3653
+  Step 750/3351 | Combined Loss: 1.7739
+  Step 800/3351 | Combined Loss: 2.7028
+  Step 850/3351 | Combined Loss: 1.6257
+  Step 900/3351 | Combined Loss: 1.5280
+  Step 950/3351 | Combined Loss: 2.1224
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0017 | Std=0.1508
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0017 | Std=0.1339
+  [Task 0: Thermostability] Loss: 0.1593
+    > Sample Preds (Raw): [ 0.03005503 -0.10690267 -0.2650778 ]
+    > Sample Targets:     [ 0.0016734  -0.19259584 -0.6341168 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 654])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0001 | Std=0.1827
+  [Task 1: SecStructure] Loss: 0.8864
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 669])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1840
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0001 | Std=0.1360
+  [Task 2: Cloning] Loss: 0.6109
+    > Sample Probs:   [[0.46578267 0.53421736]
+ [0.6613534  0.33864662]
+ [0.5631453  0.4368547 ]]
+    > Sample Targets: [1 1 1]
+  Step 1000/3351 | Combined Loss: 1.6565
+  Step 1050/3351 | Combined Loss: 1.8957
+  Step 1100/3351 | Combined Loss: 1.7813
+  Step 1150/3351 | Combined Loss: 2.0014
+  Step 1200/3351 | Combined Loss: 1.7290
+  Step 1250/3351 | Combined Loss: 2.8591
+  Step 1300/3351 | Combined Loss: 1.7537
+  Step 1350/3351 | Combined Loss: 2.5673
+  Step 1400/3351 | Combined Loss: 2.0731
+  Step 1450/3351 | Combined Loss: 2.0803
+
+--- DEBUG STEP 1500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0016 | Std=0.1497
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0016 | Std=0.1328
+  [Task 0: Thermostability] Loss: 0.6510
+    > Sample Preds (Raw): [-0.29278588  1.0906618  -0.44333777]
+    > Sample Targets:     [-1.1462811  2.4035473 -0.174935 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1807
+  [Task 1: SecStructure] Loss: 0.8878
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 609])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1795
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1367
+  [Task 2: Cloning] Loss: 0.5496
+    > Sample Probs:   [[0.48517644 0.51482356]
+ [0.6977647  0.30223534]
+ [0.9323369  0.06766307]]
+    > Sample Targets: [1 1 0]
+  Step 1500/3351 | Combined Loss: 2.0883
+  Step 1550/3351 | Combined Loss: 1.6517
+  Step 1600/3351 | Combined Loss: 2.0099
+  Step 1650/3351 | Combined Loss: 1.2552
+  Step 1700/3351 | Combined Loss: 1.9280
+  Step 1750/3351 | Combined Loss: 1.5900
+  Step 1800/3351 | Combined Loss: 1.4724
+  Step 1850/3351 | Combined Loss: 2.2185
+  Step 1900/3351 | Combined Loss: 2.0718
+  Step 1950/3351 | Combined Loss: 1.5719
+
+--- DEBUG STEP 2000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1452
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0011 | Std=0.1215
+  [Task 0: Thermostability] Loss: 0.4636
+    > Sample Preds (Raw): [-0.26679364 -0.30981466 -1.0487807 ]
+    > Sample Targets:     [ 0.12529926  0.5668202  -0.3162217 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 436])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1748
+  [Task 1: SecStructure] Loss: 0.8267
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 553])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1884
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0001 | Std=0.1472
+  [Task 2: Cloning] Loss: 0.3388
+    > Sample Probs:   [[0.699764   0.300236  ]
+ [0.9854675  0.01453244]
+ [0.98572415 0.01427581]]
+    > Sample Targets: [1 0 0]
+  Step 2000/3351 | Combined Loss: 1.6291
+  Step 2050/3351 | Combined Loss: 1.8217
+  Step 2100/3351 | Combined Loss: 1.6616
+  Step 2150/3351 | Combined Loss: 1.9051
+  Step 2200/3351 | Combined Loss: 2.0793
+  Step 2250/3351 | Combined Loss: 1.4662
+  Step 2300/3351 | Combined Loss: 1.4468
+  Step 2350/3351 | Combined Loss: 1.8043
+  Step 2400/3351 | Combined Loss: 1.9466
+  Step 2450/3351 | Combined Loss: 1.9483
+
+--- DEBUG STEP 2500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0014 | Std=0.1454
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0014 | Std=0.1132
+  [Task 0: Thermostability] Loss: 0.6448
+    > Sample Preds (Raw): [ 0.30047163 -0.40705     0.08254834]
+    > Sample Targets:     [0.33722934 0.08997759 0.8670545 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 738])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1797
+  [Task 1: SecStructure] Loss: 0.7915
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 691])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1715
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0002 | Std=0.1246
+  [Task 2: Cloning] Loss: 0.4744
+    > Sample Probs:   [[0.48311296 0.51688707]
+ [0.63089156 0.36910844]
+ [0.03151192 0.9684881 ]]
+    > Sample Targets: [0 0 1]
+  Step 2500/3351 | Combined Loss: 1.9107
+  Step 2550/3351 | Combined Loss: 1.7652
+  Step 2600/3351 | Combined Loss: 1.7256
+  Step 2650/3351 | Combined Loss: 1.7952
+  Step 2700/3351 | Combined Loss: 2.1491
+  Step 2750/3351 | Combined Loss: 2.0503
+  Step 2800/3351 | Combined Loss: 2.0856
+  Step 2850/3351 | Combined Loss: 2.2088
+  Step 2900/3351 | Combined Loss: 1.7567
+  Step 2950/3351 | Combined Loss: 1.5881
+
+--- DEBUG STEP 3000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1209
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0008 | Std=0.0954
+  [Task 0: Thermostability] Loss: 0.2880
+    > Sample Preds (Raw): [-0.33815792 -0.19374067  0.00387521]
+    > Sample Targets:     [-0.6517776   0.10763841 -0.4928301 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 729])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1693
+  [Task 1: SecStructure] Loss: 0.7616
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 712])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1753
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1193
+  [Task 2: Cloning] Loss: 0.5363
+    > Sample Probs:   [[0.07252556 0.9274745 ]
+ [0.4300978  0.56990224]
+ [0.94785374 0.05214627]]
+    > Sample Targets: [1 1 0]
+  Step 3000/3351 | Combined Loss: 1.5859
+  Step 3050/3351 | Combined Loss: 1.9401
+  Step 3100/3351 | Combined Loss: 1.6143
+  Step 3150/3351 | Combined Loss: 1.6621
+  Step 3200/3351 | Combined Loss: 1.9754
+  Step 3250/3351 | Combined Loss: 1.5922
+  Step 3300/3351 | Combined Loss: 1.7974
+  Step 3350/3351 | Combined Loss: 1.3528
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 1.9712
+  >> Thermostability: MSE: 0.6052
+  >> SecStructure: Loss: 0.0034 | Acc: 0.6949
+  >> Cloning: Loss: 0.4929 | Acc: 0.7491
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4311
+  SecStructure: Loss = 0.8069 | Accuracy = 0.7151
+  Cloning: Loss = 0.4745 | Accuracy = 0.7831
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.3453
+  SecStructure: Loss = 0.8537 | Accuracy = 0.6964
+  Cloning: Loss = 0.4932 | Accuracy = 0.7685
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen/model_epoch_1.pt
+
+============================== EPOCH 2/5 ==============================
+
+[Train] Starting epoch with 3351 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0012 | Std=0.1189
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0012 | Std=0.0976
+  [Task 0: Thermostability] Loss: 0.5589
+    > Sample Preds (Raw): [-0.1786575  -0.02552305  0.07376743]
+    > Sample Targets:     [-0.934351    0.4961769  -0.13961332]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 578])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1856
+  [Task 1: SecStructure] Loss: 0.7149
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 753])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1808
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1365
+  [Task 2: Cloning] Loss: 0.3202
+    > Sample Probs:   [[0.99531496 0.00468509]
+ [0.13484839 0.86515164]
+ [0.97361076 0.02638922]]
+    > Sample Targets: [0 1 0]
+  Step 0/3351 | Combined Loss: 1.5940
+  Step 50/3351 | Combined Loss: 1.7361
+  Step 100/3351 | Combined Loss: 1.8968
+  Step 150/3351 | Combined Loss: 1.4473
+  Step 200/3351 | Combined Loss: 1.2217
+  Step 250/3351 | Combined Loss: 1.7356
+  Step 300/3351 | Combined Loss: 1.6003
+  Step 350/3351 | Combined Loss: 1.4354
+  Step 400/3351 | Combined Loss: 1.4422
+  Step 450/3351 | Combined Loss: 1.8451
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0013 | Std=0.1415
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0012 | Std=0.1138
+  [Task 0: Thermostability] Loss: 0.1969
+    > Sample Preds (Raw): [-1.0318503  -1.1151776   0.06542996]
+    > Sample Targets:     [-1.8173931  -1.1286203   0.30190763]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 470])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1753
+  [Task 1: SecStructure] Loss: 0.8443
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 663])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1688
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1236
+  [Task 2: Cloning] Loss: 0.7296
+    > Sample Probs:   [[0.55718243 0.4428175 ]
+ [0.36563832 0.6343616 ]
+ [0.03332496 0.96667504]]
+    > Sample Targets: [1 1 1]
+  Step 500/3351 | Combined Loss: 1.7708
+  Step 550/3351 | Combined Loss: 1.9909
+  Step 600/3351 | Combined Loss: 1.7791
+  Step 650/3351 | Combined Loss: 1.3327
+  Step 700/3351 | Combined Loss: 1.6416
+  Step 750/3351 | Combined Loss: 1.6784
+  Step 800/3351 | Combined Loss: 2.0003
+  Step 850/3351 | Combined Loss: 1.7785
+  Step 900/3351 | Combined Loss: 1.9843
+  Step 950/3351 | Combined Loss: 1.5739
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1293
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0011 | Std=0.1039
+  [Task 0: Thermostability] Loss: 0.6202
+    > Sample Preds (Raw): [ 0.79858106 -0.42677912  0.99878746]
+    > Sample Targets:     [ 0.6198027 -1.163942   1.0789846]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 695])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0013 | Std=0.1710
+  [Task 1: SecStructure] Loss: 0.8089
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 527])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1752
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1245
+  [Task 2: Cloning] Loss: 0.4327
+    > Sample Probs:   [[0.9934642  0.00653579]
+ [0.9086144  0.09138563]
+ [0.96841997 0.03158004]]
+    > Sample Targets: [0 0 0]
+  Step 1000/3351 | Combined Loss: 1.8618
+  Step 1050/3351 | Combined Loss: 1.6711
+  Step 1100/3351 | Combined Loss: 1.8269
+  Step 1150/3351 | Combined Loss: 1.5829
+  Step 1200/3351 | Combined Loss: 1.1833
+  Step 1250/3351 | Combined Loss: 1.3455
+  Step 1300/3351 | Combined Loss: 1.7080
+  Step 1350/3351 | Combined Loss: 1.2690
+  Step 1400/3351 | Combined Loss: 1.2614
+  Step 1450/3351 | Combined Loss: 1.6819
+
+--- DEBUG STEP 1500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1177
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0007 | Std=0.0893
+  [Task 0: Thermostability] Loss: 0.6164
+    > Sample Preds (Raw): [-0.70615596 -0.5324579  -0.7569334 ]
+    > Sample Targets:     [-1.2522461   0.12529926 -1.375872  ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1828
+  [Task 1: SecStructure] Loss: 0.7983
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 562])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1877
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1452
+  [Task 2: Cloning] Loss: 0.2334
+    > Sample Probs:   [[0.983958   0.01604195]
+ [0.84429765 0.15570235]
+ [0.9860805  0.01391939]]
+    > Sample Targets: [0 1 0]
+  Step 1500/3351 | Combined Loss: 1.6481
+  Step 1550/3351 | Combined Loss: 1.2889
+  Step 1600/3351 | Combined Loss: 1.6832
+  Step 1650/3351 | Combined Loss: 1.1755
+  Step 1700/3351 | Combined Loss: 1.3478
+  Step 1750/3351 | Combined Loss: 1.4041
+  Step 1800/3351 | Combined Loss: 1.6581
+  Step 1850/3351 | Combined Loss: 1.2044
+  Step 1900/3351 | Combined Loss: 0.9370
+  Step 1950/3351 | Combined Loss: 1.0987
+
+--- DEBUG STEP 2000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1216
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0007 | Std=0.0954
+  [Task 0: Thermostability] Loss: 0.5241
+    > Sample Preds (Raw): [ 0.03355597 -0.23658076 -0.3985815 ]
+    > Sample Targets:     [ 0.4961769  0.2842468 -2.4002006]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 491])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1771
+  [Task 1: SecStructure] Loss: 0.7519
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 674])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1770
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0003 | Std=0.1344
+  [Task 2: Cloning] Loss: 0.2104
+    > Sample Probs:   [[0.7188763  0.28112364]
+ [0.8236541  0.1763459 ]
+ [0.05365048 0.94634956]]
+    > Sample Targets: [0 0 1]
+  Step 2000/3351 | Combined Loss: 1.4864
+  Step 2050/3351 | Combined Loss: 1.0833
+  Step 2100/3351 | Combined Loss: 1.4091
+  Step 2150/3351 | Combined Loss: 1.4002
+  Step 2200/3351 | Combined Loss: 1.5281
+  Step 2250/3351 | Combined Loss: 1.1705
+  Step 2300/3351 | Combined Loss: 1.2388
+  Step 2350/3351 | Combined Loss: 1.6858
+  Step 2400/3351 | Combined Loss: 1.4135
+  Step 2450/3351 | Combined Loss: 2.0235
+
+--- DEBUG STEP 2500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1131
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0008 | Std=0.0902
+  [Task 0: Thermostability] Loss: 0.5118
+    > Sample Preds (Raw): [-0.62565506 -0.36419788 -0.3346491 ]
+    > Sample Targets:     [ 0.35489017 -0.5458126  -0.15727416]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1662
+  [Task 1: SecStructure] Loss: 0.8036
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 930])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1763
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0003 | Std=0.1354
+  [Task 2: Cloning] Loss: 0.3927
+    > Sample Probs:   [[0.90937    0.09062999]
+ [0.9890376  0.01096247]
+ [0.008385   0.99161506]]
+    > Sample Targets: [0 0 1]
+  Step 2500/3351 | Combined Loss: 1.7081
+  Step 2550/3351 | Combined Loss: 1.2930
+  Step 2600/3351 | Combined Loss: 1.5025
+  Step 2650/3351 | Combined Loss: 1.5390
+  Step 2700/3351 | Combined Loss: 1.4540
+  Step 2750/3351 | Combined Loss: 0.9759
+  Step 2800/3351 | Combined Loss: 1.3251
+  Step 2850/3351 | Combined Loss: 1.2183
+  Step 2900/3351 | Combined Loss: 1.5498
+  Step 2950/3351 | Combined Loss: 1.4866
+
+--- DEBUG STEP 3000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1230
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0006 | Std=0.0909
+  [Task 0: Thermostability] Loss: 0.5199
+    > Sample Preds (Raw): [ 1.0568292   0.12692599 -0.6496582 ]
+    > Sample Targets:     [1.2379321  1.4145405  0.01933422]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 689])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0013 | Std=0.1879
+  [Task 1: SecStructure] Loss: 0.7694
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1788
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1370
+  [Task 2: Cloning] Loss: 0.1558
+    > Sample Probs:   [[0.9910058  0.00899423]
+ [0.15047331 0.8495267 ]
+ [0.85424656 0.14575346]]
+    > Sample Targets: [0 1 0]
+  Step 3000/3351 | Combined Loss: 1.4451
+  Step 3050/3351 | Combined Loss: 1.1702
+  Step 3100/3351 | Combined Loss: 1.5626
+  Step 3150/3351 | Combined Loss: 1.2166
+  Step 3200/3351 | Combined Loss: 0.9230
+  Step 3250/3351 | Combined Loss: 1.3171
+  Step 3300/3351 | Combined Loss: 1.3566
+  Step 3350/3351 | Combined Loss: 1.0822
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 1.4733
+  >> Thermostability: MSE: 0.4658
+  >> SecStructure: Loss: 0.0028 | Acc: 0.7443
+  >> Cloning: Loss: 0.2862 | Acc: 0.8737
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4780
+  SecStructure: Loss = 0.8126 | Accuracy = 0.7163
+  Cloning: Loss = 0.5882 | Accuracy = 0.7737
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2264
+  SecStructure: Loss = 0.8644 | Accuracy = 0.6959
+  Cloning: Loss = 0.6274 | Accuracy = 0.7602
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen/model_epoch_2.pt
+
+============================== EPOCH 3/5 ==============================
+
+[Train] Starting epoch with 3351 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0014 | Std=0.1304
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0014 | Std=0.1078
+  [Task 0: Thermostability] Loss: 0.3547
+    > Sample Preds (Raw): [-0.22878    -0.46713385  0.09933572]
+    > Sample Targets:     [ 0.6198027 -0.5458126  0.266586 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 510])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1832
+  [Task 1: SecStructure] Loss: 0.6952
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 886])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0001 | Std=0.1813
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0000 | Std=0.1431
+  [Task 2: Cloning] Loss: 0.3785
+    > Sample Probs:   [[0.9713676  0.02863247]
+ [0.9983474  0.00165266]
+ [0.99890924 0.00109077]]
+    > Sample Targets: [1 0 0]
+  Step 0/3351 | Combined Loss: 1.4283
+  Step 50/3351 | Combined Loss: 1.3256
+  Step 100/3351 | Combined Loss: 1.0631
+  Step 150/3351 | Combined Loss: 1.2503
+  Step 200/3351 | Combined Loss: 1.0103
+  Step 250/3351 | Combined Loss: 1.5042
+  Step 300/3351 | Combined Loss: 1.0203
+  Step 350/3351 | Combined Loss: 1.1509
+  Step 400/3351 | Combined Loss: 1.2722
+  Step 450/3351 | Combined Loss: 1.0809
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1306
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0009 | Std=0.1074
+  [Task 0: Thermostability] Loss: 0.4890
+    > Sample Preds (Raw): [-0.9079591 -0.6876155  0.607437 ]
+    > Sample Targets:     [-0.8637077  -0.70476013 -1.1462811 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0013 | Std=0.1748
+  [Task 1: SecStructure] Loss: 0.6967
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 448])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1852
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0005 | Std=0.1516
+  [Task 2: Cloning] Loss: 0.3193
+    > Sample Probs:   [[9.9895346e-01 1.0464775e-03]
+ [5.3804404e-01 4.6195593e-01]
+ [9.9959046e-01 4.0950419e-04]]
+    > Sample Targets: [0 0 0]
+  Step 500/3351 | Combined Loss: 1.5051
+  Step 550/3351 | Combined Loss: 0.9396
+  Step 600/3351 | Combined Loss: 0.9980
+  Step 650/3351 | Combined Loss: 1.2162
+  Step 700/3351 | Combined Loss: 1.2431
+  Step 750/3351 | Combined Loss: 0.9412
+  Step 800/3351 | Combined Loss: 1.2615
+  Step 850/3351 | Combined Loss: 1.5123
+  Step 900/3351 | Combined Loss: 1.5580
+  Step 950/3351 | Combined Loss: 1.3809
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1203
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0010 | Std=0.0933
+  [Task 0: Thermostability] Loss: 0.5385
+    > Sample Preds (Raw): [-0.9619047  -0.52290803  0.8885208 ]
+    > Sample Targets:     [-1.2875679  -0.91669023  1.4145405 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 360])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1823
+  [Task 1: SecStructure] Loss: 0.6541
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 472])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0004 | Std=0.1879
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1481
+  [Task 2: Cloning] Loss: 0.0451
+    > Sample Probs:   [[0.96656847 0.0334315 ]
+ [0.987184   0.01281597]
+ [0.9808077  0.01919231]]
+    > Sample Targets: [0 0 0]
+  Step 1000/3351 | Combined Loss: 1.2377
+  Step 1050/3351 | Combined Loss: 1.0068
+  Step 1100/3351 | Combined Loss: 1.1011
+  Step 1150/3351 | Combined Loss: 0.8944
+  Step 1200/3351 | Combined Loss: 1.2536
+  Step 1250/3351 | Combined Loss: 1.0614
+  Step 1300/3351 | Combined Loss: 1.1149
+  Step 1350/3351 | Combined Loss: 1.3399
+  Step 1400/3351 | Combined Loss: 1.0443
+  Step 1450/3351 | Combined Loss: 1.0099
+
+--- DEBUG STEP 1500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1215
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0005 | Std=0.0949
+  [Task 0: Thermostability] Loss: 0.2262
+    > Sample Preds (Raw): [ 0.6659901   0.11750378 -0.24816155]
+    > Sample Targets:     [ 0.5668202  -0.24557835 -0.36920422]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 576])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1842
+  [Task 1: SecStructure] Loss: 0.6624
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 560])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1922
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1637
+  [Task 2: Cloning] Loss: 0.0947
+    > Sample Probs:   [[9.9171913e-01 8.2808137e-03]
+ [6.7023106e-04 9.9932981e-01]
+ [5.4626998e-02 9.4537306e-01]]
+    > Sample Targets: [0 1 1]
+  Step 1500/3351 | Combined Loss: 0.9833
+  Step 1550/3351 | Combined Loss: 1.4128
+  Step 1600/3351 | Combined Loss: 1.2817
+  Step 1650/3351 | Combined Loss: 0.9661
+  Step 1700/3351 | Combined Loss: 1.1436
+  Step 1750/3351 | Combined Loss: 1.7083
+  Step 1800/3351 | Combined Loss: 0.9586
+  Step 1850/3351 | Combined Loss: 1.1647
+  Step 1900/3351 | Combined Loss: 0.9653
+  Step 1950/3351 | Combined Loss: 1.0319
+
+--- DEBUG STEP 2000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1268
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0009 | Std=0.1019
+  [Task 0: Thermostability] Loss: 0.4248
+    > Sample Preds (Raw): [-0.62782335 -0.04293895  0.11388855]
+    > Sample Targets:     [-1.0756378   0.33722934  0.53149855]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 537])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1852
+  [Task 1: SecStructure] Loss: 0.7344
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 514])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1902
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1556
+  [Task 2: Cloning] Loss: 0.0283
+    > Sample Probs:   [[0.9305393  0.06946071]
+ [0.00529629 0.9947037 ]
+ [0.19277456 0.8072254 ]]
+    > Sample Targets: [0 1 1]
+  Step 2000/3351 | Combined Loss: 1.1875
+  Step 2050/3351 | Combined Loss: 0.9489
+  Step 2100/3351 | Combined Loss: 0.9601
+  Step 2150/3351 | Combined Loss: 1.4006
+  Step 2200/3351 | Combined Loss: 0.9396
+  Step 2250/3351 | Combined Loss: 1.2429
+  Step 2300/3351 | Combined Loss: 0.9932
+  Step 2350/3351 | Combined Loss: 0.9879
+  Step 2400/3351 | Combined Loss: 1.1091
+  Step 2450/3351 | Combined Loss: 1.3563
+
+--- DEBUG STEP 2500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1352
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0010 | Std=0.1071
+  [Task 0: Thermostability] Loss: 0.3022
+    > Sample Preds (Raw): [-0.8950821 -1.5350914  2.6194448]
+    > Sample Targets:     [-1.8703755  -0.84604686  3.0393376 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 463])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1777
+  [Task 1: SecStructure] Loss: 0.6735
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 619])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0004 | Std=0.1942
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1614
+  [Task 2: Cloning] Loss: 0.0082
+    > Sample Probs:   [[0.99870574 0.00129427]
+ [0.9981001  0.00189996]
+ [0.98129267 0.01870732]]
+    > Sample Targets: [0 0 0]
+  Step 2500/3351 | Combined Loss: 0.9839
+  Step 2550/3351 | Combined Loss: 1.1976
+  Step 2600/3351 | Combined Loss: 1.1663
+  Step 2650/3351 | Combined Loss: 0.9464
+  Step 2700/3351 | Combined Loss: 1.0012
+  Step 2750/3351 | Combined Loss: 1.0373
+  Step 2800/3351 | Combined Loss: 1.3451
+  Step 2850/3351 | Combined Loss: 1.0310
+  Step 2900/3351 | Combined Loss: 1.1099
+  Step 2950/3351 | Combined Loss: 0.9147
+
+--- DEBUG STEP 3000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1241
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0006 | Std=0.0943
+  [Task 0: Thermostability] Loss: 0.4847
+    > Sample Preds (Raw): [ 1.3849535  -0.55437964 -0.07029335]
+    > Sample Targets:     [ 1.7147747  -0.47516927  0.95535874]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 638])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0013 | Std=0.1794
+  [Task 1: SecStructure] Loss: 0.6017
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1873
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1557
+  [Task 2: Cloning] Loss: 0.0247
+    > Sample Probs:   [[0.9926218  0.00737818]
+ [0.01037801 0.989622  ]
+ [0.00165406 0.998346  ]]
+    > Sample Targets: [0 1 1]
+  Step 3000/3351 | Combined Loss: 1.1111
+  Step 3050/3351 | Combined Loss: 0.9506
+  Step 3100/3351 | Combined Loss: 1.4571
+  Step 3150/3351 | Combined Loss: 1.1621
+  Step 3200/3351 | Combined Loss: 1.1613
+  Step 3250/3351 | Combined Loss: 1.2562
+  Step 3300/3351 | Combined Loss: 1.0920
+  Step 3350/3351 | Combined Loss: 1.1202
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 1.1704
+  >> Thermostability: MSE: 0.3862
+  >> SecStructure: Loss: 0.0027 | Acc: 0.7604
+  >> Cloning: Loss: 0.1113 | Acc: 0.9588
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.3867
+  SecStructure: Loss = 0.8252 | Accuracy = 0.7158
+  Cloning: Loss = 0.8368 | Accuracy = 0.7686
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.1966
+  SecStructure: Loss = 0.8759 | Accuracy = 0.6970
+  Cloning: Loss = 0.9041 | Accuracy = 0.7529
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen/model_epoch_3.pt
+
+============================== EPOCH 4/5 ==============================
+
+[Train] Starting epoch with 3351 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0012 | Std=0.1280
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0012 | Std=0.1039
+  [Task 0: Thermostability] Loss: 0.1773
+    > Sample Preds (Raw): [-0.29867843  0.24496977 -0.44692087]
+    > Sample Targets:     [-0.38686505 -0.2632392  -0.70476013]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 484])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1878
+  [Task 1: SecStructure] Loss: 0.5821
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 667])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0004 | Std=0.1924
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0003 | Std=0.1632
+  [Task 2: Cloning] Loss: 0.0062
+    > Sample Probs:   [[0.9972838  0.00271616]
+ [0.99745435 0.0025456 ]
+ [0.98723686 0.01276317]]
+    > Sample Targets: [0 0 0]
+  Step 0/3351 | Combined Loss: 0.7656
+  Step 50/3351 | Combined Loss: 1.1324
+  Step 100/3351 | Combined Loss: 1.0601
+  Step 150/3351 | Combined Loss: 1.4814
+  Step 200/3351 | Combined Loss: 0.8228
+  Step 250/3351 | Combined Loss: 1.0276
+  Step 300/3351 | Combined Loss: 0.9559
+  Step 350/3351 | Combined Loss: 1.2661
+  Step 400/3351 | Combined Loss: 1.0811
+  Step 450/3351 | Combined Loss: 0.9466
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1437
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0010 | Std=0.1200
+  [Task 0: Thermostability] Loss: 0.2531
+    > Sample Preds (Raw): [ 0.01687954 -0.04653811  0.21492876]
+    > Sample Targets:     [ 0.03699507 -0.8107252  -0.3162217 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 490])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1919
+  [Task 1: SecStructure] Loss: 0.5581
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 835])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0000 | Std=0.1974
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0000 | Std=0.1769
+  [Task 2: Cloning] Loss: 0.4189
+    > Sample Probs:   [[9.4609392e-01 5.3906057e-02]
+ [9.9965680e-01 3.4320084e-04]
+ [1.7619360e-03 9.9823809e-01]]
+    > Sample Targets: [0 0 1]
+  Step 500/3351 | Combined Loss: 1.2301
+  Step 550/3351 | Combined Loss: 1.7310
+  Step 600/3351 | Combined Loss: 1.0087
+  Step 650/3351 | Combined Loss: 1.1857
+  Step 700/3351 | Combined Loss: 0.7759
+  Step 750/3351 | Combined Loss: 0.9404
+  Step 800/3351 | Combined Loss: 1.1614
+  Step 850/3351 | Combined Loss: 0.9575
+  Step 900/3351 | Combined Loss: 0.9577
+  Step 950/3351 | Combined Loss: 1.1709
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1271
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0006 | Std=0.0980
+  [Task 0: Thermostability] Loss: 0.4750
+    > Sample Preds (Raw): [-1.3485664 -0.2771718 -1.9969721]
+    > Sample Targets:     [ 0.1959426   0.14296009 -2.2412531 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 483])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1693
+  [Task 1: SecStructure] Loss: 0.6980
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 659])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0001 | Std=0.1871
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0001 | Std=0.1545
+  [Task 2: Cloning] Loss: 0.0383
+    > Sample Probs:   [[0.79330254 0.20669745]
+ [0.9899386  0.01006144]
+ [0.00142828 0.99857175]]
+    > Sample Targets: [0 0 1]
+  Step 1000/3351 | Combined Loss: 1.2112
+  Step 1050/3351 | Combined Loss: 0.9520
+  Step 1100/3351 | Combined Loss: 1.1630
+  Step 1150/3351 | Combined Loss: 0.9781
+  Step 1200/3351 | Combined Loss: 1.1066
+  Step 1250/3351 | Combined Loss: 1.0586
+  Step 1300/3351 | Combined Loss: 0.7567
+  Step 1350/3351 | Combined Loss: 0.9900
+  Step 1400/3351 | Combined Loss: 0.8214
+  Step 1450/3351 | Combined Loss: 0.8017
+
+--- DEBUG STEP 1500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1412
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0010 | Std=0.1204
+  [Task 0: Thermostability] Loss: 0.3815
+    > Sample Preds (Raw): [-0.37711403  0.9258883  -0.16715527]
+    > Sample Targets:     [-0.4928301   0.33722934  0.17828178]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 359])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1901
+  [Task 1: SecStructure] Loss: 0.5540
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 760])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0003 | Std=0.1948
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0003 | Std=0.1594
+  [Task 2: Cloning] Loss: 0.0448
+    > Sample Probs:   [[0.99809366 0.00190628]
+ [0.9968997  0.00310026]
+ [0.9986992  0.00130074]]
+    > Sample Targets: [0 0 0]
+  Step 1500/3351 | Combined Loss: 0.9802
+  Step 1550/3351 | Combined Loss: 1.5179
+  Step 1600/3351 | Combined Loss: 0.9386
+  Step 1650/3351 | Combined Loss: 0.8422
+  Step 1700/3351 | Combined Loss: 1.1749
+  Step 1750/3351 | Combined Loss: 0.9433
+  Step 1800/3351 | Combined Loss: 0.8981
+  Step 1850/3351 | Combined Loss: 1.1642
+  Step 1900/3351 | Combined Loss: 1.1250
+  Step 1950/3351 | Combined Loss: 1.0845
+
+--- DEBUG STEP 2000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1290
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0010 | Std=0.1049
+  [Task 0: Thermostability] Loss: 0.1818
+    > Sample Preds (Raw): [-0.03511699 -0.1052809  -1.1184005 ]
+    > Sample Targets:     [-0.10429165 -0.06896996 -1.0403161 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 752])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1805
+  [Task 1: SecStructure] Loss: 0.7146
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 516])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1921
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0005 | Std=0.1646
+  [Task 2: Cloning] Loss: 0.0164
+    > Sample Probs:   [[9.9974412e-01 2.5593396e-04]
+ [9.9941301e-01 5.8702525e-04]
+ [9.9869627e-01 1.3037515e-03]]
+    > Sample Targets: [0 0 0]
+  Step 2000/3351 | Combined Loss: 0.9128
+  Step 2050/3351 | Combined Loss: 1.0235
+  Step 2100/3351 | Combined Loss: 0.9199
+  Step 2150/3351 | Combined Loss: 1.3836
+  Step 2200/3351 | Combined Loss: 1.0244
+  Step 2250/3351 | Combined Loss: 1.1093
+  Step 2300/3351 | Combined Loss: 0.8764
+  Step 2350/3351 | Combined Loss: 0.9363
+  Step 2400/3351 | Combined Loss: 1.5817
+  Step 2450/3351 | Combined Loss: 0.7851
+
+--- DEBUG STEP 2500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0013 | Std=0.1328
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0013 | Std=0.1088
+  [Task 0: Thermostability] Loss: 0.1802
+    > Sample Preds (Raw): [ 0.03114001 -0.41794443  0.95784634]
+    > Sample Targets:     [ 0.07231674 -0.616456    1.5734881 ]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 439])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0012 | Std=0.1829
+  [Task 1: SecStructure] Loss: 0.5234
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 850])
+    [Backbone Debug] Raw Embeddings: Mean=0.0001 | Std=0.1975
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0002 | Std=0.1717
+  [Task 2: Cloning] Loss: 0.0021
+    > Sample Probs:   [[3.1893956e-04 9.9968112e-01]
+ [9.9978560e-01 2.1437346e-04]
+ [9.8315954e-01 1.6840460e-02]]
+    > Sample Targets: [1 0 0]
+  Step 2500/3351 | Combined Loss: 0.7056
+  Step 2550/3351 | Combined Loss: 0.8680
+  Step 2600/3351 | Combined Loss: 0.8349
+  Step 2650/3351 | Combined Loss: 0.9863
+  Step 2700/3351 | Combined Loss: 0.8236
+  Step 2750/3351 | Combined Loss: 1.1394
+  Step 2800/3351 | Combined Loss: 1.3544
+  Step 2850/3351 | Combined Loss: 0.6195
+  Step 2900/3351 | Combined Loss: 0.8297
+  Step 2950/3351 | Combined Loss: 1.1453
+
+--- DEBUG STEP 3000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1261
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0006 | Std=0.0947
+  [Task 0: Thermostability] Loss: 0.5456
+    > Sample Preds (Raw): [ 1.7609104 -0.2833494 -0.3922329]
+    > Sample Targets:     [ 1.9620265  -0.4398476   0.14296009]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 870])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0010 | Std=0.1786
+  [Task 1: SecStructure] Loss: 0.6844
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 783])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1788
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0007 | Std=0.1525
+  [Task 2: Cloning] Loss: 0.0089
+    > Sample Probs:   [[0.9966568  0.00334326]
+ [0.98848176 0.0115182 ]
+ [0.00368574 0.9963142 ]]
+    > Sample Targets: [0 0 1]
+  Step 3000/3351 | Combined Loss: 1.2388
+  Step 3050/3351 | Combined Loss: 0.7296
+  Step 3100/3351 | Combined Loss: 1.0053
+  Step 3150/3351 | Combined Loss: 0.7915
+  Step 3200/3351 | Combined Loss: 0.7117
+  Step 3250/3351 | Combined Loss: 1.1752
+  Step 3300/3351 | Combined Loss: 0.7421
+  Step 3350/3351 | Combined Loss: 0.7518
+
+  [TRAINING RESULTS]
+  >> Combined Loss: 0.9867
+  >> Thermostability: MSE: 0.3253
+  >> SecStructure: Loss: 0.0025 | Acc: 0.7776
+  >> Cloning: Loss: 0.0395 | Acc: 0.9885
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4019
+  SecStructure: Loss = 0.8436 | Accuracy = 0.7149
+  Cloning: Loss = 0.9885 | Accuracy = 0.7857
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2222
+  SecStructure: Loss = 0.8988 | Accuracy = 0.6953
+  Cloning: Loss = 1.1019 | Accuracy = 0.7666
+
+  >> Saved checkpoint: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen/model_epoch_4.pt
+
+============================== EPOCH 5/5 ==============================
+
+[Train] Starting epoch with 3351 steps...
+
+--- DEBUG STEP 0 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0007 | Std=0.1280
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0007 | Std=0.0994
+  [Task 0: Thermostability] Loss: 0.1187
+    > Sample Preds (Raw): [ 1.3298892  0.4217449 -0.1910667]
+    > Sample Targets:     [1.2026105 0.5491594 0.2312643]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 613])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1781
+  [Task 1: SecStructure] Loss: 0.5365
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 574])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.2008
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1718
+  [Task 2: Cloning] Loss: 0.0010
+    > Sample Probs:   [[9.9951744e-01 4.8254395e-04]
+ [2.4526400e-04 9.9975473e-01]
+ [4.3625166e-04 9.9956375e-01]]
+    > Sample Targets: [0 1 1]
+  Step 0/3351 | Combined Loss: 0.6562
+  Step 50/3351 | Combined Loss: 0.7940
+  Step 100/3351 | Combined Loss: 0.8473
+  Step 150/3351 | Combined Loss: 0.6735
+  Step 200/3351 | Combined Loss: 0.7493
+  Step 250/3351 | Combined Loss: 0.8289
+  Step 300/3351 | Combined Loss: 0.8118
+  Step 350/3351 | Combined Loss: 0.7989
+  Step 400/3351 | Combined Loss: 0.6458
+  Step 450/3351 | Combined Loss: 0.7264
+
+--- DEBUG STEP 500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0009 | Std=0.1248
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0009 | Std=0.0933
+  [Task 0: Thermostability] Loss: 0.1946
+    > Sample Preds (Raw): [-0.5680824  -0.46931857 -0.37584075]
+    > Sample Targets:     [ 0.0016734 -0.722421  -0.7577427]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 811])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1847
+  [Task 1: SecStructure] Loss: 0.5982
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 854])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1947
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1583
+  [Task 2: Cloning] Loss: 0.0031
+    > Sample Probs:   [[9.9982351e-01 1.7654337e-04]
+ [9.9968982e-01 3.1024116e-04]
+ [9.9902189e-01 9.7811432e-04]]
+    > Sample Targets: [0 0 0]
+  Step 500/3351 | Combined Loss: 0.7959
+  Step 550/3351 | Combined Loss: 0.8182
+  Step 600/3351 | Combined Loss: 0.8732
+  Step 650/3351 | Combined Loss: 0.8088
+  Step 700/3351 | Combined Loss: 0.8130
+  Step 750/3351 | Combined Loss: 0.8430
+  Step 800/3351 | Combined Loss: 0.9320
+  Step 850/3351 | Combined Loss: 0.6619
+  Step 900/3351 | Combined Loss: 0.9452
+  Step 950/3351 | Combined Loss: 0.7263
+
+--- DEBUG STEP 1000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1321
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0008 | Std=0.1017
+  [Task 0: Thermostability] Loss: 0.1943
+    > Sample Preds (Raw): [-1.0055605   1.9792674  -0.82955736]
+    > Sample Targets:     [-1.3052287  1.6971139 -0.8107252]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 591])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0014 | Std=0.1774
+  [Task 1: SecStructure] Loss: 0.5162
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0005 | Std=0.1918
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0004 | Std=0.1651
+  [Task 2: Cloning] Loss: 0.0020
+    > Sample Probs:   [[1.5795362e-03 9.9842048e-01]
+ [9.9976772e-01 2.3230843e-04]
+ [9.9921191e-01 7.8800868e-04]]
+    > Sample Targets: [1 0 0]
+  Step 1000/3351 | Combined Loss: 0.7126
+  Step 1050/3351 | Combined Loss: 1.0245
+  Step 1100/3351 | Combined Loss: 0.7871
+  Step 1150/3351 | Combined Loss: 1.1148
+  Step 1200/3351 | Combined Loss: 0.6653
+  Step 1250/3351 | Combined Loss: 0.6944
+  Step 1300/3351 | Combined Loss: 0.8272
+  Step 1350/3351 | Combined Loss: 0.7554
+  Step 1400/3351 | Combined Loss: 0.9596
+  Step 1450/3351 | Combined Loss: 0.6643
+
+--- DEBUG STEP 1500 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0008 | Std=0.1256
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0007 | Std=0.0977
+  [Task 0: Thermostability] Loss: 0.1852
+    > Sample Preds (Raw): [-0.19082342 -0.62803805 -0.43747994]
+    > Sample Targets:     [ 0.44319436  0.0016734  -0.12195248]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 543])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1812
+  [Task 1: SecStructure] Loss: 0.5532
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 731])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0002 | Std=0.1877
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0002 | Std=0.1634
+  [Task 2: Cloning] Loss: 0.0065
+    > Sample Probs:   [[6.9887383e-04 9.9930108e-01]
+ [9.9969399e-01 3.0604491e-04]
+ [9.9437958e-01 5.6204363e-03]]
+    > Sample Targets: [1 0 0]
+  Step 1500/3351 | Combined Loss: 0.7450
+  Step 1550/3351 | Combined Loss: 0.7094
+  Step 1600/3351 | Combined Loss: 0.8282
+  Step 1650/3351 | Combined Loss: 0.8411
+  Step 1700/3351 | Combined Loss: 0.8141
+  Step 1750/3351 | Combined Loss: 0.7395
+  Step 1800/3351 | Combined Loss: 0.9622
+  Step 1850/3351 | Combined Loss: 0.9272
+  Step 1900/3351 | Combined Loss: 0.7707
+  Step 1950/3351 | Combined Loss: 0.9875
+
+--- DEBUG STEP 2000 ---
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 52])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0006 | Std=0.1285
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=-0.0007 | Std=0.1073
+  [Task 0: Thermostability] Loss: 0.1421
+    > Sample Preds (Raw): [ 2.4039268   0.36145598 -0.05291887]
+    > Sample Targets:     [ 2.1916173  -0.174935    0.10763841]
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 778])
+    [Backbone Debug] Raw Embeddings: Mean=-0.0011 | Std=0.1883
+  [Task 1: SecStructure] Loss: 0.5189
+    [Backbone Debug] Input IDs Shape: torch.Size([16, 1024])
+    [Backbone Debug] Raw Embeddings: Mean=0.0000 | Std=0.1897
+    [Backbone Debug] Pooled Embedding (Sequence): Mean=0.0003 | Std=0.1598
+  [Task 2: Cloning] Loss: 0.0152
+    > Sample Probs:   [[2.1602107e-04 9.9978393e-01]
+ [3.8162104e-04 9.9961841e-01]
+ [1.8705383e-04 9.9981302e-01]]
+    > Sample Targets: [1 1 1]
+  Step 2000/3351 | Combined Loss: 0.6763
