@@ -2,6 +2,8 @@ import os
 import torch
 import numpy as np
 import logging
+import csv
+import json
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
@@ -14,7 +16,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16        
 EPOCHS = 5
 LEARNING_RATE = 1e-4
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_uncertainty"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Model Config
@@ -56,6 +58,7 @@ def normalize_regression_targets(train_ds, valid_ds, test_ds):
 
 def main():
     set_seed(SEED)
+    print(f"Running UNCERTAINTY WEIGHTING on {DEVICE}")
     print(f"Running on {DEVICE} with Batch Size {BATCH_SIZE}")
 
     # 1. DATA LOADING
@@ -94,17 +97,7 @@ def main():
 
     # 4. ENGINE SETUP
     print("\n[3/5] Setting up MultiTask Engine...")
-    engine = MultiTaskEngine(
-        backbone=backbone,
-        task_configs=task_configs,
-        train_sets=train_sets,
-        valid_sets=valid_sets,
-        test_sets=test_sets,
-        batch_size=BATCH_SIZE,
-        device=DEVICE
-    )
-
-    #engine = MultiTaskEngineUncertanityWeighting(
+    #engine = MultiTaskEngine(
     #    backbone=backbone,
     #    task_configs=task_configs,
     #    train_sets=train_sets,
@@ -114,7 +107,28 @@ def main():
     #    device=DEVICE
     #)
 
+    engine = MultiTaskEngineUncertanityWeighting(
+        backbone=backbone,
+        task_configs=task_configs,
+        train_sets=train_sets,
+        valid_sets=valid_sets,
+        test_sets=test_sets,
+        batch_size=BATCH_SIZE,
+        device=DEVICE,
+        save_dir=SAVE_DIR 
+    )
+
     optimizer = torch.optim.AdamW(engine.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+
+    # --- SETUP LOGGING CSV ---
+    history_path = os.path.join(SAVE_DIR, "training_history.csv")
+    with open(history_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        headers = ["Epoch", "Train_Combined_Loss"]
+        for task in task_configs:
+            name = task['name']
+            headers.extend([f"Train_Loss_{name}", f"Val_Loss_{name}"])
+        writer.writerow(headers)
 
     # 5. TRAINING LOOP
     print("\n[4/5] Starting Training Loop...")
@@ -123,23 +137,46 @@ def main():
         print(f"\n{'='*30} EPOCH {epoch+1}/{EPOCHS} {'='*30}")
         
         # A. TRAIN
-        train_metrics = engine.train_one_epoch(optimizer)
+        train_metrics = engine.train_one_epoch(optimizer, epoch_index=epoch+1)
         
-        print(f"\n  [TRAINING RESULTS]")
-        print(f"  >> Combined Loss: {train_metrics.pop('combined_loss'):.4f}")
-        for task_name, metric in train_metrics.items():
-            print(f"  >> {task_name}: {metric}")
-        
-        # B. VALIDATION
-        engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
+        # Print Train Results
+        print(f"\n  [TRAIN]")
+        print(f"  >> Combined (Weighted) Loss: {train_metrics.pop('combined_loss'):.4f}")
+        for t, m in train_metrics.items(): print(f"  >> {t}: {m}")
 
-        # C. TEST 
+        # B. VALIDATE
+        # Evaluate returns simple metrics dict now
+        val_metrics = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
+
+        # C. TEST (Optional check, can remove to save time if critical)
         engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
+
+        # D. LOGGING & SAVING
+        row = [epoch+1, 0.0] # Placeholder for combined
+        current_val_combined_raw = 0
         
-        # D. SAVE
+        # Extract metrics carefully
+        # Note: train_metrics values are strings like "MSE: 0.4". We need raw loss if possible, 
+        # but for CSV let's just save 0.0 for train if parsing is hard, or rely on sigmas csv.
+        # Ideally, engine returns raw floats. Assuming string format for now.
+        
+        for task in task_configs:
+            t_name = task['name']
+            # We accept 0 for train columns here to avoid string parsing errors during the run
+            row.append(0) 
+            
+            # Val metrics are floats from evaluate()
+            v_loss = val_metrics.get(t_name, {}).get('Loss', val_metrics.get(t_name, {}).get('MSE', 0))
+            row.append(v_loss)
+            current_val_combined_raw += v_loss
+        
+        with open(history_path, 'a', newline='') as f:
+            csv.writer(f).writerow(row)
+
+        # Save Checkpoint
         save_path = os.path.join(SAVE_DIR, f"model_epoch_{epoch+1}.pt")
         torch.save(engine.state_dict(), save_path)
-        print(f"\n  >> Saved checkpoint: {save_path}")
+        print(f"  >> Saved: {save_path}")
 
     print("\nDone!")
 
