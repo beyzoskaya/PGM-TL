@@ -80,7 +80,7 @@ def resume_training():
     )
 
     # 4. LOAD WEIGHTS
-    checkpoint_path = os.path.join(SAVE_DIR, "model_epoch_1.pt")
+    checkpoint_path = os.path.join(SAVE_DIR, "model_epoch_2.pt")
     if os.path.exists(checkpoint_path):
         print(f"\n[4/5] Loading Checkpoint: {checkpoint_path}")
         state_dict = torch.load(checkpoint_path, map_location=DEVICE)
