@@ -17,7 +17,7 @@ SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_un
 LORA_RANK = 16
 UNFROZEN_LAYERS = 0 
 
-START_EPOCH_INDEX = 1  # 0-indexed, so 1 means "Epoch 2"
+START_EPOCH_INDEX = 1
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -109,7 +109,9 @@ def resume_training():
         # Validate
         val_metrics = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
 
-        # Log to CSV (Append Mode)
+        engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
+        # -------------------------------------
+
         row = [epoch+1, 0.0] 
         for task in task_configs:
             t_name = task['name']
@@ -117,7 +119,6 @@ def resume_training():
             v_loss = val_metrics.get(t_name, {}).get('Loss', val_metrics.get(t_name, {}).get('MSE', 0))
             row.append(v_loss)
         
-        # 'a' mode ensures we don't overwrite the previous epoch
         with open(history_path, 'a', newline='') as f:
             csv.writer(f).writerow(row)
 
