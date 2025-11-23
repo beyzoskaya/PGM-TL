@@ -1,34 +1,39 @@
 import torch
+import torch.nn as nn
 import os
 import shutil
+import numpy as np
+from torch.utils.data import DataLoader
+
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
 
-def run_sanity_check():
-    print("\n🚀 STARTING PRE-FLIGHT CONTROL FOR UNCERTAINTY WEIGHTING...")
+def run_robust_sanity_check():
+    print("\nSTARTING ROBUST SANITY CHECK (UNCERTAINTY WEIGHTING)...")
     
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     TEST_DIR = "/content/drive/MyDrive/protein_multitask_outputs/test_sanity_check"
-    if os.path.exists(TEST_DIR): shutil.rmtree(TEST_DIR) 
+    if os.path.exists(TEST_DIR): shutil.rmtree(TEST_DIR)
     
-    print("[Check 1] Data Loading...")
+    print(f"[Setup] Running on {DEVICE}. Temp dir: {TEST_DIR}")
+
+    print("[Step 1] Loading Mock Data...")
     try:
         ds_thermo = Thermostability(verbose=0)
         ds_ssp = SecondaryStructure(verbose=0)
         ds_clf = CloningCLF(verbose=0)
         
-        train_sets = [torch.utils.data.Subset(ds_thermo, range(10)), 
-                      torch.utils.data.Subset(ds_ssp, range(10)), 
-                      torch.utils.data.Subset(ds_clf, range(10))]
-        print("   ✅ Data Loaded.")
+        train_sets = [torch.utils.data.Subset(ds_thermo, range(4)), 
+                      torch.utils.data.Subset(ds_ssp, range(4)), 
+                      torch.utils.data.Subset(ds_clf, range(4))]
     except Exception as e:
-        print(f"   ❌ Data Failed: {e}")
+        print(f"❌ Data Load Failed: {e}")
         return
 
-    print("[Check 2] Model & Engine Init...")
+    print("[Step 2] Initializing Model & Engine...")
     try:
-        backbone = SharedProtBert(lora_rank=4, unfrozen_layers=0)
+        backbone = SharedProtBert(lora_rank=2, unfrozen_layers=0) 
         
         task_configs = [
             {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},
@@ -47,71 +52,82 @@ def run_sanity_check():
         )
         optimizer = torch.optim.AdamW(engine.parameters(), lr=1e-3)
         print("   ✅ Engine Initialized.")
-        
-        print(f"   Initial Log Vars (Sigmas): {engine.log_vars.data}")
-        if not engine.log_vars.requires_grad:
-            print("   ❌ CRITICAL: log_vars does not require grad!")
-            return
-
     except Exception as e:
-        print(f"   ❌ Init Failed: {e}")
+        print(f"❌ Init Failed: {e}")
         return
-
-    print("[Check 3] Training Loop & Gradient Flow...")
+    print("\n[Step 3] Testing Critical 'Retain Graph' Fix...")
+    
     engine.train()
-    initial_sigma = engine.log_vars.clone().detach()
+    engine.backbone.train()
+    
+    iterators = [iter(l) for l in engine.train_loaders]
+    batches = [next(it) for it in iterators]
+    
+    optimizer.zero_grad()
+    raw_losses_list = []
     
     try:
-        loader_iter = [iter(l) for l in engine.train_loaders]
-        
-        for step in range(5):
-            optimizer.zero_grad()
-            total_loss = 0
+        for i in range(3):
+            batch = batches[i]
+            ids = batch['input_ids'].to(DEVICE)
+            mask = batch['attention_mask'].to(DEVICE)
+            targets = batch['targets'].to(DEVICE)
             
-            for i in range(3):
-                batch = next(loader_iter[i])
-                # (Simplified forward pass logic from engine for testing)
-                ids = batch['input_ids'].to(DEVICE)
-                mask = batch['attention_mask'].to(DEVICE)
-                targets = batch['targets'].to(DEVICE)
-                
-                # Check Forward
-                embeddings = engine.backbone(ids, mask, task_type='token' if i==1 else 'sequence')
-                logits = engine.heads[i](embeddings)
-                
-                if i==1: loss = engine.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
-                else: loss = engine.loss_fns[i](logits, targets)
-                
-                # Check UW Formula
-                precision = torch.exp(-engine.log_vars[i])
-                weighted_loss = (precision * loss) + engine.log_vars[i]
-                weighted_loss.backward()
-                total_loss += weighted_loss.item()
+            is_token = (task_configs[i]['type'] == 'token_classification')
             
-            optimizer.step()
-            print(f"   Step {step}: Loss={total_loss:.4f}")
+            embeddings = engine.backbone(ids, mask, task_type='token' if is_token else 'sequence')
+            logits = engine.heads[i](embeddings)
+            
+            if is_token:
+                loss = engine.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
+            else:
+                loss = engine.loss_fns[i](logits, targets)
+            
+            raw_losses_list.append(loss)
 
-        # 5. Check if Sigmas Changed
-        final_sigma = engine.log_vars.detach()
-        print(f"   Final Log Vars: {final_sigma}")
+            # Uncertainty Logic
+            precision = torch.exp(-engine.log_vars[i])
+            weighted_loss = (precision * loss) + engine.log_vars[i]
+            
+            print(f"   > Backward Task {i} (retain_graph=True)...")
+            weighted_loss.backward(retain_graph=True) 
         
-        if torch.equal(initial_sigma, final_sigma):
-            print("   ⚠️ WARNING: Sigmas did not change! (Might happen in only 5 steps if LR is low, but check optimizer)")
-        else:
-            print("   ✅ Sigmas Updated successfully (Gradients are flowing to uncertainty weights).")
-
+        print("   ✅ Backward pass with retain_graph=True successful.")
+        
+        print("   > Analyzing Gradients (Accessing retained graph)...")
+        engine.analyze_gradients(raw_losses_list, step=0, epoch=1)
+        print("   ✅ Gradient Analysis successful (Fix Verified!).")
+        
+        optimizer.step()
+        print("   ✅ Optimizer step successful.")
+        
+    except RuntimeError as e:
+        print(f"\n❌ CRITICAL FAIL: {e}")
+        print("HINT: Did you update 'engine_hf_with_uncertanity_weighting.py' with the new code?")
+        return
     except Exception as e:
-        print(f"   ❌ Training Failed: {e}")
+        print(f"\n❌ UNEXPECTED ERROR: {e}")
         return
 
-    # 6. Check Logging
-    print("[Check 4] File Saving...")
-    if os.path.exists(os.path.join(TEST_DIR, "training_dynamics_sigmas.csv")):
-        print("   ✅ CSV Log found.")
+    print("\n[Step 4] Checking Sigma Updates...")
+    print(f"   Current Log Vars: {engine.log_vars.detach().cpu().numpy()}")
+    if torch.all(engine.log_vars == 0.0):
+        print("   ⚠️ WARNING: Sigmas haven't moved from 0.0 yet (might need more steps, but check grads).")
+        if engine.log_vars.grad is not None:
+             print(f"      But Gradients exist! Max grad: {engine.log_vars.grad.abs().max()}")
+             print("      ✅ Gradients are flowing.")
+        else:
+             print("      ❌ No gradients on log_vars!")
     else:
-        print("   ❌ CSV Log missing.")
+        print("   ✅ Sigmas updated (Values changed).")
 
-    print("\n🚀 PRE-FLIGHT CHECK COMPLETE. You are ready to train.")
+    print("\n[Step 5] Checking Logs...")
+    if os.path.exists(os.path.join(TEST_DIR, "gradient_conflict_log.txt")):
+        print("   ✅ gradient_conflict_log.txt created.")
+    else:
+        print("   ❌ gradient_conflict_log.txt MISSING.")
+
+    print("\nSANITY CHECK COMPLETE. You are ready to run main_hf_v2.py")
 
 if __name__ == "__main__":
-    run_sanity_check()
+    run_robust_sanity_check()

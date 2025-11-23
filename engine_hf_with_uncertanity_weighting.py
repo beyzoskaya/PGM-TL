@@ -127,6 +127,7 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
 
         # 1. Compute gradients
         for loss in losses:
+            # retain_graph=True is vital here because different losses share the same backbone graph
             g = torch.autograd.grad(loss, trainable_params, retain_graph=True, allow_unused=True)
             flat_g = torch.cat([x.flatten() for x in g if x is not None])
             grads.append(flat_g)
@@ -181,6 +182,7 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
             raw_losses_list = []
             
             # Analyze gradients occasionally (e.g., step 50, then every 500 steps)
+            # WARNING: Setting this too frequently can cause OOM or slow down
             should_analyze_grads = (step == 50) or (step % 500 == 0 and step > 0)
             
             # Log sigmas more frequently (every 100 steps)
@@ -209,7 +211,10 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
                 precision = torch.exp(-self.log_vars[i])
                 weighted_loss = (precision * loss) + self.log_vars[i]
                 
-                weighted_loss.backward()
+                # --- CRITICAL FIX: Retain Graph only if we need to analyze gradients ---
+                weighted_loss.backward(retain_graph=should_analyze_grads)
+                # -----------------------------------------------------------------------
+
                 step_loss_sum += weighted_loss.item()
                 
                 # Stats accumulation
@@ -232,6 +237,7 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
 
             # --- SAVINGS & ANALYSIS ---
             if should_analyze_grads:
+                # Now we can analyze because the graph is still alive
                 self.analyze_gradients(raw_losses_list, step, epoch_index)
             
             if should_log_sigmas:
@@ -246,7 +252,7 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
                 sigmas_str = [f"{np.exp(v):.2f}" for v in self.log_vars.detach().cpu().numpy()]
                 print(f"  Step {step}/{max_steps} | Combined Loss: {step_loss_sum:.4f} | Sigmas: {sigmas_str}")
 
-        # Return metrics (same as before)
+        # Return metrics
         results = {"combined_loss": epoch_loss / max_steps}
         for i, cfg in enumerate(self.task_configs):
             name = cfg['name']
