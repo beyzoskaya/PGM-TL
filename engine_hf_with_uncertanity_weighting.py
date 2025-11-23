@@ -7,7 +7,7 @@ from itertools import cycle
 import os
 import csv
 import datetime
-import gc 
+import gc
 
 def multitask_collate_fn(batch, tokenizer):
     sequences = []
@@ -65,22 +65,20 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
 
         os.makedirs(save_dir, exist_ok=True)
         
-        # 1. SIGMA LOGGING (Smart Append)
+        # Sigmas Log
         self.sigma_log_path = os.path.join(save_dir, "training_dynamics_sigmas.csv")
-        # Only write header if file doesn't exist
         if not os.path.exists(self.sigma_log_path):
             with open(self.sigma_log_path, 'w', newline='') as f:
                 writer = csv.writer(f)
                 header = ["Epoch", "Step"] + [f"Sigma_{cfg['name']}" for cfg in task_configs] + [f"Loss_{cfg['name']}" for cfg in task_configs]
                 writer.writerow(header)
 
-        # 2. GRADIENT LOGGING (Smart Append)
+        # Gradient Log
         self.grad_log_path = os.path.join(save_dir, "gradient_conflict_log.txt")
-        # Just append a "Resumed" message
-        with open(self.grad_log_path, 'a') as f:
-            f.write(f"\n--- SESSION RESUMED: {datetime.datetime.now()} ---\n")
+        if not os.path.exists(self.grad_log_path):
+            with open(self.grad_log_path, 'w') as f:
+                f.write(f"--- TRAINING STARTED: {datetime.datetime.now()} ---\n")
 
-        # Heads & Losses
         self.heads = nn.ModuleList()
         self.loss_fns = []
         hidden_dim = backbone.hidden_size
@@ -112,29 +110,6 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
         self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in valid_sets] if valid_sets else None
         self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in test_sets] if test_sets else None
 
-    def analyze_gradients(self, losses, step, epoch):
-        grads = []
-        trainable_params = [p for p in self.backbone.parameters() if p.requires_grad]
-        if not trainable_params: return
-
-        for loss in losses:
-            g = torch.autograd.grad(loss, trainable_params, retain_graph=True, allow_unused=True)
-            flat_g = torch.cat([x.flatten() for x in g if x is not None])
-            grads.append(flat_g)
-        
-        log_msg = f"\n[Epoch {epoch} Step {step}] Gradient Cosine Similarity:\n"
-        num_tasks = len(grads)
-        for i in range(num_tasks):
-            for j in range(i + 1, num_tasks):
-                sim = F.cosine_similarity(grads[i].unsqueeze(0), grads[j].unsqueeze(0))
-                t1 = self.task_configs[i]['name']
-                t2 = self.task_configs[j]['name']
-                log_msg += f"  > {t1} vs {t2}: {sim.item():.4f}\n"
-        
-        with open(self.grad_log_path, 'a') as f:
-            f.write(log_msg)
-        print(log_msg)
-
     def log_dynamics(self, epoch, step, losses):
         sigmas = torch.exp(self.log_vars).detach().cpu().numpy().tolist()
         raw_losses = [l.item() if isinstance(l, torch.Tensor) else l for l in losses]
@@ -160,54 +135,121 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
             optimizer.zero_grad()
             step_loss_sum = 0
             
-            # Reduce analysis frequency slightly to be safe
-            should_analyze_grads = (step == 50) or (step % 1000 == 0 and step > 0)
+            # Reduce analysis frequency slightly to avoid overhead
+            should_analyze_grads = (step == 50) or (step % 500 == 0 and step > 0)
             should_log_sigmas = (step % 100 == 0)
 
-            # --- PATH A: Heavy Analysis (Memory Intensive) ---
+            # --- PREPARE DATA FOR ALL TASKS ---
+            batches = []
+            for i in range(len(self.task_configs)):
+                batches.append(next(iterators[i]))
+
+            # ==========================================
+            # PATH A: SEQUENTIAL ANALYSIS (MEMORY SAFE)
+            # ==========================================
             if should_analyze_grads:
+                task_gradients = [] # Store flattened gradients here
                 raw_losses_list = []
+                
+                # 1. Calculate Gradient for each task SEQUENTIALLY
                 for i in range(len(self.task_configs)):
-                    batch = next(iterators[i])
+                    optimizer.zero_grad() # Clear previous grads
+                    
+                    # Forward
+                    batch = batches[i]
                     input_ids = batch['input_ids'].to(self.device)
                     mask = batch['attention_mask'].to(self.device)
                     targets = batch['targets'].to(self.device)
+                    is_token = (self.task_configs[i]['type'] in ['token_classification', 'per_residue_classification'])
                     
-                    is_token_task = (self.task_configs[i]['type'] in ['token_classification', 'per_residue_classification'])
-                    embeddings = self.backbone(input_ids, mask, task_type='token' if is_token_task else 'sequence')
-                    logits = self.heads[i](embeddings)
+                    emb = self.backbone(input_ids, mask, task_type='token' if is_token else 'sequence')
+                    logits = self.heads[i](emb)
                     
-                    if is_token_task: loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
+                    if is_token: loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
                     else: loss = self.loss_fns[i](logits, targets)
                     
-                    raw_losses_list.append(loss)
+                    raw_losses_list.append(loss.item())
+
+                    # Backward (Normal - Graph is freed immediately!)
+                    loss.backward() 
                     
-                    # Weighted Backward with Retain Graph
+                    # EXTRACT GRADIENTS TO CPU
+                    # We extract valid grads, flatten them, and move to CPU to save GPU memory
+                    grads = []
+                    for p in self.backbone.parameters():
+                        if p.grad is not None:
+                            grads.append(p.grad.detach().flatten())
+                    
+                    if grads:
+                        task_gradients.append(torch.cat(grads))
+                    else:
+                        task_gradients.append(None)
+                
+                # 2. Compute Cosine Similarity (On GPU or CPU)
+                log_msg = f"\n[Epoch {epoch_index} Step {step}] Gradient Cosine Similarity:\n"
+                for i in range(len(task_gradients)):
+                    for j in range(i + 1, len(task_gradients)):
+                        if task_gradients[i] is not None and task_gradients[j] is not None:
+                            # Move back to GPU for fast cosine calc if small enough, or keep on CPU
+                            g1 = task_gradients[i].unsqueeze(0)
+                            g2 = task_gradients[j].unsqueeze(0)
+                            sim = F.cosine_similarity(g1, g2)
+                            t1 = self.task_configs[i]['name']
+                            t2 = self.task_configs[j]['name']
+                            log_msg += f"  > {t1} vs {t2}: {sim.item():.4f}\n"
+                
+                with open(self.grad_log_path, 'a') as f:
+                    f.write(log_msg)
+                print(log_msg)
+                
+                # 3. Log Sigmas
+                if should_log_sigmas:
+                    self.log_dynamics(epoch_index, step, raw_losses_list)
+                    
+                # 4. ACTUAL TRAINING STEP
+                # We cleared grads to analyze, so we must re-run forward/backward for the update.
+                # This costs 1 extra forward pass every 500 steps (negligible cost).
+                optimizer.zero_grad()
+                total_loss = 0
+                for i in range(len(self.task_configs)):
+                    batch = batches[i]
+                    input_ids = batch['input_ids'].to(self.device)
+                    mask = batch['attention_mask'].to(self.device)
+                    targets = batch['targets'].to(self.device)
+                    is_token = (self.task_configs[i]['type'] in ['token_classification', 'per_residue_classification'])
+                    
+                    emb = self.backbone(input_ids, mask, task_type='token' if is_token else 'sequence')
+                    logits = self.heads[i](emb)
+                    
+                    if is_token: loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
+                    else: loss = self.loss_fns[i](logits, targets)
+                    
+                    # Uncertainty Weighting
                     precision = torch.exp(-self.log_vars[i])
                     weighted_loss = (precision * loss) + self.log_vars[i]
-                    weighted_loss.backward(retain_graph=True)
+                    total_loss += weighted_loss
                     step_loss_sum += weighted_loss.item()
                     
-                    # Minimal Stats
+                    # Stats
                     with torch.no_grad():
-                         task_stats[i]['loss'] += loss.item() * input_ids.size(0)
-                         task_stats[i]['total'] += input_ids.size(0)
-
-                self.analyze_gradients(raw_losses_list, step, epoch_index)
-                if should_log_sigmas: self.log_dynamics(epoch_index, step, raw_losses_list)
+                        bs = input_ids.size(0)
+                        task_stats[i]['loss'] += loss.item() * bs
+                        if self.task_configs[i]['type'] == 'regression': task_stats[i]['total'] += bs
+                        else: task_stats[i]['total'] += bs # Simple stats for analysis step
                 
-                # FORCE CLEANUP
-                del raw_losses_list
-                torch.cuda.empty_cache() 
-                gc.collect()
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.backbone.parameters(), 1.0)
+                optimizer.step()
 
-            # --- PATH B: Fast Training (Memory Efficient) ---
+            # ==========================================
+            # PATH B: FAST TRAINING (99% of Steps)
+            # ==========================================
             else:
                 total_tensor_loss = 0
                 temp_raw_losses = []
                 
                 for i in range(len(self.task_configs)):
-                    batch = next(iterators[i])
+                    batch = batches[i]
                     input_ids = batch['input_ids'].to(self.device)
                     mask = batch['attention_mask'].to(self.device)
                     targets = batch['targets'].to(self.device)
@@ -221,17 +263,20 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
                     
                     temp_raw_losses.append(loss.item())
 
+                    # Uncertainty Weighting
                     precision = torch.exp(-self.log_vars[i])
                     weighted_loss = (precision * loss) + self.log_vars[i]
                     
-                    # SUM FIRST, THEN BACKWARD ONCE
+                    # ACCUMULATE
                     total_tensor_loss += weighted_loss
                     step_loss_sum += weighted_loss.item()
                     
+                    # Stats
                     with torch.no_grad():
                         bs = input_ids.size(0)
                         task_stats[i]['loss'] += loss.item() * bs
-                        if self.task_configs[i]['type'] == 'regression': task_stats[i]['total'] += bs
+                        if self.task_configs[i]['type'] == 'regression':
+                            task_stats[i]['total'] += bs
                         elif is_token_task:
                             preds = logits.argmax(dim=-1).view(-1); lbls = targets.view(-1); mask_valid = lbls != -100
                             if mask_valid.sum() > 0:
@@ -241,12 +286,14 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
                             preds = logits.argmax(dim=1)
                             task_stats[i]['correct'] += (preds == targets).sum().item(); task_stats[i]['total'] += bs
 
-                total_tensor_loss.backward() # No retain_graph needed
-                if should_log_sigmas: self.log_dynamics(epoch_index, step, temp_raw_losses)
+                total_tensor_loss.backward()
+                
+                if should_log_sigmas:
+                    self.log_dynamics(epoch_index, step, temp_raw_losses)
 
-            torch.nn.utils.clip_grad_norm_(self.backbone.parameters(), 1.0)
-            optimizer.step()
-            epoch_loss += step_loss_sum
+                torch.nn.utils.clip_grad_norm_(self.backbone.parameters(), 1.0)
+                optimizer.step()
+                epoch_loss += step_loss_sum
 
             if step % 50 == 0:
                 sigmas_str = [f"{np.exp(v):.2f}" for v in self.log_vars.detach().cpu().numpy()]
@@ -261,3 +308,50 @@ class MultiTaskEngineUncertanityWeighting(nn.Module):
                 acc = task_stats[i]['correct'] / (task_stats[i]['total'] if task_stats[i]['total'] > 0 else 1)
                 results[name] = f"Loss: {avg_loss:.4f} | Acc: {acc:.4f}"
         return results
+
+    def evaluate(self, loader_list=None, split_name="Validation"):
+        if loader_list is None: loader_list = self.valid_loaders
+        if not loader_list: return {}
+        self.backbone.eval()
+        for h in self.heads: h.eval()
+        metrics_output = {}
+        print(f"\n[{split_name}] Evaluating...")
+        with torch.no_grad():
+            for i, loader in enumerate(loader_list):
+                task_name = self.task_configs[i].get('name', f'Task_{i}')
+                is_token = (self.task_configs[i]['type'] in ['token_classification', 'per_residue_classification'])
+                is_reg = (self.task_configs[i]['type'] == 'regression')
+                total_loss = 0; correct = 0; total_samples = 0; total_tokens = 0
+                for batch in loader:
+                    input_ids = batch['input_ids'].to(self.device)
+                    mask = batch['attention_mask'].to(self.device)
+                    targets = batch['targets'].to(self.device)
+                    embeddings = self.backbone(input_ids, mask, task_type='token' if is_token else 'sequence')
+                    logits = self.heads[i](embeddings)
+                    if is_token:
+                        loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
+                        total_loss += loss.item() * input_ids.size(0); total_samples += input_ids.size(0)
+                        preds = logits.argmax(dim=-1).view(-1); lbls = targets.view(-1); mask_valid = lbls != -100
+                        if mask_valid.sum() > 0:
+                            correct += (preds[mask_valid] == lbls[mask_valid]).sum().item(); total_tokens += mask_valid.sum().item()
+                    elif is_reg:
+                        loss = self.loss_fns[i](logits, targets)
+                        total_loss += loss.item() * input_ids.size(0); total_samples += input_ids.size(0)
+                    else:
+                        loss = self.loss_fns[i](logits, targets)
+                        total_loss += loss.item() * input_ids.size(0); total_samples += input_ids.size(0)
+                        preds = logits.argmax(dim=1); correct += (preds == targets).sum().item()
+
+                avg_loss = total_loss / total_samples if total_samples > 0 else 0
+                if is_reg:
+                    print(f"  {task_name}: MSE (Loss) = {avg_loss:.4f}")
+                    metrics_output[task_name] = {"MSE": avg_loss}
+                elif is_token:
+                    acc = correct / total_tokens if total_tokens > 0 else 0
+                    print(f"  {task_name}: Loss = {avg_loss:.4f} | Accuracy = {acc:.4f}")
+                    metrics_output[task_name] = {"Loss": avg_loss, "Accuracy": acc}
+                else:
+                    acc = correct / total_samples if total_samples > 0 else 0
+                    print(f"  {task_name}: Loss = {avg_loss:.4f} | Accuracy = {acc:.4f}")
+                    metrics_output[task_name] = {"Loss": avg_loss, "Accuracy": acc}
+        return metrics_output

@@ -14,6 +14,7 @@ class SharedProtBert(nn.Module):
         print(f"[SharedProtBert] Loading {model_name}...")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, do_lower_case=False)
         self.base_model = AutoModel.from_pretrained(model_name)
+        self.base_model.gradient_checkpointing_enable()
 
         # 1. FREEZING LOGIC
         # First, freeze everything
