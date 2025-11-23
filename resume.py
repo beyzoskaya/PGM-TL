@@ -17,7 +17,7 @@ SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_un
 LORA_RANK = 16
 UNFROZEN_LAYERS = 0 
 
-START_EPOCH_INDEX = 1
+START_EPOCH_INDEX = 2
 
 def set_seed(seed):
     torch.manual_seed(seed)
