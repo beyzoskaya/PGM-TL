@@ -7,22 +7,21 @@ import json
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_task_specific_encoder import MultiTaskEngine
-from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
+
+from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
 
 # --- CONFIGURATION ---
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16        
-EPOCHS = 5
+EPOCHS = 5 # Keep 5 to compare directly with the failed run
 LEARNING_RATE = 1e-4
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_uncertainty"
+
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Model Config
 LORA_RANK = 16
-#UNFROZEN_LAYERS = 2
-UNFROZEN_LAYERS = 0 #FIXME: Try freezing all except LoRA for both single task and multi task 
+UNFROZEN_LAYERS = 0 # Frozen + LoRA as the baseline
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -31,35 +30,26 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 def normalize_regression_targets(train_ds, valid_ds, test_ds):
-
     print("\n[Data] Normalizing Thermostability targets...")
-
     full_dataset = train_ds.dataset 
-    
     train_indices = train_ds.indices
     all_raw_targets = full_dataset.targets['target']
-    
     train_values = [all_raw_targets[i] for i in train_indices if all_raw_targets[i] is not None]
-    
     mean = np.mean(train_values)
     std = np.std(train_values)
-    
     print(f"  Mean: {mean:.4f} | Std: {std:.4f}")
 
     new_targets = []
     for t in all_raw_targets:
-        if t is None:
-            new_targets.append(None)
-        else:
-            new_targets.append((t - mean) / std)
-            
+        if t is None: new_targets.append(None)
+        else: new_targets.append((t - mean) / std)
     full_dataset.targets['target'] = new_targets
     print("  ✓ Normalization complete.")
 
 def main():
     set_seed(SEED)
-    print(f"Running UNCERTAINTY WEIGHTING on {DEVICE}")
-    print(f"Running on {DEVICE} with Batch Size {BATCH_SIZE}")
+    print(f"Running HYBRID (PCGrad + Uncertainty) on {DEVICE}")
+    print(f"Batch Size: {BATCH_SIZE} | Epochs: {EPOCHS}")
 
     # 1. DATA LOADING
     print("\n[1/5] Loading Datasets...")
@@ -96,18 +86,9 @@ def main():
     )
 
     # 4. ENGINE SETUP
-    print("\n[3/5] Setting up MultiTask Engine...")
-    #engine = MultiTaskEngine(
-    #    backbone=backbone,
-    #    task_configs=task_configs,
-    #    train_sets=train_sets,
-    #    valid_sets=valid_sets,
-    #    test_sets=test_sets,
-    #    batch_size=BATCH_SIZE,
-    #    device=DEVICE
-    #)
-
-    engine = MultiTaskEngineUncertanityWeighting(
+    print("\n[3/5] Setting up HYBRID Engine (PCGrad + Uncertainty)...")
+    
+    engine = MultiTaskEngineHybrid(
         backbone=backbone,
         task_configs=task_configs,
         train_sets=train_sets,
@@ -141,31 +122,23 @@ def main():
         
         # Print Train Results
         print(f"\n  [TRAIN]")
-        print(f"  >> Combined (Weighted) Loss: {train_metrics.pop('combined_loss'):.4f}")
+        print(f"  >> Combined (Hybrid) Loss: {train_metrics.pop('combined_loss'):.4f}")
         for t, m in train_metrics.items(): print(f"  >> {t}: {m}")
 
         # B. VALIDATE
-        # Evaluate returns simple metrics dict now
         val_metrics = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
 
-        # C. TEST (Optional check, can remove to save time if critical)
+        # C. TEST
         engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
 
         # D. LOGGING & SAVING
-        row = [epoch+1, 0.0] # Placeholder for combined
+        row = [epoch+1, 0.0] 
         current_val_combined_raw = 0
-        
-        # Extract metrics carefully
-        # Note: train_metrics values are strings like "MSE: 0.4". We need raw loss if possible, 
-        # but for CSV let's just save 0.0 for train if parsing is hard, or rely on sigmas csv.
-        # Ideally, engine returns raw floats. Assuming string format for now.
         
         for task in task_configs:
             t_name = task['name']
-            # We accept 0 for train columns here to avoid string parsing errors during the run
             row.append(0) 
             
-            # Val metrics are floats from evaluate()
             v_loss = val_metrics.get(t_name, {}).get('Loss', val_metrics.get(t_name, {}).get('MSE', 0))
             row.append(v_loss)
             current_val_combined_raw += v_loss
@@ -173,7 +146,6 @@ def main():
         with open(history_path, 'a', newline='') as f:
             csv.writer(f).writerow(row)
 
-        # Save Checkpoint
         save_path = os.path.join(SAVE_DIR, f"model_epoch_{epoch+1}.pt")
         torch.save(engine.state_dict(), save_path)
         print(f"  >> Saved: {save_path}")

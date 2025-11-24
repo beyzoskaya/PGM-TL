@@ -1,0 +1,93 @@
+[3/4] Evaluating Checkpoints: [1, 2, 3, 4, 5]
+
+-------------------- EPOCH 1 --------------------
+Loading weights: model_epoch_1.pt ...
+✓ Weights loaded successfully.
+
+--- VALIDATION SET ---
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4321
+  SecStructure: Loss = 0.8063 | Accuracy = 0.7146
+  Cloning: Loss = 0.4619 | Accuracy = 0.7849
+
+--- TEST SET ---
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.3663
+  SecStructure: Loss = 0.8544 | Accuracy = 0.6951
+  Cloning: Loss = 0.4764 | Accuracy = 0.7729
+
+-------------------- EPOCH 2 --------------------
+Loading weights: model_epoch_2.pt ...
+✓ Weights loaded successfully.
+
+--- VALIDATION SET ---
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4018
+  SecStructure: Loss = 0.8135 | Accuracy = 0.7147
+  Cloning: Loss = 0.6534 | Accuracy = 0.7823
+
+--- TEST SET ---
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2551
+  SecStructure: Loss = 0.8638 | Accuracy = 0.6956
+  Cloning: Loss = 0.6931 | Accuracy = 0.7694
+
+-------------------- EPOCH 3 --------------------
+Loading weights: model_epoch_3.pt ...
+✓ Weights loaded successfully.
+
+--- VALIDATION SET ---
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4073
+  SecStructure: Loss = 0.8299 | Accuracy = 0.7134
+  Cloning: Loss = 0.9443 | Accuracy = 0.7695
+
+--- TEST SET ---
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2478
+  SecStructure: Loss = 0.8842 | Accuracy = 0.6934
+  Cloning: Loss = 0.9910 | Accuracy = 0.7570
+
+-------------------- EPOCH 4 --------------------
+Loading weights: model_epoch_4.pt ...
+✓ Weights loaded successfully.
+
+--- VALIDATION SET ---
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4239
+  SecStructure: Loss = 0.8430 | Accuracy = 0.7126
+  Cloning: Loss = 0.9060 | Accuracy = 0.7575
+
+--- TEST SET ---
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.3253
+  SecStructure: Loss = 0.8980 | Accuracy = 0.6927
+  Cloning: Loss = 0.9576 | Accuracy = 0.7527
+
+-------------------- EPOCH 5 --------------------
+Loading weights: model_epoch_5.pt ...
+✓ Weights loaded successfully.
+
+--- VALIDATION SET ---
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.3781
+  SecStructure: Loss = 0.8455 | Accuracy = 0.7131
+  Cloning: Loss = 1.0091 | Accuracy = 0.7665
+
+--- TEST SET ---
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.1996
+  SecStructure: Loss = 0.8998 | Accuracy = 0.6941
+  Cloning: Loss = 1.0356 | Accuracy = 0.7581
+
+✅ Evaluation Complete.
