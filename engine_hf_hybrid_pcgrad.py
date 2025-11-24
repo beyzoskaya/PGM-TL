@@ -41,25 +41,19 @@ class MultiTaskEngineHybrid(nn.Module):
         self.batch_size = batch_size
         self.save_dir = save_dir
 
-        # Uncertainty Parameters
         self.log_vars = nn.Parameter(torch.zeros(len(task_configs), device=device))
 
         os.makedirs(save_dir, exist_ok=True)
-        
         self.sigma_log_path = os.path.join(save_dir, "training_dynamics_sigmas.csv")
         if not os.path.exists(self.sigma_log_path):
             with open(self.sigma_log_path, 'w', newline='') as f:
                 writer = csv.writer(f)
-                header = ["Epoch", "Step"] + [f"Sigma_{cfg['name']}" for cfg in task_configs]
-                writer.writerow(header)
+                writer.writerow(["Epoch", "Step"] + [f"Sigma_{cfg['name']}" for cfg in task_configs])
 
-        # PCGrad Stats
         self.pcgrad_log_path = os.path.join(save_dir, "pcgrad_statistics.csv")
         if not os.path.exists(self.pcgrad_log_path):
             with open(self.pcgrad_log_path, 'w', newline='') as f:
                 writer = csv.writer(f)
-                # Conflict_Count: How many pairs had negative cosine
-                # Magnitude_Red: How much gradient magnitude was removed by projection
                 writer.writerow(["Epoch", "Step", "Conflict_Count", "Avg_Conflict_Magnitude"])
 
         self.heads = nn.ModuleList()
@@ -90,42 +84,28 @@ class MultiTaskEngineHybrid(nn.Module):
         self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in test_sets] if test_sets else None
 
     def _pcgrad_project(self, grads):
-        """
-        Returns:
-            final_grad: The summed, projected gradient
-            stats: dict containing 'conflicts' (int) and 'magnitude' (float)
-        """
         pc_grads = [g.clone() for g in grads]
         indices = list(range(len(pc_grads)))
         random.shuffle(indices)
-
         conflict_count = 0
         total_projection_magnitude = 0.0
 
         for i in indices:
             for j in indices:
                 if i == j: continue
-                
                 g_i = pc_grads[i]
-                g_j = grads[j] # Compare against original
-                
+                g_j = grads[j]
                 dot = torch.dot(g_i, g_j)
-                
                 if dot < 0:
                     conflict_count += 1
                     g_j_norm_sq = torch.dot(g_j, g_j)
                     if g_j_norm_sq > 0:
-                        # Calculate projection vector
                         projection = (dot / g_j_norm_sq) * g_j
                         pc_grads[i] -= projection
                         total_projection_magnitude += projection.norm().item()
         
         final_grad = torch.stack(pc_grads).sum(dim=0)
-        
-        stats = {
-            'conflicts': conflict_count,
-            'magnitude': total_projection_magnitude
-        }
+        stats = {'conflicts': conflict_count, 'magnitude': total_projection_magnitude}
         return final_grad, stats
 
     def log_pcgrad_stats(self, epoch, step, stats):
@@ -142,7 +122,6 @@ class MultiTaskEngineHybrid(nn.Module):
     def train_one_epoch(self, optimizer, epoch_index=1):
         self.backbone.train()
         for h in self.heads: h.train()
-
         loader_lens = [len(l) for l in self.train_loaders]
         max_steps = max(loader_lens)
         iterators = [cycle(l) for l in self.train_loaders]
@@ -153,13 +132,11 @@ class MultiTaskEngineHybrid(nn.Module):
         print(f"\n[Train] Hybrid PCGrad Epoch {epoch_index} starting...")
         
         for step in range(max_steps):
-            # 1. GATHER GRADIENTS
             task_gradients_flat = []
             step_combined_loss = 0
             
             for i in range(len(self.task_configs)):
                 optimizer.zero_grad()
-                
                 batch = next(iterators[i])
                 input_ids = batch['input_ids'].to(self.device)
                 mask = batch['attention_mask'].to(self.device)
@@ -178,13 +155,15 @@ class MultiTaskEngineHybrid(nn.Module):
                 weighted_loss.backward() 
                 step_combined_loss += weighted_loss.item()
                 
-                # Flatten ALL parameters (Backbone + Heads + Sigmas)
+                # --- FIXED COLLECTION LOGIC ---
                 grads = []
                 for p in self.parameters():
-                    if p.grad is not None:
-                        grads.append(p.grad.detach().flatten())
-                    else:
-                        grads.append(torch.zeros(p.numel(), device=self.device))
+                    # CRITICAL: Only collect grads for Trainable Params
+                    if p.requires_grad:
+                        if p.grad is not None:
+                            grads.append(p.grad.detach().flatten())
+                        else:
+                            grads.append(torch.zeros(p.numel(), device=self.device))
                 task_gradients_flat.append(torch.cat(grads))
                 
                 with torch.no_grad():
@@ -197,13 +176,14 @@ class MultiTaskEngineHybrid(nn.Module):
                     else:
                         preds = logits.argmax(dim=1); task_stats[i]['correct'] += (preds == targets).sum().item(); task_stats[i]['total'] += bs
 
-            # 2. PROJECT
+            # Project
             final_flat_grad, pc_stats = self._pcgrad_project(task_gradients_flat)
             
-            # 3. APPLY
+            # Apply
             optimizer.zero_grad()
             idx = 0
             for p in self.parameters():
+                # CRITICAL: Match the collection logic exactly
                 if p.requires_grad:
                     numel = p.numel()
                     p.grad = final_flat_grad[idx : idx + numel].view_as(p)

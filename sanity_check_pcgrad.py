@@ -7,21 +7,17 @@ from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
 
-def run_hybrid_sanity_check():
-    print("\n🧬 STARTING SANITY CHECK: HYBRID (PCGrad + Uncertainty)...")
-
+def run_hybrid_sanity_check_v2():
+    print("\n🧬 STARTING SANITY CHECK V2: HYBRID (PCGrad + Uncertainty)...")
+    
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    TEST_DIR = "./test_sanity_check_hybrid"
+    TEST_DIR = "/content/drive/MyDrive/protein_multitask_outputs/test_sanity_check_hybrid_v2"
     if os.path.exists(TEST_DIR): shutil.rmtree(TEST_DIR)
     
-    print(f"[Setup] Running on {DEVICE}. Temp dir: {TEST_DIR}")
-
-    print("[Step 1] Loading Mock Data...")
     try:
         ds_thermo = Thermostability(verbose=0)
         ds_ssp = SecondaryStructure(verbose=0)
         ds_clf = CloningCLF(verbose=0)
-        
         train_sets = [torch.utils.data.Subset(ds_thermo, range(4)), 
                       torch.utils.data.Subset(ds_ssp, range(4)), 
                       torch.utils.data.Subset(ds_clf, range(4))]
@@ -29,16 +25,13 @@ def run_hybrid_sanity_check():
         print(f"❌ Data Load Failed: {e}")
         return
 
-    print("[Step 2] Initializing Model & Hybrid Engine...")
     try:
         backbone = SharedProtBert(lora_rank=2, unfrozen_layers=0) 
-        
         task_configs = [
             {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},
             {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8},
             {'name': 'Cloning', 'type': 'sequence_classification', 'num_labels': 2}
         ]
-        
         engine = MultiTaskEngineHybrid(
             backbone=backbone,
             task_configs=task_configs,
@@ -48,34 +41,34 @@ def run_hybrid_sanity_check():
             device=DEVICE,
             save_dir=TEST_DIR
         )
-        
         optimizer = torch.optim.AdamW(engine.parameters(), lr=1e-3)
         print("   ✅ Engine Initialized.")
-        
-        # Snapshot initial weights to check for updates later
+  
         initial_sigma = engine.log_vars.clone().detach()
-        # We check a specific LoRA weight
-        initial_lora_weight = list(engine.backbone.parameters())[-1].clone().detach()
+        
+        trainable_param = None
+        for p in engine.parameters():
+            if p.requires_grad:
+                trainable_param = p
+                break
+        
+        if trainable_param is None:
+            print("❌ Critical Error: No trainable parameters found in model!")
+            return
+            
+        initial_weight_snap = trainable_param.clone().detach()
+        print(f"   Snapshotting trainable param (Size: {initial_weight_snap.shape})")
 
     except Exception as e:
         print(f"❌ Init Failed: {e}")
         return
-    
-    print("\n[Step 3] Running Training Steps (PCGrad + UW)...")
+
+    print("\n[Step 3] Running Training Steps...")
     engine.train()
     
     try:
-        
-        loader_lens = [len(l) for l in engine.train_loaders]
-        iterators = [iter(l) for l in engine.train_loaders]
-
-        for step in range(3):
-            print(f"   > Step {step} running...")
-
-            pass 
-        
+        # Run for a few steps
         engine.train_one_epoch(optimizer, epoch_index=1)
-        
         print("   ✅ train_one_epoch finished without crashing.")
 
     except Exception as e:
@@ -84,30 +77,22 @@ def run_hybrid_sanity_check():
 
     print("\n[Step 4] Verifying Updates...")
     
+    # Check Sigmas
     final_sigma = engine.log_vars.detach()
     if not torch.equal(initial_sigma, final_sigma):
         print(f"   ✅ Sigmas Updated: {initial_sigma.cpu().numpy()} -> {final_sigma.cpu().numpy()}")
     else:
-        print("   ⚠️ WARNING: Sigmas did not change! (Check optimizer parameters)")
+        print("   ⚠️ WARNING: Sigmas did not change!")
 
-    final_lora_weight = list(engine.backbone.parameters())[-1].detach()
-    if not torch.equal(initial_lora_weight, final_lora_weight):
-        print("   ✅ Backbone Weights Updated (PCGrad successfully applied gradients).")
+    # Check Weights
+    final_weight_snap = trainable_param.detach()
+    if not torch.equal(initial_weight_snap, final_weight_snap):
+        diff = (final_weight_snap - initial_weight_snap).abs().sum().item()
+        print(f"   ✅ Weights Updated (Diff: {diff:.6f}). PCGrad worked.")
     else:
-        print("   ❌ CRITICAL: Backbone weights did not change!")
+        print("   ❌ CRITICAL: Trainable weights did not change!")
 
-    print("\n[Step 5] Checking Log Files...")
-    
-    if os.path.exists(os.path.join(TEST_DIR, "pcgrad_statistics.csv")):
-        print("   ✅ pcgrad_statistics.csv found.")
-        df = pd.read_csv(os.path.join(TEST_DIR, "pcgrad_statistics.csv"))
-        print(f"      -> Contains {len(df)} entries.")
-        if len(df) > 0:
-            print(f"      -> First entry conflict count: {df.iloc[0]['Conflict_Count']}")
-    else:
-        print("   ⚠️ pcgrad_statistics.csv missing (Note: Engine only logs every 100 steps, this might be expected if steps < 100)")
-
-    print("\n🚀 HYBRID SANITY CHECK COMPLETE. You are ready to train.")
+    print("\n🚀 SANITY CHECK COMPLETE.")
 
 if __name__ == "__main__":
-    run_hybrid_sanity_check()
+    run_hybrid_sanity_check_v2()
