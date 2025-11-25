@@ -92,7 +92,7 @@ def plot_comparative_correlation():
 
     # --- B. Multi-Task Models (Epoch 5 for UW vs PCGrad) ---
     for name, path in [("UW (Epoch 5)", os.path.join(PATH_UW, "model_epoch_5.pt")), 
-                       ("PCGrad (Epoch 5)", os.path.join(PATH_PCGRAD, "model_epoch_5.pt"))]:
+                       ("PCGrad (Epoch 5)", os.path.join(PATH_PCGRAD, "model_epoch_4.pt"))]:
         model = load_engine(path)
         if model:
             t_preds, c_probs = [], []
@@ -163,7 +163,7 @@ def plot_comparative_dms():
     # Load 3 Maps
     hm_base = get_heatmap(PATH_BASE_THERMO)
     hm_uw = get_heatmap(os.path.join(PATH_UW, "model_epoch_5.pt"))
-    hm_pc = get_heatmap(os.path.join(PATH_PCGRAD, "model_epoch_5.pt"))
+    hm_pc = get_heatmap(os.path.join(PATH_PCGRAD, "model_epoch_4.pt"))
 
     if hm_base is None or hm_pc is None: return
 
