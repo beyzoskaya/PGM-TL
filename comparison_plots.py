@@ -20,8 +20,8 @@ BASE_DIR = "/content/drive/MyDrive/protein_multitask_outputs"
 PATH_UW_DIR = os.path.join(BASE_DIR, "cyclic_v1_lora16_uncertainty")
 PATH_PC_DIR = os.path.join(BASE_DIR, "cyclic_v1_lora16_hybrid_pcgrad")
 
-PATH_BASE_THERMO = os.path.join(BASE_DIR, "baseline_Thermostability_lora_only/model_epoch_50.pt") # e.g., epoch 50
-PATH_BASE_CLONING = os.path.join(BASE_DIR, "baseline_Cloning_lora_only/model_epoch_50.pt")       # e.g., epoch 50
+PATH_BASE_THERMO = os.path.join(BASE_DIR, "baseline_Thermostability_lora_only/model_epoch_5.pt") 
+PATH_BASE_CLONING = os.path.join(BASE_DIR, "baseline_Cloning_lora_only/model_epoch_5.pt")      
 
 # --- LOADERS ---
 
