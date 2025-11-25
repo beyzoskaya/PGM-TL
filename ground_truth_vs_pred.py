@@ -47,7 +47,10 @@ def gather_test_data(engine):
     print("Running Thermostability Inference...")
     for item in tqdm(test):
         seq = " ".join(list(item['sequence']))
+        print(f"Sequence Length: {len(seq)}")
+        print(f"Example Sequence: {seq[:50]}...")
         target = item['targets']['target']
+        print(f"Target: {target}")
         if target is None: continue
         
         inp = engine.backbone.tokenizer([seq], return_tensors='pt', truncation=True, max_length=1024).to(DEVICE)
