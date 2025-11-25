@@ -12,7 +12,7 @@ from protbert_hf import SharedProtBert
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BASE_DIR = "/content/drive/MyDrive/protein_multitask_outputs"
-SAMPLE_INDEX = 100
+SAMPLE_INDEX = 250
 SEQ_LEN_LIMIT = 60 
 
 PATH_BASELINE = os.path.join(BASE_DIR, "baseline_SecStructure_lora_only/model_epoch_5.pt")
