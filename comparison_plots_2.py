@@ -1,9 +1,10 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import biotite.sequence as seq
-import biotite.sequence.graphics as graphics
+import matplotlib.patches as mpatches
+from matplotlib.patches import FancyBboxPatch, Arrow
 import os
+from itertools import groupby
 
 from engine_hf_with_task_specific_encoder import MultiTaskEngine as StandardEngine
 from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid as HybridEngine
@@ -18,18 +19,111 @@ SEQ_LEN_LIMIT = 80
 PATH_BASELINE = os.path.join(BASE_DIR, "baseline_SecStructure_lora_only/model_epoch_5.pt")
 PATH_PCGRAD = os.path.join(BASE_DIR, "cyclic_v1_lora16_hybrid_pcgrad/model_epoch_4.pt")
 
-# --- MAPPING HELPERS ---
-# We map Q8 (8 states) to Q3 (3 biological states) for clear plotting
-# 0(G), 1(H), 2(I) -> 'a' (Alpha Helix - displayed as squiggle)
-# 4(E), 5(B)       -> 'b' (Beta Sheet - displayed as arrow)
-# Others           -> 'c' (Coil - displayed as straight line)
-def q8_to_secondary_shape(label_int):
-    if label_int in [0, 1, 2]: return 'a' # Helix
-    if label_int in [4, 5]:    return 'b' # Sheet
-    return 'c' # Coil
+def get_segments(seq_q8):
+    """
+    Converts a list of Q8 integers into segments of (Type, Start, Length).
+    Mapping:
+    - Helix (G, H, I -> 0,1,2): 'Helix'
+    - Sheet (E, B -> 4,5):      'Sheet'
+    - Coil (Others):            'Coil'
+    """
+    # 1. Map Q8 to Q3
+    q3_seq = []
+    for s in seq_q8:
+        if s in [0, 1, 2]: q3_seq.append('Helix')
+        elif s in [4, 5]:  q3_seq.append('Sheet')
+        else:              q3_seq.append('Coil')
+    
+    # 2. Run-Length Encoding (Group consecutive)
+    segments = []
+    curr_idx = 0
+    for key, group in groupby(q3_seq):
+        length = len(list(group))
+        segments.append((key, curr_idx, length))
+        curr_idx += length
+    return segments
 
+def draw_track(ax, segments, length, title, color_scheme):
+    """
+    Draws a single secondary structure track using Matplotlib Patches.
+    """
+    # Draw central "Coil" line first (background wire)
+    ax.plot([0, length], [0.5, 0.5], color='black', linewidth=1, zorder=0)
+    
+    for (ss_type, start, duration) in segments:
+        if start >= length: break
+        
+        # Calculate width (clip if it goes over limit)
+        width = min(duration, length - start)
+        
+        if ss_type == 'Helix':
+            # Draw Cylinder (FancyBox)
+            # x, y, width, height
+            p = FancyBboxPatch(
+                (start, 0.2), width, 0.6,
+                boxstyle="round,pad=0.0,rounding_size=0.3",
+                ec="black", fc=color_scheme['Helix'],
+                mutation_scale=1, zorder=2
+            )
+            ax.add_patch(p)
+            
+        elif ss_type == 'Sheet':
+            # Draw Arrow
+            # x, y, dx, dy
+            # We use mpatches.FancyArrow to look like a biological arrow
+            p = mpatches.FancyArrow(
+                x=start, y=0.5, dx=width, dy=0,
+                width=0.4, length_includes_head=True, 
+                head_width=0.8, head_length=min(width, 1.5),
+                ec="black", fc=color_scheme['Sheet'], zorder=2
+            )
+            ax.add_patch(p)
+            
+    # Styling
+    ax.set_title(title, loc='left', fontsize=12, fontweight='bold')
+    ax.set_xlim(-1, length + 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off') # Hide axes
+
+def plot_cartoon_comparison(aa_seq, true_q8, base_q8, pc_q8, index):
+    L = min(len(aa_seq), len(true_q8), SEQ_LEN_LIMIT)
+    
+    # Process Segments
+    seg_true = get_segments(true_q8[:L])
+    seg_base = get_segments(base_q8[:L])
+    seg_pc   = get_segments(pc_q8[:L])
+    
+    # Colors (Standard Bio Colors)
+    colors = {'Helix': '#2ca02c', 'Sheet': '#d62728', 'Coil': 'black'} # Green Helix, Red Sheet
+    
+    # Plotting
+    fig, axes = plt.subplots(3, 1, figsize=(12, 5))
+    
+    draw_track(axes[0], seg_true, L, f"Ground Truth (Protein #{index})", colors)
+    draw_track(axes[1], seg_base, L, "Baseline Prediction (Single Task)", colors)
+    draw_track(axes[2], seg_pc,   L, "PCGrad Prediction (Multi-Task)", colors)
+    
+    # Add Legend
+    legend_elements = [
+        mpatches.Patch(facecolor=colors['Helix'], edgecolor='black', label='Helix (Alpha)'),
+        mpatches.Patch(facecolor=colors['Sheet'], edgecolor='black', label='Sheet (Beta)'),
+        torch.nn.Identity() # Spacer
+    ]
+    # Draw simple line for Coil legend
+    from matplotlib.lines import Line2D
+    coil_line = Line2D([0], [0], color='black', lw=1, label='Coil / Loop')
+    
+    fig.legend(handles=[legend_elements[0], legend_elements[1], coil_line], 
+               loc='upper right', bbox_to_anchor=(0.98, 0.95))
+    
+    plt.tight_layout()
+    save_name = f"/content/drive/MyDrive/protein_multitask_outputs/final_plots/Bio_Cartoon_Structure_{index}.png"
+    plt.savefig(save_name, dpi=300)
+    print(f"✅ Success! Plot saved to: {save_name}")
+    plt.show()
+
+# --- HELPER FUNCTIONS (Same as before) ---
 def load_models():
-    # Reuse your existing loading logic
     backbone = SharedProtBert(lora_rank=16, unfrozen_layers=0)
     
     # Baseline
@@ -57,82 +151,10 @@ def get_predictions(model, sequence, model_type):
     inp = tokenizer([sequence], return_tensors='pt', truncation=True, max_length=1024).to(DEVICE)
     with torch.no_grad():
         emb = model.backbone(inp['input_ids'], inp['attention_mask'], task_type='token')
-        idx = 0 if model_type == "Baseline" else 1 # Index 1 is SecStruct in PCGrad config
+        idx = 0 if model_type == "Baseline" else 1 
         logits = model.heads[idx](emb)
         preds = logits.argmax(dim=-1).squeeze().cpu().numpy()
-    return preds[1:len(sequence)+1] # Remove CLS
-
-def plot_cartoon_comparison(aa_seq, true_q8, base_q8, pc_q8, index):
-    # 1. Truncate for visibility
-    L = min(len(aa_seq), len(true_q8), SEQ_LEN_LIMIT)
-    aa_seq = aa_seq[:L]
-    
-    # 2. Convert Integers to Biotite Annotation Array
-    # 'a' = helix (green squiggle), 'b' = sheet (red arrow), 'c' = coil
-    true_ss = [q8_to_secondary_shape(x) for x in true_q8[:L]]
-    base_ss = [q8_to_secondary_shape(x) for x in base_q8[:L]]
-    pc_ss   = [q8_to_secondary_shape(x) for x in pc_q8[:L]]
-    
-    # Create Biotite Annotation objects
-    annot_true = seq.Annotation(true_ss)
-    annot_base = seq.Annotation(base_ss)
-    annot_pc   = seq.Annotation(pc_ss)
-
-    # 3. Setup Plot
-    fig = plt.figure(figsize=(10, 6))
-    
-    # Define Subplots (3 tracks)
-    # The 'loc' and 'loc_start' align them horizontally
-    ax1 = fig.add_subplot(311)
-    ax2 = fig.add_subplot(312)
-    ax3 = fig.add_subplot(313)
-
-    # 4. Draw Tracks
-    # Ground Truth
-    graphics.plot_secondary_structure(
-        axes=ax1, 
-        feature=annot_true, 
-        loc=1, # Start index
-        symbols=SEQ_LEN_LIMIT # How many symbols to show per line
-    )
-    ax1.set_title(f"Ground Truth (Protein #{index})", loc='left', fontsize=12, fontweight='bold')
-    ax1.axis('off') # Hide box
-
-    # Baseline
-    graphics.plot_secondary_structure(
-        axes=ax2, 
-        feature=annot_base, 
-        loc=1, 
-        symbols=SEQ_LEN_LIMIT
-    )
-    ax2.set_title("Baseline Prediction (Single Task)", loc='left', fontsize=12, color='gray')
-    ax2.axis('off')
-
-    # PCGrad
-    graphics.plot_secondary_structure(
-        axes=ax3, 
-        feature=annot_pc, 
-        loc=1, 
-        symbols=SEQ_LEN_LIMIT
-    )
-    ax3.set_title("PCGrad Prediction (Multi-Task)", loc='left', fontsize=12, color='darkblue')
-    ax3.axis('off')
-    
-    # 5. Add Legend Manually
-    # Biotite uses standard colors: Green=Helix, Red=Sheet, Black=Coil
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], color='green', lw=2, label='Helix (Spiral)'),
-        Line2D([0], [0], color='red', lw=2, label='Sheet (Arrow)'),
-        Line2D([0], [0], color='black', lw=1, label='Coil (Line)')
-    ]
-    fig.legend(handles=legend_elements, loc='upper right')
-
-    plt.tight_layout()
-    save_path = f"/content/drive/MyDrive/protein_multitask_outputs/final_plots/Bio_Cartoon_Structure_{index}.png"
-    plt.savefig(save_path, dpi=300)
-    print(f"Comparison saved to {save_path}")
-    plt.show()
+    return preds[1:len(sequence)+1]
 
 def main():
     print("Loading Data...")
@@ -148,11 +170,11 @@ def main():
     targets = item['targets']['target']
     clean_targets = [t if t != -100 else 7 for t in targets]
 
-    # Predict
+    print("Running Inference...")
     p_base = get_predictions(m_base, raw_seq, "Baseline")
     p_pc   = get_predictions(m_pc, raw_seq, "PCGrad")
     
-    # Plot
+    print("Plotting Cartoon...")
     plot_cartoon_comparison(raw_seq, clean_targets, p_base, p_pc, SAMPLE_INDEX)
 
 if __name__ == "__main__":
