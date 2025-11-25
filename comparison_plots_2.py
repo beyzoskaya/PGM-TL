@@ -16,7 +16,7 @@ SAMPLE_INDEX = 250
 SEQ_LEN_LIMIT = 60 
 
 PATH_BASELINE = os.path.join(BASE_DIR, "baseline_SecStructure_lora_only/model_epoch_5.pt")
-PATH_PCGRAD = os.path.join(BASE_DIR, "cyclic_v1_lora16_hybrid_pcgrad/model_epoch_4.pt")
+PATH_PCGRAD = os.path.join(BASE_DIR, "cyclic_v1_lora16_hybrid_pcgrad/model_epoch_2.pt")
 
 # --- Q8 MAPPING & COLORS ---
 # Q8 Label mapping (Standard for SSP)
@@ -120,7 +120,7 @@ def plot_structure_track(aa_seq, true_seq, base_seq, pc_seq, index):
     plt.legend(handles=patches, bbox_to_anchor=(1.01, 1), loc='upper left', title="Structure Type")
     
     plt.tight_layout()
-    plt.savefig(f"/content/drive/MyDrive/protein_multitask_outputs/final_plots/SSP_Track_Sample_{index}.png", dpi=150)
+    plt.savefig(f"/content/drive/MyDrive/protein_multitask_outputs/final_plots/SSP_Track_Sample_{index}_epoch_2_weights.png", dpi=150)
     plt.show()
 
 def main():
