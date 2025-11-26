@@ -1,0 +1,461 @@
+[1/5] Loading Datasets...
+
+[Data] Normalizing Thermostability targets...
+  Mean: 0.1791 | Std: 0.5662
+  ✓ Normalization complete.
+  Thermo Train: 53614 | SSP Train: 9763 | Cloning Train: 21037
+
+[2/5] Initializing SharedProtBert (LoRA + Top 0 Unfrozen)...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+[3/5] Setting up HYBRID Engine (PCGrad + Uncertainty)...
+
+[4/5] Starting Training Loop...
+
+============================== EPOCH 1/5 ==============================
+
+[Train] Hybrid PCGrad Epoch 1 starting...
+  Step 0/3351 | Loss: 3.7590 | Sigmas: ['1.00', '1.00', '1.00'] | Conflicts: 6
+  Step 50/3351 | Loss: 3.8899 | Sigmas: ['1.00', '1.01', '0.99'] | Conflicts: 2
+  Step 100/3351 | Loss: 2.9894 | Sigmas: ['1.00', '1.01', '0.99'] | Conflicts: 2
+  Step 150/3351 | Loss: 2.5381 | Sigmas: ['0.99', '1.01', '0.98'] | Conflicts: 4
+  Step 200/3351 | Loss: 2.3374 | Sigmas: ['0.99', '1.01', '0.98'] | Conflicts: 2
+  Step 250/3351 | Loss: 2.1885 | Sigmas: ['0.99', '1.02', '0.97'] | Conflicts: 0
+  Step 300/3351 | Loss: 2.7987 | Sigmas: ['0.98', '1.02', '0.97'] | Conflicts: 4
+  Step 350/3351 | Loss: 2.1405 | Sigmas: ['0.98', '1.01', '0.97'] | Conflicts: 4
+  Step 400/3351 | Loss: 1.9276 | Sigmas: ['0.97', '1.01', '0.96'] | Conflicts: 0
+  Step 450/3351 | Loss: 1.9168 | Sigmas: ['0.97', '1.01', '0.96'] | Conflicts: 2
+  Step 500/3351 | Loss: 1.8927 | Sigmas: ['0.97', '1.01', '0.95'] | Conflicts: 0
+  Step 550/3351 | Loss: 2.3080 | Sigmas: ['0.96', '1.01', '0.95'] | Conflicts: 4
+  Step 600/3351 | Loss: 2.1583 | Sigmas: ['0.96', '1.01', '0.94'] | Conflicts: 2
+  Step 650/3351 | Loss: 2.1070 | Sigmas: ['0.95', '1.01', '0.94'] | Conflicts: 0
+  Step 700/3351 | Loss: 2.2924 | Sigmas: ['0.95', '1.01', '0.93'] | Conflicts: 4
+  Step 750/3351 | Loss: 1.6629 | Sigmas: ['0.95', '1.00', '0.93'] | Conflicts: 4
+  Step 800/3351 | Loss: 2.6684 | Sigmas: ['0.94', '1.00', '0.93'] | Conflicts: 0
+  Step 850/3351 | Loss: 1.4881 | Sigmas: ['0.94', '1.00', '0.92'] | Conflicts: 4
+  Step 900/3351 | Loss: 1.3864 | Sigmas: ['0.94', '1.00', '0.92'] | Conflicts: 0
+  Step 950/3351 | Loss: 2.0512 | Sigmas: ['0.93', '1.00', '0.91'] | Conflicts: 4
+  Step 1000/3351 | Loss: 1.5226 | Sigmas: ['0.93', '0.99', '0.91'] | Conflicts: 4
+  Step 1050/3351 | Loss: 1.7597 | Sigmas: ['0.93', '0.99', '0.91'] | Conflicts: 0
+  Step 1100/3351 | Loss: 1.6711 | Sigmas: ['0.92', '0.99', '0.90'] | Conflicts: 6
+  Step 1150/3351 | Loss: 1.9212 | Sigmas: ['0.92', '0.99', '0.90'] | Conflicts: 4
+  Step 1200/3351 | Loss: 1.5689 | Sigmas: ['0.91', '0.98', '0.89'] | Conflicts: 4
+  Step 1250/3351 | Loss: 2.8553 | Sigmas: ['0.91', '0.98', '0.89'] | Conflicts: 2
+  Step 1300/3351 | Loss: 1.7440 | Sigmas: ['0.91', '0.98', '0.88'] | Conflicts: 4
+  Step 1350/3351 | Loss: 2.5899 | Sigmas: ['0.90', '0.97', '0.88'] | Conflicts: 2
+  Step 1400/3351 | Loss: 2.0218 | Sigmas: ['0.90', '0.97', '0.87'] | Conflicts: 2
+  Step 1450/3351 | Loss: 1.9402 | Sigmas: ['0.90', '0.97', '0.87'] | Conflicts: 2
+  Step 1500/3351 | Loss: 1.9525 | Sigmas: ['0.89', '0.97', '0.86'] | Conflicts: 2
+  Step 1550/3351 | Loss: 1.4865 | Sigmas: ['0.89', '0.96', '0.86'] | Conflicts: 4
+  Step 1600/3351 | Loss: 1.8674 | Sigmas: ['0.89', '0.96', '0.86'] | Conflicts: 0
+  Step 1650/3351 | Loss: 1.0944 | Sigmas: ['0.88', '0.96', '0.85'] | Conflicts: 4
+  Step 1700/3351 | Loss: 1.7582 | Sigmas: ['0.88', '0.95', '0.85'] | Conflicts: 2
+  Step 1750/3351 | Loss: 1.3435 | Sigmas: ['0.88', '0.95', '0.84'] | Conflicts: 4
+  Step 1800/3351 | Loss: 1.3007 | Sigmas: ['0.87', '0.95', '0.84'] | Conflicts: 2
+  Step 1850/3351 | Loss: 2.0736 | Sigmas: ['0.87', '0.94', '0.83'] | Conflicts: 2
+  Step 1900/3351 | Loss: 1.9797 | Sigmas: ['0.87', '0.94', '0.83'] | Conflicts: 4
+  Step 1950/3351 | Loss: 1.4333 | Sigmas: ['0.86', '0.94', '0.82'] | Conflicts: 4
+  Step 2000/3351 | Loss: 1.6072 | Sigmas: ['0.86', '0.93', '0.82'] | Conflicts: 4
+  Step 2050/3351 | Loss: 1.5663 | Sigmas: ['0.86', '0.93', '0.82'] | Conflicts: 0
+  Step 2100/3351 | Loss: 1.4675 | Sigmas: ['0.85', '0.93', '0.81'] | Conflicts: 0
+  Step 2150/3351 | Loss: 1.6141 | Sigmas: ['0.85', '0.92', '0.81'] | Conflicts: 6
+  Step 2200/3351 | Loss: 1.8975 | Sigmas: ['0.85', '0.92', '0.80'] | Conflicts: 0
+  Step 2250/3351 | Loss: 1.2306 | Sigmas: ['0.85', '0.92', '0.80'] | Conflicts: 4
+  Step 2300/3351 | Loss: 1.2135 | Sigmas: ['0.84', '0.92', '0.80'] | Conflicts: 4
+  Step 2350/3351 | Loss: 1.6642 | Sigmas: ['0.84', '0.91', '0.79'] | Conflicts: 0
+  Step 2400/3351 | Loss: 1.7554 | Sigmas: ['0.84', '0.91', '0.79'] | Conflicts: 2
+  Step 2450/3351 | Loss: 1.6955 | Sigmas: ['0.83', '0.91', '0.78'] | Conflicts: 4
+  Step 2500/3351 | Loss: 1.7486 | Sigmas: ['0.83', '0.90', '0.78'] | Conflicts: 2
+  Step 2550/3351 | Loss: 1.5686 | Sigmas: ['0.83', '0.90', '0.78'] | Conflicts: 0
+  Step 2600/3351 | Loss: 1.5136 | Sigmas: ['0.83', '0.90', '0.77'] | Conflicts: 2
+  Step 2650/3351 | Loss: 1.5734 | Sigmas: ['0.82', '0.89', '0.77'] | Conflicts: 2
+  Step 2700/3351 | Loss: 2.1152 | Sigmas: ['0.82', '0.89', '0.77'] | Conflicts: 4
+  Step 2750/3351 | Loss: 1.8877 | Sigmas: ['0.82', '0.89', '0.76'] | Conflicts: 4
+  Step 2800/3351 | Loss: 1.8565 | Sigmas: ['0.81', '0.88', '0.76'] | Conflicts: 2
+  Step 2850/3351 | Loss: 2.1095 | Sigmas: ['0.81', '0.88', '0.76'] | Conflicts: 4
+  Step 2900/3351 | Loss: 1.5190 | Sigmas: ['0.81', '0.88', '0.75'] | Conflicts: 2
+  Step 2950/3351 | Loss: 1.2677 | Sigmas: ['0.80', '0.87', '0.75'] | Conflicts: 6
+  Step 3000/3351 | Loss: 1.2765 | Sigmas: ['0.80', '0.87', '0.74'] | Conflicts: 6
+  Step 3050/3351 | Loss: 1.7060 | Sigmas: ['0.80', '0.87', '0.74'] | Conflicts: 2
+  Step 3100/3351 | Loss: 1.3488 | Sigmas: ['0.80', '0.87', '0.74'] | Conflicts: 2
+  Step 3150/3351 | Loss: 1.4554 | Sigmas: ['0.79', '0.86', '0.73'] | Conflicts: 0
+  Step 3200/3351 | Loss: 1.8965 | Sigmas: ['0.79', '0.86', '0.73'] | Conflicts: 4
+  Step 3250/3351 | Loss: 1.1209 | Sigmas: ['0.79', '0.86', '0.73'] | Conflicts: 2
+  Step 3300/3351 | Loss: 1.4896 | Sigmas: ['0.79', '0.85', '0.72'] | Conflicts: 2
+  Step 3350/3351 | Loss: 0.8989 | Sigmas: ['0.78', '0.85', '0.72'] | Conflicts: 2
+
+  [TRAIN]
+  >> Combined (Hybrid) Loss: 1.8266
+  >> Thermostability: MSE: 0.6071
+  >> SecStructure: Loss: 0.0034 | Acc: 0.6959
+  >> Cloning: Loss: 0.4888 | Acc: 0.7534
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4297
+  SecStructure: Loss = 0.8074 | Accuracy = 0.7147
+  Cloning: Loss = 0.4777 | Accuracy = 0.7840
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.3700
+  SecStructure: Loss = 0.8546 | Accuracy = 0.6961
+  Cloning: Loss = 0.4963 | Accuracy = 0.7685
+  >> Saved: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/model_epoch_1.pt
+
+============================== EPOCH 2/5 ==============================
+
+[Train] Hybrid PCGrad Epoch 2 starting...
+  Step 0/3351 | Loss: 1.3350 | Sigmas: ['0.78', '0.85', '0.72'] | Conflicts: 2
+  Step 50/3351 | Loss: 1.3406 | Sigmas: ['0.78', '0.85', '0.72'] | Conflicts: 4
+  Step 100/3351 | Loss: 1.4526 | Sigmas: ['0.78', '0.84', '0.71'] | Conflicts: 0
+  Step 150/3351 | Loss: 1.0433 | Sigmas: ['0.77', '0.84', '0.71'] | Conflicts: 4
+  Step 200/3351 | Loss: 0.8654 | Sigmas: ['0.77', '0.84', '0.71'] | Conflicts: 2
+  Step 250/3351 | Loss: 1.2422 | Sigmas: ['0.77', '0.84', '0.70'] | Conflicts: 4
+  Step 300/3351 | Loss: 1.3028 | Sigmas: ['0.76', '0.83', '0.70'] | Conflicts: 2
+  Step 350/3351 | Loss: 0.9253 | Sigmas: ['0.76', '0.83', '0.70'] | Conflicts: 2
+  Step 400/3351 | Loss: 1.2483 | Sigmas: ['0.76', '0.83', '0.69'] | Conflicts: 2
+  Step 450/3351 | Loss: 1.3671 | Sigmas: ['0.75', '0.83', '0.69'] | Conflicts: 4
+  Step 500/3351 | Loss: 1.4570 | Sigmas: ['0.75', '0.82', '0.68'] | Conflicts: 2
+  Step 550/3351 | Loss: 1.5788 | Sigmas: ['0.75', '0.82', '0.68'] | Conflicts: 2
+  Step 600/3351 | Loss: 1.4106 | Sigmas: ['0.75', '0.82', '0.68'] | Conflicts: 4
+  Step 650/3351 | Loss: 0.6949 | Sigmas: ['0.74', '0.82', '0.68'] | Conflicts: 2
+  Step 700/3351 | Loss: 1.2459 | Sigmas: ['0.74', '0.81', '0.67'] | Conflicts: 4
+  Step 750/3351 | Loss: 1.1745 | Sigmas: ['0.74', '0.81', '0.67'] | Conflicts: 4
+  Step 800/3351 | Loss: 1.8500 | Sigmas: ['0.73', '0.81', '0.67'] | Conflicts: 2
+  Step 850/3351 | Loss: 1.5891 | Sigmas: ['0.73', '0.81', '0.66'] | Conflicts: 2
+  Step 900/3351 | Loss: 1.5285 | Sigmas: ['0.73', '0.80', '0.66'] | Conflicts: 4
+  Step 950/3351 | Loss: 1.2225 | Sigmas: ['0.73', '0.80', '0.66'] | Conflicts: 2
+  Step 1000/3351 | Loss: 1.4249 | Sigmas: ['0.72', '0.80', '0.65'] | Conflicts: 2
+  Step 1050/3351 | Loss: 1.3198 | Sigmas: ['0.72', '0.80', '0.65'] | Conflicts: 0
+  Step 1100/3351 | Loss: 1.4015 | Sigmas: ['0.72', '0.79', '0.65'] | Conflicts: 4
+  Step 1150/3351 | Loss: 1.1250 | Sigmas: ['0.71', '0.79', '0.65'] | Conflicts: 6
+  Step 1200/3351 | Loss: 0.6299 | Sigmas: ['0.71', '0.79', '0.64'] | Conflicts: 6
+  Step 1250/3351 | Loss: 0.7805 | Sigmas: ['0.71', '0.79', '0.64'] | Conflicts: 2
+  Step 1300/3351 | Loss: 1.3340 | Sigmas: ['0.71', '0.79', '0.64'] | Conflicts: 4
+  Step 1350/3351 | Loss: 0.7261 | Sigmas: ['0.70', '0.78', '0.63'] | Conflicts: 2
+  Step 1400/3351 | Loss: 0.6367 | Sigmas: ['0.70', '0.78', '0.63'] | Conflicts: 2
+  Step 1450/3351 | Loss: 1.1273 | Sigmas: ['0.70', '0.78', '0.63'] | Conflicts: 3
+  Step 1500/3351 | Loss: 1.1456 | Sigmas: ['0.70', '0.78', '0.62'] | Conflicts: 4
+  Step 1550/3351 | Loss: 0.5051 | Sigmas: ['0.69', '0.78', '0.62'] | Conflicts: 4
+  Step 1600/3351 | Loss: 1.3046 | Sigmas: ['0.69', '0.77', '0.62'] | Conflicts: 2
+  Step 1650/3351 | Loss: 0.7384 | Sigmas: ['0.69', '0.77', '0.61'] | Conflicts: 2
+  Step 1700/3351 | Loss: 0.9114 | Sigmas: ['0.69', '0.77', '0.61'] | Conflicts: 2
+  Step 1750/3351 | Loss: 0.6321 | Sigmas: ['0.68', '0.77', '0.61'] | Conflicts: 0
+  Step 1800/3351 | Loss: 1.2119 | Sigmas: ['0.68', '0.77', '0.60'] | Conflicts: 4
+  Step 1850/3351 | Loss: 0.5327 | Sigmas: ['0.68', '0.76', '0.60'] | Conflicts: 4
+  Step 1900/3351 | Loss: 0.1221 | Sigmas: ['0.68', '0.76', '0.60'] | Conflicts: 0
+  Step 1950/3351 | Loss: 0.4270 | Sigmas: ['0.68', '0.76', '0.60'] | Conflicts: 2
+  Step 2000/3351 | Loss: 1.0382 | Sigmas: ['0.67', '0.76', '0.59'] | Conflicts: 0
+  Step 2050/3351 | Loss: 0.4090 | Sigmas: ['0.67', '0.76', '0.59'] | Conflicts: 2
+  Step 2100/3351 | Loss: 1.0426 | Sigmas: ['0.67', '0.76', '0.59'] | Conflicts: 4
+  Step 2150/3351 | Loss: 0.8925 | Sigmas: ['0.67', '0.75', '0.58'] | Conflicts: 2
+  Step 2200/3351 | Loss: 1.0153 | Sigmas: ['0.66', '0.75', '0.58'] | Conflicts: 0
+  Step 2250/3351 | Loss: 0.3968 | Sigmas: ['0.66', '0.75', '0.58'] | Conflicts: 0
+  Step 2300/3351 | Loss: 0.7327 | Sigmas: ['0.66', '0.75', '0.58'] | Conflicts: 0
+  Step 2350/3351 | Loss: 0.9305 | Sigmas: ['0.66', '0.75', '0.57'] | Conflicts: 6
+  Step 2400/3351 | Loss: 0.8711 | Sigmas: ['0.65', '0.75', '0.57'] | Conflicts: 4
+  Step 2450/3351 | Loss: 1.5035 | Sigmas: ['0.65', '0.75', '0.57'] | Conflicts: 4
+  Step 2500/3351 | Loss: 0.9894 | Sigmas: ['0.65', '0.74', '0.57'] | Conflicts: 4
+  Step 2550/3351 | Loss: 0.8112 | Sigmas: ['0.65', '0.74', '0.56'] | Conflicts: 2
+  Step 2600/3351 | Loss: 1.0274 | Sigmas: ['0.65', '0.74', '0.56'] | Conflicts: 0
+  Step 2650/3351 | Loss: 0.7598 | Sigmas: ['0.65', '0.74', '0.56'] | Conflicts: 0
+  Step 2700/3351 | Loss: 0.7573 | Sigmas: ['0.64', '0.74', '0.55'] | Conflicts: 6
+  Step 2750/3351 | Loss: 0.1195 | Sigmas: ['0.64', '0.74', '0.55'] | Conflicts: 4
+  Step 2800/3351 | Loss: 0.5326 | Sigmas: ['0.64', '0.74', '0.55'] | Conflicts: 2
+  Step 2850/3351 | Loss: 0.4193 | Sigmas: ['0.64', '0.73', '0.55'] | Conflicts: 4
+  Step 2900/3351 | Loss: 0.7677 | Sigmas: ['0.64', '0.73', '0.54'] | Conflicts: 2
+  Step 2950/3351 | Loss: 0.9962 | Sigmas: ['0.63', '0.73', '0.54'] | Conflicts: 4
+  Step 3000/3351 | Loss: 0.8050 | Sigmas: ['0.63', '0.73', '0.54'] | Conflicts: 4
+  Step 3050/3351 | Loss: 0.3152 | Sigmas: ['0.63', '0.73', '0.53'] | Conflicts: 2
+  Step 3100/3351 | Loss: 0.8651 | Sigmas: ['0.63', '0.73', '0.53'] | Conflicts: 2
+  Step 3150/3351 | Loss: 0.3537 | Sigmas: ['0.63', '0.73', '0.53'] | Conflicts: 4
+  Step 3200/3351 | Loss: -0.0573 | Sigmas: ['0.62', '0.73', '0.53'] | Conflicts: 4
+  Step 3250/3351 | Loss: 0.6023 | Sigmas: ['0.62', '0.73', '0.52'] | Conflicts: 2
+  Step 3300/3351 | Loss: 0.9480 | Sigmas: ['0.62', '0.72', '0.52'] | Conflicts: 4
+  Step 3350/3351 | Loss: 0.2378 | Sigmas: ['0.62', '0.72', '0.52'] | Conflicts: 4
+
+  [TRAIN]
+  >> Combined (Hybrid) Loss: 0.9561
+  >> Thermostability: MSE: 0.4690
+  >> SecStructure: Loss: 0.0029 | Acc: 0.7429
+  >> Cloning: Loss: 0.2833 | Acc: 0.8738
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4393
+  SecStructure: Loss = 0.8189 | Accuracy = 0.7151
+  Cloning: Loss = 0.5784 | Accuracy = 0.7707
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2141
+  SecStructure: Loss = 0.8699 | Accuracy = 0.6965
+  Cloning: Loss = 0.6290 | Accuracy = 0.7593
+  >> Saved: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/model_epoch_2.pt
+
+============================== EPOCH 3/5 ==============================
+
+[Train] Hybrid PCGrad Epoch 3 starting...
+  Step 0/3351 | Loss: 1.4295 | Sigmas: ['0.62', '0.72', '0.52'] | Conflicts: 4
+  Step 50/3351 | Loss: 0.1953 | Sigmas: ['0.62', '0.72', '0.51'] | Conflicts: 2
+  Step 100/3351 | Loss: -0.1890 | Sigmas: ['0.61', '0.72', '0.51'] | Conflicts: 4
+  Step 150/3351 | Loss: 0.4389 | Sigmas: ['0.61', '0.72', '0.51'] | Conflicts: 2
+  Step 200/3351 | Loss: 0.0589 | Sigmas: ['0.61', '0.72', '0.51'] | Conflicts: 4
+  Step 250/3351 | Loss: 0.9796 | Sigmas: ['0.61', '0.72', '0.50'] | Conflicts: 4
+  Step 300/3351 | Loss: 0.1073 | Sigmas: ['0.60', '0.72', '0.50'] | Conflicts: 4
+  Step 350/3351 | Loss: 0.0211 | Sigmas: ['0.60', '0.72', '0.50'] | Conflicts: 2
+  Step 400/3351 | Loss: 0.8216 | Sigmas: ['0.60', '0.72', '0.50'] | Conflicts: 4
+  Step 450/3351 | Loss: 0.0183 | Sigmas: ['0.60', '0.72', '0.49'] | Conflicts: 4
+  Step 500/3351 | Loss: 0.7976 | Sigmas: ['0.59', '0.71', '0.49'] | Conflicts: 4
+  Step 550/3351 | Loss: 0.1317 | Sigmas: ['0.59', '0.71', '0.49'] | Conflicts: 4
+  Step 600/3351 | Loss: 0.0287 | Sigmas: ['0.59', '0.71', '0.49'] | Conflicts: 4
+  Step 650/3351 | Loss: 0.2463 | Sigmas: ['0.59', '0.71', '0.48'] | Conflicts: 0
+  Step 700/3351 | Loss: 0.1830 | Sigmas: ['0.59', '0.71', '0.48'] | Conflicts: 4
+  Step 750/3351 | Loss: -0.0205 | Sigmas: ['0.58', '0.71', '0.48'] | Conflicts: 0
+  Step 800/3351 | Loss: 0.4337 | Sigmas: ['0.58', '0.71', '0.48'] | Conflicts: 2
+  Step 850/3351 | Loss: 1.2138 | Sigmas: ['0.58', '0.71', '0.48'] | Conflicts: 0
+  Step 900/3351 | Loss: 1.2656 | Sigmas: ['0.58', '0.71', '0.47'] | Conflicts: 6
+  Step 950/3351 | Loss: 0.3968 | Sigmas: ['0.58', '0.71', '0.47'] | Conflicts: 0
+  Step 1000/3351 | Loss: 0.3362 | Sigmas: ['0.57', '0.71', '0.47'] | Conflicts: 2
+  Step 1050/3351 | Loss: -0.2022 | Sigmas: ['0.57', '0.71', '0.47'] | Conflicts: 0
+  Step 1100/3351 | Loss: -0.0420 | Sigmas: ['0.57', '0.71', '0.46'] | Conflicts: 0
+  Step 1150/3351 | Loss: -0.2392 | Sigmas: ['0.57', '0.70', '0.46'] | Conflicts: 2
+  Step 1200/3351 | Loss: 0.3821 | Sigmas: ['0.57', '0.70', '0.46'] | Conflicts: 2
+  Step 1250/3351 | Loss: 0.2545 | Sigmas: ['0.56', '0.70', '0.46'] | Conflicts: 2
+  Step 1300/3351 | Loss: 0.0317 | Sigmas: ['0.56', '0.70', '0.46'] | Conflicts: 0
+  Step 1350/3351 | Loss: 0.4378 | Sigmas: ['0.56', '0.70', '0.45'] | Conflicts: 6
+  Step 1400/3351 | Loss: -0.0914 | Sigmas: ['0.56', '0.70', '0.45'] | Conflicts: 4
+  Step 1450/3351 | Loss: -0.0725 | Sigmas: ['0.56', '0.70', '0.45'] | Conflicts: 4
+  Step 1500/3351 | Loss: -0.4114 | Sigmas: ['0.56', '0.70', '0.45'] | Conflicts: 4
+  Step 1550/3351 | Loss: 0.5918 | Sigmas: ['0.55', '0.70', '0.44'] | Conflicts: 4
+  Step 1600/3351 | Loss: 0.4455 | Sigmas: ['0.55', '0.70', '0.44'] | Conflicts: 4
+  Step 1650/3351 | Loss: -0.2446 | Sigmas: ['0.55', '0.70', '0.44'] | Conflicts: 4
+  Step 1700/3351 | Loss: 0.2617 | Sigmas: ['0.55', '0.70', '0.44'] | Conflicts: 4
+  Step 1750/3351 | Loss: 0.9630 | Sigmas: ['0.55', '0.70', '0.44'] | Conflicts: 0
+  Step 1800/3351 | Loss: -0.1220 | Sigmas: ['0.55', '0.70', '0.43'] | Conflicts: 4
+  Step 1850/3351 | Loss: 0.3468 | Sigmas: ['0.54', '0.70', '0.43'] | Conflicts: 2
+  Step 1900/3351 | Loss: -0.0956 | Sigmas: ['0.54', '0.70', '0.43'] | Conflicts: 4
+  Step 1950/3351 | Loss: -0.1000 | Sigmas: ['0.54', '0.69', '0.43'] | Conflicts: 2
+  Step 2000/3351 | Loss: 0.5492 | Sigmas: ['0.54', '0.69', '0.42'] | Conflicts: 4
+  Step 2050/3351 | Loss: -0.2694 | Sigmas: ['0.54', '0.69', '0.42'] | Conflicts: 0
+  Step 2100/3351 | Loss: -0.2251 | Sigmas: ['0.54', '0.69', '0.42'] | Conflicts: 4
+  Step 2150/3351 | Loss: -0.0641 | Sigmas: ['0.53', '0.69', '0.42'] | Conflicts: 6
+  Step 2200/3351 | Loss: 0.0779 | Sigmas: ['0.53', '0.69', '0.42'] | Conflicts: 6
+  Step 2250/3351 | Loss: -0.0539 | Sigmas: ['0.53', '0.69', '0.41'] | Conflicts: 4
+  Step 2300/3351 | Loss: -0.2425 | Sigmas: ['0.53', '0.69', '0.41'] | Conflicts: 4
+  Step 2350/3351 | Loss: -0.4755 | Sigmas: ['0.53', '0.69', '0.41'] | Conflicts: 2
+  Step 2400/3351 | Loss: -0.1027 | Sigmas: ['0.53', '0.69', '0.41'] | Conflicts: 4
+  Step 2450/3351 | Loss: 0.3737 | Sigmas: ['0.53', '0.69', '0.40'] | Conflicts: 0
+  Step 2500/3351 | Loss: -0.2085 | Sigmas: ['0.52', '0.69', '0.40'] | Conflicts: 2
+  Step 2550/3351 | Loss: 0.1008 | Sigmas: ['0.52', '0.69', '0.40'] | Conflicts: 0
+  Step 2600/3351 | Loss: -0.0625 | Sigmas: ['0.52', '0.69', '0.40'] | Conflicts: 0
+  Step 2650/3351 | Loss: -0.5173 | Sigmas: ['0.52', '0.69', '0.40'] | Conflicts: 4
+  Step 2700/3351 | Loss: -0.3174 | Sigmas: ['0.52', '0.69', '0.40'] | Conflicts: 0
+  Step 2750/3351 | Loss: 0.3808 | Sigmas: ['0.52', '0.69', '0.39'] | Conflicts: 2
+  Step 2800/3351 | Loss: 0.7078 | Sigmas: ['0.52', '0.69', '0.39'] | Conflicts: 2
+  Step 2850/3351 | Loss: 0.0249 | Sigmas: ['0.51', '0.69', '0.39'] | Conflicts: 4
+  Step 2900/3351 | Loss: -0.0139 | Sigmas: ['0.51', '0.69', '0.39'] | Conflicts: 2
+  Step 2950/3351 | Loss: -0.4812 | Sigmas: ['0.51', '0.69', '0.39'] | Conflicts: 2
+  Step 3000/3351 | Loss: -0.1705 | Sigmas: ['0.51', '0.69', '0.38'] | Conflicts: 0
+  Step 3050/3351 | Loss: -0.3324 | Sigmas: ['0.51', '0.68', '0.38'] | Conflicts: 2
+  Step 3100/3351 | Loss: 0.4351 | Sigmas: ['0.51', '0.68', '0.38'] | Conflicts: 2
+  Step 3150/3351 | Loss: 0.7170 | Sigmas: ['0.51', '0.68', '0.38'] | Conflicts: 0
+  Step 3200/3351 | Loss: -0.3104 | Sigmas: ['0.50', '0.68', '0.38'] | Conflicts: 0
+  Step 3250/3351 | Loss: -0.1771 | Sigmas: ['0.50', '0.68', '0.37'] | Conflicts: 4
+  Step 3300/3351 | Loss: 0.0074 | Sigmas: ['0.50', '0.68', '0.37'] | Conflicts: 4
+  Step 3350/3351 | Loss: -0.2599 | Sigmas: ['0.50', '0.68', '0.37'] | Conflicts: 6
+
+  [TRAIN]
+  >> Combined (Hybrid) Loss: 0.1672
+  >> Thermostability: MSE: 0.3901
+  >> SecStructure: Loss: 0.0027 | Acc: 0.7557
+  >> Cloning: Loss: 0.1141 | Acc: 0.9571
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4004
+  SecStructure: Loss = 0.8333 | Accuracy = 0.7128
+  Cloning: Loss = 0.9497 | Accuracy = 0.7451
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.1895
+  SecStructure: Loss = 0.8863 | Accuracy = 0.6938
+  Cloning: Loss = 1.0190 | Accuracy = 0.7268
+  >> Saved: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/model_epoch_3.pt
+
+============================== EPOCH 4/5 ==============================
+
+[Train] Hybrid PCGrad Epoch 4 starting...
+  Step 0/3351 | Loss: -0.7629 | Sigmas: ['0.50', '0.68', '0.37'] | Conflicts: 0
+  Step 50/3351 | Loss: -0.1275 | Sigmas: ['0.50', '0.68', '0.37'] | Conflicts: 6
+  Step 100/3351 | Loss: -0.2244 | Sigmas: ['0.50', '0.68', '0.37'] | Conflicts: 2
+  Step 150/3351 | Loss: 1.4112 | Sigmas: ['0.49', '0.68', '0.36'] | Conflicts: 4
+  Step 200/3351 | Loss: -0.7694 | Sigmas: ['0.49', '0.68', '0.36'] | Conflicts: 2
+  Step 250/3351 | Loss: -0.4207 | Sigmas: ['0.49', '0.68', '0.36'] | Conflicts: 4
+  Step 300/3351 | Loss: -0.0779 | Sigmas: ['0.49', '0.68', '0.36'] | Conflicts: 6
+  Step 350/3351 | Loss: 0.8933 | Sigmas: ['0.49', '0.68', '0.36'] | Conflicts: 2
+  Step 400/3351 | Loss: -0.5340 | Sigmas: ['0.49', '0.68', '0.36'] | Conflicts: 2
+  Step 450/3351 | Loss: -0.4782 | Sigmas: ['0.48', '0.68', '0.35'] | Conflicts: 2
+  Step 500/3351 | Loss: -0.9056 | Sigmas: ['0.48', '0.67', '0.35'] | Conflicts: 4
+  Step 550/3351 | Loss: 1.2613 | Sigmas: ['0.48', '0.67', '0.35'] | Conflicts: 4
+  Step 600/3351 | Loss: -0.5386 | Sigmas: ['0.48', '0.67', '0.35'] | Conflicts: 4
+  Step 650/3351 | Loss: -0.5744 | Sigmas: ['0.48', '0.67', '0.35'] | Conflicts: 6
+  Step 700/3351 | Loss: -0.2100 | Sigmas: ['0.48', '0.67', '0.35'] | Conflicts: 2
+  Step 750/3351 | Loss: -0.4616 | Sigmas: ['0.47', '0.67', '0.34'] | Conflicts: 2
+  Step 800/3351 | Loss: 0.6668 | Sigmas: ['0.47', '0.67', '0.34'] | Conflicts: 0
+  Step 850/3351 | Loss: -0.5288 | Sigmas: ['0.47', '0.67', '0.34'] | Conflicts: 2
+  Step 900/3351 | Loss: -0.4810 | Sigmas: ['0.47', '0.67', '0.34'] | Conflicts: 4
+  Step 950/3351 | Loss: -0.4026 | Sigmas: ['0.47', '0.67', '0.34'] | Conflicts: 4
+  Step 1000/3351 | Loss: 0.2225 | Sigmas: ['0.47', '0.67', '0.34'] | Conflicts: 0
+  Step 1050/3351 | Loss: -0.5221 | Sigmas: ['0.47', '0.67', '0.33'] | Conflicts: 4
+  Step 1100/3351 | Loss: -0.2702 | Sigmas: ['0.46', '0.67', '0.33'] | Conflicts: 0
+  Step 1150/3351 | Loss: -0.7863 | Sigmas: ['0.46', '0.67', '0.33'] | Conflicts: 4
+  Step 1200/3351 | Loss: -0.6067 | Sigmas: ['0.46', '0.67', '0.33'] | Conflicts: 4
+  Step 1250/3351 | Loss: 0.1377 | Sigmas: ['0.46', '0.67', '0.33'] | Conflicts: 2
+  Step 1300/3351 | Loss: -1.1140 | Sigmas: ['0.46', '0.67', '0.33'] | Conflicts: 6
+  Step 1350/3351 | Loss: -0.7934 | Sigmas: ['0.46', '0.67', '0.33'] | Conflicts: 4
+  Step 1400/3351 | Loss: -0.8274 | Sigmas: ['0.46', '0.67', '0.32'] | Conflicts: 4
+  Step 1450/3351 | Loss: -1.1076 | Sigmas: ['0.45', '0.67', '0.32'] | Conflicts: 4
+  Step 1500/3351 | Loss: -0.3686 | Sigmas: ['0.45', '0.66', '0.32'] | Conflicts: 6
+  Step 1550/3351 | Loss: 0.1572 | Sigmas: ['0.45', '0.66', '0.32'] | Conflicts: 0
+  Step 1600/3351 | Loss: -0.6313 | Sigmas: ['0.45', '0.66', '0.32'] | Conflicts: 2
+  Step 1650/3351 | Loss: -0.9037 | Sigmas: ['0.45', '0.66', '0.32'] | Conflicts: 4
+  Step 1700/3351 | Loss: -0.6022 | Sigmas: ['0.45', '0.66', '0.31'] | Conflicts: 4
+  Step 1750/3351 | Loss: -0.7440 | Sigmas: ['0.45', '0.66', '0.31'] | Conflicts: 4
+  Step 1800/3351 | Loss: -0.1276 | Sigmas: ['0.45', '0.66', '0.31'] | Conflicts: 4
+  Step 1850/3351 | Loss: 0.0803 | Sigmas: ['0.44', '0.66', '0.31'] | Conflicts: 2
+  Step 1900/3351 | Loss: -0.2409 | Sigmas: ['0.44', '0.66', '0.31'] | Conflicts: 2
+  Step 1950/3351 | Loss: 0.1257 | Sigmas: ['0.44', '0.66', '0.31'] | Conflicts: 6
+  Step 2000/3351 | Loss: -0.7469 | Sigmas: ['0.44', '0.66', '0.30'] | Conflicts: 4
+  Step 2050/3351 | Loss: -0.7117 | Sigmas: ['0.44', '0.66', '0.30'] | Conflicts: 4
+  Step 2100/3351 | Loss: -0.7296 | Sigmas: ['0.44', '0.66', '0.30'] | Conflicts: 2
+  Step 2150/3351 | Loss: 0.6028 | Sigmas: ['0.44', '0.66', '0.30'] | Conflicts: 2
+  Step 2200/3351 | Loss: -0.5288 | Sigmas: ['0.44', '0.66', '0.30'] | Conflicts: 4
+  Step 2250/3351 | Loss: -0.6285 | Sigmas: ['0.44', '0.66', '0.30'] | Conflicts: 0
+  Step 2300/3351 | Loss: -0.9533 | Sigmas: ['0.43', '0.66', '0.30'] | Conflicts: 2
+  Step 2350/3351 | Loss: -0.8549 | Sigmas: ['0.43', '0.66', '0.30'] | Conflicts: 4
+  Step 2400/3351 | Loss: 1.8164 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 6
+  Step 2450/3351 | Loss: -0.8952 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 4
+  Step 2500/3351 | Loss: -1.1036 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 2
+  Step 2550/3351 | Loss: -0.7876 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 0
+  Step 2600/3351 | Loss: -0.7017 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 0
+  Step 2650/3351 | Loss: -0.6070 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 4
+  Step 2700/3351 | Loss: -0.9007 | Sigmas: ['0.43', '0.65', '0.29'] | Conflicts: 4
+  Step 2750/3351 | Loss: -0.4464 | Sigmas: ['0.43', '0.65', '0.28'] | Conflicts: 2
+  Step 2800/3351 | Loss: 0.1438 | Sigmas: ['0.42', '0.65', '0.28'] | Conflicts: 6
+  Step 2850/3351 | Loss: -1.2733 | Sigmas: ['0.42', '0.65', '0.28'] | Conflicts: 4
+  Step 2900/3351 | Loss: -1.0082 | Sigmas: ['0.42', '0.65', '0.28'] | Conflicts: 0
+  Step 2950/3351 | Loss: -0.4241 | Sigmas: ['0.42', '0.65', '0.28'] | Conflicts: 4
+  Step 3000/3351 | Loss: -0.0613 | Sigmas: ['0.42', '0.65', '0.28'] | Conflicts: 4
+  Step 3050/3351 | Loss: -0.6748 | Sigmas: ['0.42', '0.65', '0.28'] | Conflicts: 0
+  Step 3100/3351 | Loss: -0.3417 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 4
+  Step 3150/3351 | Loss: -1.3273 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 2
+  Step 3200/3351 | Loss: -0.0425 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 4
+  Step 3250/3351 | Loss: -0.7658 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 2
+  Step 3300/3351 | Loss: -1.2642 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 4
+  Step 3350/3351 | Loss: -1.3825 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 4
+
+  [TRAIN]
+  >> Combined (Hybrid) Loss: -0.4936
+  >> Thermostability: MSE: 0.3338
+  >> SecStructure: Loss: 0.0026 | Acc: 0.7676
+  >> Cloning: Loss: 0.0457 | Acc: 0.9864
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.4076
+  SecStructure: Loss = 0.8308 | Accuracy = 0.7159
+  Cloning: Loss = 0.9324 | Accuracy = 0.7853
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2122
+  SecStructure: Loss = 0.8882 | Accuracy = 0.6953
+  Cloning: Loss = 1.0357 | Accuracy = 0.7623
+  >> Saved: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/model_epoch_4.pt
+
+============================== EPOCH 5/5 ==============================
+
+[Train] Hybrid PCGrad Epoch 5 starting...
+  Step 0/3351 | Loss: -1.0581 | Sigmas: ['0.42', '0.65', '0.27'] | Conflicts: 2
+  Step 50/3351 | Loss: -1.1062 | Sigmas: ['0.42', '0.64', '0.27'] | Conflicts: 4
+  Step 100/3351 | Loss: -1.0300 | Sigmas: ['0.41', '0.64', '0.27'] | Conflicts: 2
+  Step 150/3351 | Loss: -1.3480 | Sigmas: ['0.41', '0.64', '0.26'] | Conflicts: 6
+  Step 200/3351 | Loss: -0.5228 | Sigmas: ['0.41', '0.64', '0.26'] | Conflicts: 2
+  Step 250/3351 | Loss: -1.0717 | Sigmas: ['0.41', '0.64', '0.26'] | Conflicts: 4
+  Step 300/3351 | Loss: -0.1706 | Sigmas: ['0.41', '0.64', '0.26'] | Conflicts: 2
+  Step 350/3351 | Loss: -1.1950 | Sigmas: ['0.41', '0.64', '0.26'] | Conflicts: 4
+  Step 400/3351 | Loss: -1.3602 | Sigmas: ['0.40', '0.64', '0.26'] | Conflicts: 4
+  Step 450/3351 | Loss: -1.5364 | Sigmas: ['0.40', '0.64', '0.26'] | Conflicts: 4
+  Step 500/3351 | Loss: -1.3382 | Sigmas: ['0.40', '0.64', '0.26'] | Conflicts: 4
+  Step 550/3351 | Loss: -1.2922 | Sigmas: ['0.40', '0.64', '0.25'] | Conflicts: 4
+  Step 600/3351 | Loss: -1.3044 | Sigmas: ['0.40', '0.64', '0.25'] | Conflicts: 2
+  Step 650/3351 | Loss: -1.1096 | Sigmas: ['0.40', '0.64', '0.25'] | Conflicts: 6
+  Step 700/3351 | Loss: -1.2119 | Sigmas: ['0.40', '0.64', '0.25'] | Conflicts: 2
+  Step 750/3351 | Loss: -1.4233 | Sigmas: ['0.39', '0.64', '0.25'] | Conflicts: 0
+  Step 800/3351 | Loss: -0.3941 | Sigmas: ['0.39', '0.64', '0.25'] | Conflicts: 2
+  Step 850/3351 | Loss: -1.3720 | Sigmas: ['0.39', '0.64', '0.25'] | Conflicts: 2
+  Step 900/3351 | Loss: -1.2363 | Sigmas: ['0.39', '0.64', '0.25'] | Conflicts: 2
+  Step 950/3351 | Loss: -1.1572 | Sigmas: ['0.39', '0.64', '0.25'] | Conflicts: 6
+  Step 1000/3351 | Loss: -1.4406 | Sigmas: ['0.39', '0.64', '0.24'] | Conflicts: 2
+  Step 1050/3351 | Loss: 0.3403 | Sigmas: ['0.39', '0.63', '0.24'] | Conflicts: 4
+  Step 1100/3351 | Loss: -1.3166 | Sigmas: ['0.38', '0.63', '0.24'] | Conflicts: 4
+  Step 1150/3351 | Loss: -0.8850 | Sigmas: ['0.38', '0.63', '0.24'] | Conflicts: 4
+  Step 1200/3351 | Loss: -1.5435 | Sigmas: ['0.38', '0.63', '0.24'] | Conflicts: 4
+  Step 1250/3351 | Loss: -1.5902 | Sigmas: ['0.38', '0.63', '0.24'] | Conflicts: 4
+  Step 1300/3351 | Loss: -1.4963 | Sigmas: ['0.38', '0.63', '0.24'] | Conflicts: 0
+  Step 1350/3351 | Loss: -1.4202 | Sigmas: ['0.38', '0.63', '0.24'] | Conflicts: 0
+  Step 1400/3351 | Loss: -1.5448 | Sigmas: ['0.38', '0.63', '0.23'] | Conflicts: 4
+  Step 1450/3351 | Loss: -1.4992 | Sigmas: ['0.38', '0.63', '0.23'] | Conflicts: 2
+  Step 1500/3351 | Loss: -1.0582 | Sigmas: ['0.38', '0.63', '0.23'] | Conflicts: 4
+  Step 1550/3351 | Loss: -1.1419 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 4
+  Step 1600/3351 | Loss: 0.5249 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 0
+  Step 1650/3351 | Loss: -0.6328 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 2
+  Step 1700/3351 | Loss: -1.3924 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 4
+  Step 1750/3351 | Loss: -1.2576 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 2
+  Step 1800/3351 | Loss: -0.7286 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 0
+  Step 1850/3351 | Loss: -0.8040 | Sigmas: ['0.37', '0.63', '0.23'] | Conflicts: 2
+  Step 1900/3351 | Loss: 0.0211 | Sigmas: ['0.37', '0.63', '0.22'] | Conflicts: 6
+  Step 1950/3351 | Loss: -0.8199 | Sigmas: ['0.37', '0.63', '0.22'] | Conflicts: 4
+  Step 2000/3351 | Loss: -1.4408 | Sigmas: ['0.37', '0.63', '0.22'] | Conflicts: 2
+  Step 2050/3351 | Loss: -1.3641 | Sigmas: ['0.36', '0.63', '0.22'] | Conflicts: 4
+  Step 2100/3351 | Loss: -0.7455 | Sigmas: ['0.36', '0.63', '0.22'] | Conflicts: 2
+  Step 2150/3351 | Loss: -1.1170 | Sigmas: ['0.36', '0.62', '0.22'] | Conflicts: 2
+  Step 2200/3351 | Loss: -1.5554 | Sigmas: ['0.36', '0.63', '0.22'] | Conflicts: 4
+  Step 2250/3351 | Loss: -1.3242 | Sigmas: ['0.36', '0.62', '0.22'] | Conflicts: 4
+  Step 2300/3351 | Loss: -1.4723 | Sigmas: ['0.36', '0.62', '0.22'] | Conflicts: 2
+  Step 2350/3351 | Loss: -0.1646 | Sigmas: ['0.36', '0.62', '0.22'] | Conflicts: 2
+  Step 2400/3351 | Loss: -0.6972 | Sigmas: ['0.36', '0.62', '0.21'] | Conflicts: 4
+  Step 2450/3351 | Loss: -1.2155 | Sigmas: ['0.36', '0.62', '0.21'] | Conflicts: 4
+  Step 2500/3351 | Loss: -1.5665 | Sigmas: ['0.36', '0.62', '0.21'] | Conflicts: 4
+  Step 2550/3351 | Loss: -1.8420 | Sigmas: ['0.36', '0.62', '0.21'] | Conflicts: 4
+  Step 2600/3351 | Loss: 0.0002 | Sigmas: ['0.36', '0.62', '0.21'] | Conflicts: 0
+  Step 2650/3351 | Loss: -1.1317 | Sigmas: ['0.35', '0.62', '0.21'] | Conflicts: 4
+  Step 2700/3351 | Loss: -1.4669 | Sigmas: ['0.35', '0.62', '0.21'] | Conflicts: 4
+  Step 2750/3351 | Loss: -0.8506 | Sigmas: ['0.35', '0.62', '0.21'] | Conflicts: 2
+  Step 2800/3351 | Loss: -1.4529 | Sigmas: ['0.35', '0.62', '0.21'] | Conflicts: 2
+  Step 2850/3351 | Loss: -0.8730 | Sigmas: ['0.35', '0.62', '0.21'] | Conflicts: 4
+  Step 2900/3351 | Loss: -1.6834 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 4
+  Step 2950/3351 | Loss: -1.2340 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 2
+  Step 3000/3351 | Loss: -1.6033 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 0
+  Step 3050/3351 | Loss: -0.8053 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 2
+  Step 3100/3351 | Loss: 0.0587 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 4
+  Step 3150/3351 | Loss: -0.8923 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 2
+  Step 3200/3351 | Loss: -1.3794 | Sigmas: ['0.35', '0.62', '0.20'] | Conflicts: 2
+  Step 3250/3351 | Loss: -1.6512 | Sigmas: ['0.35', '0.61', '0.20'] | Conflicts: 2
+  Step 3300/3351 | Loss: -0.4843 | Sigmas: ['0.35', '0.61', '0.20'] | Conflicts: 4
+  Step 3350/3351 | Loss: -1.9006 | Sigmas: ['0.35', '0.61', '0.20'] | Conflicts: 4
+
+  [TRAIN]
+  >> Combined (Hybrid) Loss: -1.0896
+  >> Thermostability: MSE: 0.2732
+  >> SecStructure: Loss: 0.0025 | Acc: 0.7781
+  >> Cloning: Loss: 0.0260 | Acc: 0.9927
+
+[VALIDATION] Evaluating...
+  Thermostability: MSE (Loss) = 0.3746
+  SecStructure: Loss = 0.8533 | Accuracy = 0.7147
+  Cloning: Loss = 1.0601 | Accuracy = 0.7797
+
+[TEST] Evaluating...
+  Thermostability: MSE (Loss) = 0.2326
+  SecStructure: Loss = 0.9109 | Accuracy = 0.6944
+  Cloning: Loss = 1.1651 | Accuracy = 0.7550
+  >> Saved: /content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/model_epoch_5.pt
+
+Done!

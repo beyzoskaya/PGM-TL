@@ -119,7 +119,7 @@ UNFROZEN_LAYERS = 0
 
 
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad"
-EPOCHS_TO_EVAL = [4] 
+EPOCHS_TO_EVAL = [1,2,3,4,5] 
 
 def set_seed(seed):
     torch.manual_seed(seed)
