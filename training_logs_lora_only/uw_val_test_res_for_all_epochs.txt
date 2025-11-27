@@ -1,0 +1,117 @@
+🚀 Starting Uncertainty Weighting Evaluation on cuda...
+
+[1] Loading Data...
+  [Normalization] Mean: 0.1791 | Std: 0.5662
+[2] Initializing Uncertainty Engine...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+=== EVALUATING EPOCH 1 ===
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.24it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+Results for VALIDATION:
+  [Thermostability] MSE: 0.4321 | Pearson r: 0.8242
+  [SecStructure]    Acc: 0.7146 | Macro F1:  0.4286
+  [Cloning]         Acc: 0.7849 | MCC:       0.5445
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.36it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+Results for TEST FINAL:
+  [Thermostability] MSE: 0.3663 | Pearson r: 0.6808
+  [SecStructure]    Acc: 0.6951 | Macro F1:  0.4259
+  [Cloning]         Acc: 0.7729 | MCC:       0.5267
+
+=== EVALUATING EPOCH 2 ===
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.48it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+Results for VALIDATION:
+  [Thermostability] MSE: 0.4018 | Pearson r: 0.8393
+  [SecStructure]    Acc: 0.7147 | Macro F1:  0.4628
+  [Cloning]         Acc: 0.7823 | MCC:       0.5335
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.34it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+Results for TEST FINAL:
+  [Thermostability] MSE: 0.2551 | Pearson r: 0.7357
+  [SecStructure]    Acc: 0.6956 | Macro F1:  0.4588
+  [Cloning]         Acc: 0.7694 | MCC:       0.5137
+
+=== EVALUATING EPOCH 3 ===
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.50it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+Results for VALIDATION:
+  [Thermostability] MSE: 0.4073 | Pearson r: 0.8412
+  [SecStructure]    Acc: 0.7134 | Macro F1:  0.4667
+  [Cloning]         Acc: 0.7695 | MCC:       0.5247
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.29it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+Results for TEST FINAL:
+  [Thermostability] MSE: 0.2478 | Pearson r: 0.7371
+  [SecStructure]    Acc: 0.6934 | Macro F1:  0.4634
+  [Cloning]         Acc: 0.7570 | MCC:       0.5029
+
+=== EVALUATING EPOCH 4 ===
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.50it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+Results for VALIDATION:
+  [Thermostability] MSE: 0.4239 | Pearson r: 0.8387
+  [SecStructure]    Acc: 0.7126 | Macro F1:  0.4757
+  [Cloning]         Acc: 0.7575 | MCC:       0.5020
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.37it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+Results for TEST FINAL:
+  [Thermostability] MSE: 0.3253 | Pearson r: 0.7137
+  [SecStructure]    Acc: 0.6927 | Macro F1:  0.4686
+  [Cloning]         Acc: 0.7527 | MCC:       0.4951
+
+=== EVALUATING EPOCH 5 ===
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.46it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+Results for VALIDATION:
+  [Thermostability] MSE: 0.3781 | Pearson r: 0.8474
+  [SecStructure]    Acc: 0.7131 | Macro F1:  0.4784
+  [Cloning]         Acc: 0.7665 | MCC:       0.5066
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.38it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+Results for TEST FINAL:
+  [Thermostability] MSE: 0.1996 | Pearson r: 0.7920
+  [SecStructure]    Acc: 0.6941 | Macro F1:  0.4734
+  [Cloning]         Acc: 0.7581 | MCC:       0.4969

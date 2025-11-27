@@ -1,0 +1,184 @@
+========================================
+EVALUATING EPOCH 1
+========================================
+Loading weights: model_epoch_1.pt ...
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 17.51it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+results for VALIDATION:
+  [Thermostability]
+    MSE: 0.4297
+    Pearson r: 0.8263  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.7147
+    Macro F1: 0.4267      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7840
+    MCC:      0.5472     <-- Gold standard for binary
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.25it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+results for TEST FINAL:
+  [Thermostability]
+    MSE: 0.3700
+    Pearson r: 0.6943  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.6961
+    Macro F1: 0.4249      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7685
+    MCC:      0.5210     <-- Gold standard for binary
+
+========================================
+EVALUATING EPOCH 2
+========================================
+Loading weights: model_epoch_2.pt ...
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.51it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+results for VALIDATION:
+  [Thermostability]
+    MSE: 0.4393
+    Pearson r: 0.8322  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.7151
+    Macro F1: 0.4650      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7707
+    MCC:      0.5140     <-- Gold standard for binary
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.24it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+results for TEST FINAL:
+  [Thermostability]
+    MSE: 0.2141
+    Pearson r: 0.7876  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.6965
+    Macro F1: 0.4598      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7593
+    MCC:      0.4964     <-- Gold standard for binary
+
+========================================
+EVALUATING EPOCH 3
+========================================
+Loading weights: model_epoch_3.pt ...
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.43it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+results for VALIDATION:
+  [Thermostability]
+    MSE: 0.4004
+    Pearson r: 0.8425  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.7128
+    Macro F1: 0.4694      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7451
+    MCC:      0.4983     <-- Gold standard for binary
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.22it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+results for TEST FINAL:
+  [Thermostability]
+    MSE: 0.1895
+    Pearson r: 0.8013  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.6938
+    Macro F1: 0.4621      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7268
+    MCC:      0.4575     <-- Gold standard for binary
+
+========================================
+EVALUATING EPOCH 4
+========================================
+Loading weights: model_epoch_4.pt ...
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.47it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+results for VALIDATION:
+  [Thermostability]
+    MSE: 0.4076
+    Pearson r: 0.8496  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.7159
+    Macro F1: 0.4783      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7853
+    MCC:      0.5420     <-- Gold standard for binary
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:41<00:00, 19.19it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+results for TEST FINAL:
+  [Thermostability]
+    MSE: 0.2122
+    Pearson r: 0.7800  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.6953
+    Macro F1: 0.4716      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7623
+    MCC:      0.5003     <-- Gold standard for binary
+
+========================================
+EVALUATING EPOCH 5
+========================================
+Loading weights: model_epoch_5.pt ...
+
+📊 Calculating Detailed Metrics for [VALIDATION]...
+Task 0: 100% 157/157 [00:08<00:00, 18.51it/s]
+Task 1: 100% 68/68 [00:38<00:00,  1.75it/s]
+Task 2: 100% 147/147 [01:36<00:00,  1.53it/s]
+
+results for VALIDATION:
+  [Thermostability]
+    MSE: 0.3746
+    Pearson r: 0.8501  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.7147
+    Macro F1: 0.4813      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7797
+    MCC:      0.5424     <-- Gold standard for binary
+
+📊 Calculating Detailed Metrics for [TEST FINAL]...
+Task 0: 100% 804/804 [00:42<00:00, 19.14it/s]
+Task 1: 100% 42/42 [00:25<00:00,  1.66it/s]
+Task 2: 100% 300/300 [03:21<00:00,  1.49it/s]
+
+results for TEST FINAL:
+  [Thermostability]
+    MSE: 0.2326
+    Pearson r: 0.7755  <-- Check this!
+  [SecStructure]
+    Accuracy: 0.6944
+    Macro F1: 0.4710      <-- Better for imbalanced classes
+  [Cloning]
+    Accuracy: 0.7550
+    MCC:      0.4946     <-- Gold standard for binary

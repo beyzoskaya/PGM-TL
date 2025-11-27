@@ -3,25 +3,23 @@ import torch
 import numpy as np
 import logging
 import csv
-import json
+from transformers import get_linear_schedule_with_warmup
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
+from engine_hf_cascade import CascadeMultiTaskEngine
 
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
-
-# --- CONFIGURATION ---
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16        
-EPOCHS = 5 # Keep 5 to compare directly with the failed run
+EPOCHS = 5 
 LEARNING_RATE = 1e-4
 
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cascade_v1_lora16"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 LORA_RANK = 16
-UNFROZEN_LAYERS = 0 # Frozen + LoRA as the baseline
+UNFROZEN_LAYERS = 0 
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -34,6 +32,8 @@ def normalize_regression_targets(train_ds, valid_ds, test_ds):
     full_dataset = train_ds.dataset 
     train_indices = train_ds.indices
     all_raw_targets = full_dataset.targets['target']
+    
+    # Calculate stats only on Train to prevent leakage
     train_values = [all_raw_targets[i] for i in train_indices if all_raw_targets[i] is not None]
     mean = np.mean(train_values)
     std = np.std(train_values)
@@ -43,13 +43,14 @@ def normalize_regression_targets(train_ds, valid_ds, test_ds):
     for t in all_raw_targets:
         if t is None: new_targets.append(None)
         else: new_targets.append((t - mean) / std)
+    
     full_dataset.targets['target'] = new_targets
     print("  ✓ Normalization complete.")
 
 def main():
     set_seed(SEED)
-    print(f"Running HYBRID (PCGrad + Uncertainty) on {DEVICE}")
-    print(f"Batch Size: {BATCH_SIZE} | Epochs: {EPOCHS}")
+    print(f"🚀 Running NOVEL CASCADE ARCHITECTURE on {DEVICE}")
+    print(f"Batch Size: {BATCH_SIZE} | Epochs: {EPOCHS} | Scheduler: Linear Decay")
 
     # 1. DATA LOADING
     print("\n[1/5] Loading Datasets...")
@@ -71,13 +72,13 @@ def main():
 
     # 2. CONFIGURATION
     task_configs = [
-        {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},
-        {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8},
-        {'name': 'Cloning', 'type': 'sequence_classification', 'num_labels': 2}
+        {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},       # Index 0
+        {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8}, # Index 1 (Guide)
+        {'name': 'Cloning', 'type': 'sequence_classification', 'num_labels': 2}    # Index 2
     ]
 
     # 3. MODEL INITIALIZATION
-    print(f"\n[2/5] Initializing SharedProtBert (LoRA + Top {UNFROZEN_LAYERS} Unfrozen)...")
+    print(f"\n[2/5] Initializing SharedProtBert...")
     backbone = SharedProtBert(
         model_name="Rostlab/prot_bert_bfd",
         lora_rank=LORA_RANK,
@@ -86,9 +87,8 @@ def main():
     )
 
     # 4. ENGINE SETUP
-    print("\n[3/5] Setting up HYBRID Engine (PCGrad + Uncertainty)...")
-    
-    engine = MultiTaskEngineHybrid(
+    print("\n[3/5] Setting up CASCADE Engine...")
+    engine = CascadeMultiTaskEngine(
         backbone=backbone,
         task_configs=task_configs,
         train_sets=train_sets,
@@ -99,31 +99,44 @@ def main():
         save_dir=SAVE_DIR 
     )
 
+    # --- OPTIMIZER & SCHEDULER ---
     optimizer = torch.optim.AdamW(engine.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+    
+    # Calculate total steps
+    max_len = max([len(l) for l in engine.train_loaders])
+    total_steps = max_len * EPOCHS
+    
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, 
+        num_warmup_steps=int(0.1 * total_steps), # 10% warmup
+        num_training_steps=total_steps
+    )
 
-    # --- SETUP LOGGING CSV ---
+    # --- LOGGING SETUP ---
     history_path = os.path.join(SAVE_DIR, "training_history.csv")
     with open(history_path, 'w', newline='') as f:
         writer = csv.writer(f)
         headers = ["Epoch", "Train_Combined_Loss"]
         for task in task_configs:
-            name = task['name']
-            headers.extend([f"Train_Loss_{name}", f"Val_Loss_{name}"])
+            headers.extend([f"Val_Metric_{task['name']}"]) 
         writer.writerow(headers)
 
     # 5. TRAINING LOOP
     print("\n[4/5] Starting Training Loop...")
     
+    best_val_thermo_loss = float('inf')
+    
     for epoch in range(EPOCHS):
         print(f"\n{'='*30} EPOCH {epoch+1}/{EPOCHS} {'='*30}")
         
         # A. TRAIN
-        train_metrics = engine.train_one_epoch(optimizer, epoch_index=epoch+1)
+        # Pass scheduler to engine
+        train_metrics = engine.train_one_epoch(optimizer, scheduler, epoch_index=epoch+1)
         
         # Print Train Results
         print(f"\n  [TRAIN]")
-        print(f"  >> Combined (Hybrid) Loss: {train_metrics.pop('combined_loss'):.4f}")
-        for t, m in train_metrics.items(): print(f"  >> {t}: {m}")
+        combined_loss = train_metrics.get('avg_loss', 0.0)
+        print(f"  >> Combined Cascade Loss: {combined_loss:.4f}")
 
         # B. VALIDATE
         val_metrics = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
@@ -132,23 +145,35 @@ def main():
         engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
 
         # D. LOGGING & SAVING
-        row = [epoch+1, 0.0] 
-        current_val_combined_raw = 0
-        
+        # CSV Logging
+        row = [epoch+1, combined_loss] 
         for task in task_configs:
             t_name = task['name']
-            row.append(0) 
-            
-            v_loss = val_metrics.get(t_name, {}).get('Loss', val_metrics.get(t_name, {}).get('MSE', 0))
-            row.append(v_loss)
-            current_val_combined_raw += v_loss
+            metric_str = val_metrics.get(t_name, "0.0")
+            try:
+                val_num = float(metric_str.split(":")[-1].strip())
+            except:
+                val_num = 0.0
+            row.append(val_num)
         
         with open(history_path, 'a', newline='') as f:
             csv.writer(f).writerow(row)
 
+        # Save Regular Checkpoint
         save_path = os.path.join(SAVE_DIR, f"model_epoch_{epoch+1}.pt")
         torch.save(engine.state_dict(), save_path)
         print(f"  >> Saved: {save_path}")
+        
+        # Save Best Model Logic
+        try:
+            curr_thermo_mse = float(val_metrics['Thermostability'].split(":")[1])
+            if curr_thermo_mse < best_val_thermo_loss:
+                best_val_thermo_loss = curr_thermo_mse
+                best_path = os.path.join(SAVE_DIR, "best_model.pt")
+                torch.save(engine.state_dict(), best_path)
+                print(f"  New Best Model Saved! (Thermo MSE: {best_val_thermo_loss:.4f})")
+        except:
+            pass
 
     print("\nDone!")
 

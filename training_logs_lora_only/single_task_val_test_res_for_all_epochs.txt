@@ -1,0 +1,115 @@
+🚀 Starting Single Task Baseline Evaluation on cuda...
+
+[1] Loading Data...
+  [Normalization] Mean: 0.1791 | Std: 0.5662
+
+
+########################################
+EVALUATING BASELINE: Thermostability
+########################################
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+--- Epoch 1 ---
+[VALIDATION]
+  MSE: 0.5193 | Pearson: 0.8242
+[TEST FINAL]
+  MSE: 0.5015 | Pearson: 0.6942
+
+--- Epoch 2 ---
+[VALIDATION]
+  MSE: 0.3904 | Pearson: 0.8489
+[TEST FINAL]
+  MSE: 0.2993 | Pearson: 0.7060
+
+--- Epoch 3 ---
+[VALIDATION]
+  MSE: 0.3639 | Pearson: 0.8558
+[TEST FINAL]
+  MSE: 0.2129 | Pearson: 0.7867
+
+--- Epoch 4 ---
+[VALIDATION]
+  MSE: 0.3612 | Pearson: 0.8560
+[TEST FINAL]
+  MSE: 0.2361 | Pearson: 0.7715
+
+--- Epoch 5 ---
+[VALIDATION]
+  MSE: 0.3546 | Pearson: 0.8611
+[TEST FINAL]
+  MSE: 0.2726 | Pearson: 0.7639
+
+
+########################################
+EVALUATING BASELINE: SecStructure
+########################################
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+--- Epoch 1 ---
+[VALIDATION]
+  Acc: 0.7014 | Macro F1: 0.3912
+[TEST FINAL]
+  Acc: 0.6772 | Macro F1: 0.3850
+
+--- Epoch 2 ---
+[VALIDATION]
+  Acc: 0.7167 | Macro F1: 0.4327
+[TEST FINAL]
+  Acc: 0.6939 | Macro F1: 0.4246
+
+--- Epoch 3 ---
+[VALIDATION]
+  Acc: 0.7228 | Macro F1: 0.4412
+[TEST FINAL]
+  Acc: 0.7005 | Macro F1: 0.4322
+
+--- Epoch 4 ---
+[VALIDATION]
+  Acc: 0.7252 | Macro F1: 0.4667
+[TEST FINAL]
+  Acc: 0.7037 | Macro F1: 0.4558
+
+--- Epoch 5 ---
+[VALIDATION]
+  Acc: 0.7271 | Macro F1: 0.4870
+[TEST FINAL]
+  Acc: 0.7045 | Macro F1: 0.4737
+
+
+########################################
+EVALUATING BASELINE: Cloning
+########################################
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+
+--- Epoch 1 ---
+[VALIDATION]
+  Acc: 0.7789 | MCC: 0.5271
+[TEST FINAL]
+  Acc: 0.7646 | MCC: 0.5049
+
+--- Epoch 2 ---
+[VALIDATION]
+  Acc: 0.7883 | MCC: 0.5490
+[TEST FINAL]
+  Acc: 0.7731 | MCC: 0.5246
+
+--- Epoch 3 ---
+[VALIDATION]
+  Acc: 0.7857 | MCC: 0.5409
+[TEST FINAL]
+  Acc: 0.7800 | MCC: 0.5366
+
+--- Epoch 4 ---
+[VALIDATION]
+  Acc: 0.7750 | MCC: 0.5288
+[TEST FINAL]
+  Acc: 0.7704 | MCC: 0.5233
+
+--- Epoch 5 ---
+[VALIDATION]
+  Acc: 0.7746 | MCC: 0.5237
+[TEST FINAL]
+  Acc: 0.7704 | MCC: 0.5215
