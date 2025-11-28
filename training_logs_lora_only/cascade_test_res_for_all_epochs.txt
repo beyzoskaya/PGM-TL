@@ -1,0 +1,30 @@
+[TEST Results]
+📊 Results for Cascade Epoch 1:
+  [Thermostability] Pearson r: 0.7549
+  [SecStructure]    Macro F1:  0.3570
+  [Cloning]         MCC:       0.5265
+------------------------------
+                                                    
+📊 Results for Cascade Epoch 2:
+  [Thermostability] Pearson r: 0.7876
+  [SecStructure]    Macro F1:  0.3931
+  [Cloning]         MCC:       0.5213
+------------------------------
+                                                    
+📊 Results for Cascade Epoch 3:
+  [Thermostability] Pearson r: 0.7728
+  [SecStructure]    Macro F1:  0.4020
+  [Cloning]         MCC:       0.4950
+------------------------------
+                                                    
+📊 Results for Cascade Epoch 4:
+  [Thermostability] Pearson r: 0.7998
+  [SecStructure]    Macro F1:  0.4107
+  [Cloning]         MCC:       0.5000
+------------------------------
+                                                    
+📊 Results for Cascade Epoch 5:
+  [Thermostability] Pearson r: 0.7810
+  [SecStructure]    Macro F1:  0.4137
+  [Cloning]         MCC:       0.4976
+------------------------------

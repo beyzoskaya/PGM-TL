@@ -102,7 +102,8 @@ def run_evaluation():
         path = os.path.join(SAVE_DIR, f"model_epoch_{epoch}.pt")
         if os.path.exists(path):
             engine.load_state_dict(torch.load(path, map_location=DEVICE), strict=False)
-            get_detailed_metrics(engine, engine.test_loaders, epoch)
+            get_detailed_metrics(engine, engine.valid_loaders, epoch)
+            #get_detailed_metrics(engine, engine.test_loaders, epoch)
         else:
             print(f"Skipping Epoch {epoch} (File not found)")
 
