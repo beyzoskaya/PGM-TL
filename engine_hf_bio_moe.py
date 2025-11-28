@@ -7,7 +7,7 @@ import os
 import csv
 import numpy as np
 
-# --- 1. BIOPHYSICAL UTILS ---
+# --- BIOPHYSICAL UTILS ---
 KYTE_DOOLITTLE = {
     'A': 1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5, 'C': 2.5,
     'Q': -3.5, 'E': -3.5, 'G': -0.4, 'H': -3.2, 'I': 4.5,
@@ -51,7 +51,6 @@ def multitask_collate_fn(batch, tokenizer):
     elif raw_targets[0] is not None and isinstance(raw_targets[0], int):
         target_tensor = torch.tensor(raw_targets, dtype=torch.long)
     else: target_tensor = torch.zeros(len(raw_targets))
-    
     inputs['targets'] = target_tensor
     return inputs
 
@@ -89,13 +88,14 @@ class BioMoE_Engine(nn.Module):
 
         hidden_dim = backbone.hidden_size
         
-        # 1. THE EXPERTS
+        # 1. EXPERTS
         self.experts = nn.ModuleList([
             BottleneckAdapter(hidden_dim, reduction_factor=4).to(device) 
             for _ in task_configs
         ])
 
-        # 2. THE BIO-ROUTER
+        # 2. BIO-ROUTER (IMPROVED with Norm)
+        self.router_norm = nn.LayerNorm(hidden_dim).to(device)
         self.bio_router = nn.Sequential(
             nn.Linear(hidden_dim + 3, 256),
             nn.Tanh(),
@@ -122,7 +122,7 @@ class BioMoE_Engine(nn.Module):
         self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in test_sets] if test_sets else None
 
     def forward(self, input_ids, attention_mask, raw_sequences, task_idx=None, debug=False):
-        # A. Backbone
+        # A. Backbone (Frozen)
         with torch.no_grad():
             base_emb = self.backbone(input_ids, attention_mask, task_type='token')
             cls_emb = base_emb[:, 0, :]
@@ -131,9 +131,12 @@ class BioMoE_Engine(nn.Module):
         bio_feats = BioPropertyFeaturizer.get_features(raw_sequences, self.device)
         
         # C. Bio-Router
-        router_input = torch.cat([cls_emb, bio_feats], dim=1)
+        # Normalize CLS so it doesn't overpower bio-feats
+        norm_cls = self.router_norm(cls_emb) 
+        router_input = torch.cat([norm_cls, bio_feats], dim=1)
+        
         routing_logits = self.bio_router(router_input)
-        routing_weights = torch.softmax(routing_logits, dim=1) # [Batch, Num_Experts]
+        routing_weights = torch.softmax(routing_logits, dim=1)
         
         if debug: print(f"  [Bio-MoE] Routing: {routing_weights[0].detach().cpu().numpy()}")
 
@@ -156,8 +159,6 @@ class BioMoE_Engine(nn.Module):
             final_rep = torch.sum(fused_emb * mask_exp, 1) / torch.clamp(mask_exp.sum(1), min=1e-9)
             
         logits = self.heads[task_idx](final_rep)
-        
-        # UPDATED: Return logits AND weights for analysis
         return logits, routing_weights
 
     def log_sigmas(self, epoch, step):
@@ -221,7 +222,6 @@ class BioMoE_Engine(nn.Module):
         for m in self.heads: m.eval()
         self.bio_router.eval()
         
-        # We now return RAW DATA for plotting
         raw_results = {
             'Thermo': {'true': [], 'pred': [], 'weights': []},
             'SSP': {'true': [], 'pred': [], 'weights': []},
@@ -236,10 +236,6 @@ class BioMoE_Engine(nn.Module):
                 task_name = self.task_configs[i]['name']
                 is_token = (self.task_configs[i]['type'] == 'token_classification')
                 
-                # We also track average router weights for this task
-                total_weights = torch.zeros(len(self.task_configs)).to(self.device)
-                count = 0
-                
                 total_loss = 0; correct = 0; total = 0
                 
                 for batch in loader:
@@ -249,34 +245,29 @@ class BioMoE_Engine(nn.Module):
                     raw_seqs = batch['raw_sequences']
                     
                     logits, weights = self.forward(input_ids, mask, raw_seqs, task_idx=i)
-                    
-                    # Accumulate Router Weights (Mean over batch)
                     batch_mean_weights = weights.mean(dim=0)
-                    total_weights += batch_mean_weights
-                    count += 1
                     
-                    # --- Collect Raw Predictions ---
                     if i == 0: # Thermo
                         raw_results['Thermo']['true'].extend(targets.view(-1).cpu().numpy())
                         raw_results['Thermo']['pred'].extend(logits.view(-1).cpu().numpy())
                         raw_results['Thermo']['weights'].append(batch_mean_weights.cpu().numpy())
-                        
                         loss = self.loss_fns[i](logits, targets)
                         total_loss += loss.item() * input_ids.size(0); total += input_ids.size(0)
                         
                     elif i == 1: # SSP
-                        # For SSP, we just store accuracy metrics to save memory, plotting tokens is hard in loop
                         loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
                         total_loss += loss.item() * input_ids.size(0); total += input_ids.size(0)
-                        
                         p = logits.argmax(dim=-1).view(-1); t = targets.view(-1); m = t!=-100
                         if m.sum()>0: correct += (p[m]==t[m]).sum().item(); total += m.sum().item()
-                        
                         raw_results['SSP']['weights'].append(batch_mean_weights.cpu().numpy())
 
                     elif i == 2: # Cloning
                         loss = self.loss_fns[i](logits, targets)
                         total_loss += loss.item() * input_ids.size(0); total += input_ids.size(0)
+                        
+                        # --- FIX HERE: CALCULATE ACCURACY ---
+                        correct += (logits.argmax(dim=1) == targets).sum().item()
+                        # ------------------------------------
                         
                         probs = torch.softmax(logits, dim=1)[:, 1]
                         raw_results['Cloning']['true'].extend(targets.cpu().numpy())
@@ -284,9 +275,8 @@ class BioMoE_Engine(nn.Module):
                         raw_results['Cloning']['prob'].extend(probs.cpu().numpy())
                         raw_results['Cloning']['weights'].append(batch_mean_weights.cpu().numpy())
 
-                # Log metrics for console
                 if i == 0: metrics_log[task_name] = f"MSE: {total_loss/total:.4f}"
-                else: metrics_log[task_name] = f"Acc: {correct/total:.4f}"
+                else: metrics_log[task_name] = f"Acc: {correct/(total if total>0 else 1):.4f}"
                 print(f"  {task_name}: {metrics_log[task_name]}")
                 
         return metrics_log, raw_results
