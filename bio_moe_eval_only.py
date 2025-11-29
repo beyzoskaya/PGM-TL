@@ -10,7 +10,7 @@ from sklearn.metrics import mean_squared_error, accuracy_score, f1_score, matthe
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_bio_moe import BioMoE_Engine, BioPropertyFeaturizer
+from bio_moe.engine_hf_bio_moe import BioMoE_Engine, BioPropertyFeaturizer
 
 EPOCH_TO_EVAL = 4
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/bio_moe_v1"
@@ -232,7 +232,7 @@ def main():
                     collate_fn=lambda b: engine.train_loaders[0].collate_fn(b)) for ds in test_sets]
     # Note: We reuse the collate_fn from the engine class logic or recreate it. 
     # To be safe, let's just use the function directly from engine_hf_bio_moe file if imported
-    from engine_hf_bio_moe import multitask_collate_fn
+    from bio_moe.engine_hf_bio_moe import multitask_collate_fn
     test_loaders = [torch.utils.data.DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, 
                     collate_fn=lambda b: multitask_collate_fn(b, backbone.tokenizer)) for ds in test_sets]
 

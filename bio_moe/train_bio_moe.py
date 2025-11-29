@@ -9,7 +9,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_bio_moe import BioMoE_Engine
+from bio_moe.engine_hf_bio_moe import BioMoE_Engine
 
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -160,7 +160,7 @@ def main():
             if curr_mse < best_val_thermo_loss:
                 best_val_thermo_loss = curr_mse
                 torch.save(engine.state_dict(), os.path.join(SAVE_DIR, "best_model.pt"))
-                print(f"  🌟 New Best Bio-MoE Saved! (Thermo MSE: {best_val_thermo_loss:.4f})")
+                print(f" New Best Bio-MoE Saved! (Thermo MSE: {best_val_thermo_loss:.4f})")
         except: pass
 
     print("\nDone!")
