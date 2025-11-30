@@ -117,3 +117,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# [PCGrad Baseline] Correlation (Input Grads): 0.5700
+# >> Low correlation. PCGrad separated the attention.
