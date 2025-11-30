@@ -90,7 +90,7 @@ def main():
     })
     
     #df.to_csv("residue_importance_PCGRAD.csv", index=False)
-    df.to_csv("/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen/residue_importance_PCGRAD.csv", index=False)
+    df.to_csv("/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/residue_importance_PCGRAD.csv", index=False)
     print("Saved: residue_importance_PCGRAD.csv")
     
     correlation = np.corrcoef(sal_thermo, sal_cloning)[0,1]

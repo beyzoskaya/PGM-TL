@@ -105,7 +105,7 @@ def main():
     
     plt.tight_layout()
     #plt.savefig("mutational_scanning_PCGRAD.png", dpi=300)
-    plt.savefig("/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen/mutational_scanning_PCGRAD.png", dpi=300)
+    plt.savefig("/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/mutational_scanning_PCGRAD.png", dpi=300)
     print("Saved plot to mutational_scanning_PCGRAD.png")
     df.to_csv("mutational_scanning_data_PCGRAD.csv", index=False)
 
