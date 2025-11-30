@@ -9,10 +9,6 @@ MODEL_PATH = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_
 WT_SEQ = "MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTFSYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK"
 
 def manual_mean_pooling(token_embeddings, attention_mask):
-    """
-    Manually pools token embeddings to sequence embeddings.
-    Required to maintain gradient connectivity to the tokens for Saliency.
-    """
     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
     sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
     sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
@@ -27,31 +23,28 @@ def get_saliency_pcgrad(engine, tokenizer, seq, task_idx):
     input_ids = inputs['input_ids']
     mask = inputs['attention_mask']
 
-    # 1. Get Token Embeddings (Force task_type='token' to get sequence length data)
-    # We must start here to get gradients on specific amino acids
+    # 1. Get Token Embeddings (Force task_type='token' to get gradients on residues)
     token_out = engine.backbone(input_ids, mask, task_type='token')
     
     # 2. Hook for gradients
     embeddings = token_out.clone().detach().requires_grad_(True)
     
     # 3. Prepare input for Head
-    # If the task is Thermo (0) or Cloning (2), the head expects a pooled vector.
-    # Since we extracted 'token' embeddings, we must pool them MANUALLY now.
     task_type = engine.task_configs[task_idx]['type']
     
     if task_type in ['regression', 'sequence_classification']:
         final_input = manual_mean_pooling(embeddings, mask)
     else:
-        # For SSP (task 1), it stays as tokens
+        # For SSP (task 1)
         final_input = embeddings
 
     # 4. Forward Head
     logits = engine.heads[task_idx](final_input)
     
     # 5. Backward
-    if logits.shape[-1] == 1: # Regression
+    if logits.shape[-1] == 1: 
         score = logits
-    else: # Classification
+    else: 
         score = logits.max()
         
     score.backward()
@@ -60,11 +53,10 @@ def get_saliency_pcgrad(engine, tokenizer, seq, task_idx):
     grads = embeddings.grad[0] # [SeqLen, Hidden]
     saliency = torch.norm(grads, dim=-1).cpu().numpy()
     
-    # Slice off CLS/SEP
     return saliency[1:-1]
 
 def main():
-    backbone = SharedProtBert(lora_rank=16, unfrozen_layers=2)
+    backbone = SharedProtBert(lora_rank=16, unfrozen_layers=0) # Adjust unfrozen if needed
     task_configs = [
         {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},
         {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8},
@@ -73,7 +65,8 @@ def main():
     engine = MultiTaskEngineHybrid(backbone, task_configs, [], [], device=DEVICE)
     
     print(f"Loading PCGrad Model: {MODEL_PATH}")
-    engine.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    # FIX: strict=False
+    engine.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE), strict=False)
     tokenizer = backbone.tokenizer
     
     print("Calculating Saliency Maps (PCGrad)...")
@@ -102,7 +95,6 @@ def main():
     
     correlation = np.corrcoef(sal_thermo, sal_cloning)[0,1]
     print(f"\n[PCGrad Baseline] Correlation between Thermo/Cloning Attention: {correlation:.4f}")
-    print("Expectation: If this is HIGH (>0.7), it confirms 'Entanglement'.")
 
 if __name__ == "__main__":
     main()

@@ -17,9 +17,9 @@ AMINO_ACIDS = list("ACDEFGHIKLMNPQRSTVWY")
 BATCH_SIZE = 32
 
 def load_pcgrad_model():
+    # Initialize Architecture
     backbone = SharedProtBert(lora_rank=16, unfrozen_layers=0)
     
-    # Must match training config exactly
     task_configs = [
         {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},
         {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8},
@@ -29,8 +29,9 @@ def load_pcgrad_model():
     engine = MultiTaskEngineHybrid(backbone, task_configs, [], [], device=DEVICE)
     
     print(f"Loading PCGrad weights from {MODEL_PATH}...")
-
-    engine.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    # FIX: strict=False allows loading even if 'log_vars' is missing
+    state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
+    engine.load_state_dict(state_dict, strict=False)
     engine.eval()
     return engine, backbone.tokenizer
 
@@ -39,24 +40,26 @@ def predict_batch_pcgrad(engine, tokenizer, seqs):
     inputs = tokenizer(spaced_seqs, return_tensors='pt', padding=True, truncation=True, max_length=1024).to(DEVICE)
     
     with torch.no_grad():
-        # --- Task 0: Thermostability (Regression) ---
-        # 1. Get Sequence Embedding (Pooled)
+        # --- Task 0: Thermostability ---
+        # Get sequence embedding (pooled)
         emb_thermo = engine.backbone(inputs['input_ids'], inputs['attention_mask'], task_type='sequence')
-        # 2. Pass through Head 0
         out_thermo = engine.heads[0](emb_thermo)
 
-        # --- Task 2: Cloning (Classification) ---
-        # 1. Get Sequence Embedding (Pooled) - Technically same as above, but kept separate for clarity
+        # --- Task 2: Cloning ---
         emb_cloning = engine.backbone(inputs['input_ids'], inputs['attention_mask'], task_type='sequence')
-        # 2. Pass through Head 2
         out_cloning = engine.heads[2](emb_cloning)
         prob_cloning = torch.softmax(out_cloning, dim=1)[:, 1]
         
     return out_thermo.cpu().numpy().flatten(), prob_cloning.cpu().numpy().flatten()
 
 def main():
-    engine, tokenizer = load_pcgrad_model()
-    
+    try:
+        engine, tokenizer = load_pcgrad_model()
+    except Exception as e:
+        print(f"\nCRITICAL ERROR loading model: {e}")
+        print("Tip: Check if 'unfrozen_layers' in SharedProtBert matches your training (0 vs 2).")
+        return
+
     print(f"Analyzing Sequence (Len: {len(WT_SEQ)})...")
     
     # 1. Wild Type
