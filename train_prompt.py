@@ -2,6 +2,10 @@ import os
 import torch
 import numpy as np
 import csv
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from sklearn.metrics import confusion_matrix
 from transformers import get_linear_schedule_with_warmup
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
@@ -11,14 +15,16 @@ from engine_hf_prompt import TaskPromptedEngine
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16        
-EPOCHS = 5 
+EPOCHS = 8 
 LEARNING_RATE = 1e-4
 
 UNFROZEN_LAYERS = 2 
 LORA_RANK = 16
 
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_pcgrad"
+PLOT_DIR = os.path.join(SAVE_DIR, "plots")
 os.makedirs(SAVE_DIR, exist_ok=True)
+os.makedirs(PLOT_DIR, exist_ok=True)
 
 def set_seed(seed):
     torch.manual_seed(seed); np.random.seed(seed)
@@ -37,10 +43,47 @@ def normalize_regression_targets(train_ds, valid_ds, test_ds):
     full_dataset.targets['target'] = new_t
     print("  ✓ Normalization complete.")
 
+def plot_epoch_diagnostics(results, epoch):
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
+    fig.suptitle(f"Prompt-Tuning Diagnostics - Epoch {epoch}", fontsize=16)
+
+    # 1. Thermostability Scatter
+    ax = axes[0]
+    t_true = results['Thermo']['true']; t_pred = results['Thermo']['pred']
+    sns.scatterplot(x=t_true, y=t_pred, ax=ax, alpha=0.3, color="purple")
+    low, high = min(min(t_true), min(t_pred)), max(max(t_true), max(t_pred))
+    ax.plot([low, high], [low, high], 'k--', label="Ideal")
+    ax.set_title("Thermostability")
+    ax.set_xlabel("True Z-Score"); ax.set_ylabel("Pred Z-Score")
+
+    # 2. SecStructure Confusion Matrix
+    ax = axes[1]
+    s_true = results['SSP']['true']; s_pred = results['SSP']['pred']
+    # Create a smaller confusion matrix (first 3 classes) to save time/space if needed
+    # or plot full. Let's plot simplified heatmap.
+    cm = confusion_matrix(s_true, s_pred, normalize='true')
+    sns.heatmap(cm, ax=ax, cmap="Blues", annot=False)
+    ax.set_title("Secondary Structure Confusion")
+    ax.set_xlabel("Predicted Class"); ax.set_ylabel("True Class")
+
+    # 3. Cloning Histogram
+    ax = axes[2]
+    c_true = np.array(results['Cloning']['true']); c_prob = np.array(results['Cloning']['probs'])
+    df_c = pd.DataFrame({"Prob": c_prob, "Truth": c_true})
+    sns.histplot(data=df_c, x="Prob", hue="Truth", bins=20, ax=ax, palette={0: "red", 1: "green"}, kde=True, element="step")
+    ax.set_title("Cloning Confidence")
+    ax.set_xlabel("Predicted Probability (Soluble)")
+
+    plt.tight_layout()
+    save_path = os.path.join(PLOT_DIR, f"epoch_{epoch}_diagnostics.png")
+    plt.savefig(save_path)
+    plt.close() # Close to save memory
+    print(f"  📊 Diagnostic plot saved: {save_path}")
+
 def main():
     set_seed(SEED)
-    print(f"🚀 Running FINAL FRAMEWORK: Prompt-Tuning + PCGrad on {DEVICE}")
-    print(f"   (Unfrozen Layers: {UNFROZEN_LAYERS})")
+    print(f"Running Prompt-Tuning + PCGrad on {DEVICE}")
 
     # 1. DATA
     print("[1/5] Loading Datasets...")
@@ -76,9 +119,7 @@ def main():
         batch_size=BATCH_SIZE, device=DEVICE, save_dir=SAVE_DIR
     )
 
-    # VERIFY PROMPTS
     print(f"   [Check] Number of Prompts: {len(engine.task_prompts)}")
-    print(f"   [Check] Prompt Shape: {engine.task_prompts[0].shape}")
 
     optimizer = torch.optim.AdamW(engine.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     max_len = max([len(l) for l in engine.train_loaders])
@@ -88,7 +129,10 @@ def main():
     history_path = os.path.join(SAVE_DIR, "training_history.csv")
     with open(history_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        headers = ["Epoch", "Train_Combined_Loss"] + [f"Val_{t['name']}" for t in task_configs]
+        # We log Val metrics AND Test metrics now
+        headers = ["Epoch", "Train_Combined_Loss"] 
+        for t in task_configs: headers.append(f"Val_{t['name']}")
+        for t in task_configs: headers.append(f"Test_{t['name']}")
         writer.writerow(headers)
 
     best_val_thermo_loss = float('inf')
@@ -97,30 +141,45 @@ def main():
     for epoch in range(EPOCHS):
         print(f"\n{'='*30} EPOCH {epoch+1}/{EPOCHS} {'='*30}")
         
-        # Train
+        # --- TRAIN ---
         train_res = engine.train_one_epoch(optimizer, scheduler, epoch+1)
         print(f"\n  [TRAIN] Combined Loss: {train_res['avg_loss']:.4f}")
 
-        # Evaluate
-        metrics = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
-        engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
+        # --- VALIDATE (For Plotting & Best Model Selection) ---
+        val_metrics, val_raw_data = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
+        
+        # Plot Validation Diagnostics (To check for overfitting)
+        plot_epoch_diagnostics(val_raw_data, epoch+1)
 
-        # Save Logic
+        # We unpack the tuple but ignore raw_data (_) to save memory, we just need metrics string
+        test_metrics, _ = engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
+
         row = [epoch+1, train_res['avg_loss']]
+        
+        # Validation 
         for t in task_configs:
-            val_str = metrics.get(t['name'], "0.0")
+            val_str = val_metrics.get(t['name'], "0.0")
             try: row.append(float(val_str.split(":")[-1].strip()))
             except: row.append(0.0)
+            
+        # Test 
+        for t in task_configs:
+            test_str = test_metrics.get(t['name'], "0.0")
+            try: row.append(float(test_str.split(":")[-1].strip()))
+            except: row.append(0.0)
+
         with open(history_path, 'a', newline='') as f: csv.writer(f).writerow(row)
 
+        # --- CHECKPOINTING ---
         torch.save(engine.state_dict(), os.path.join(SAVE_DIR, f"model_epoch_{epoch+1}.pt"))
         
+        # Save Best Model based on VALIDATION Thermostability
         try:
-            curr_mse = float(metrics['Thermostability'].split(":")[1])
-            if curr_mse < best_val_thermo_loss:
-                best_val_thermo_loss = curr_mse
+            curr_val_mse = float(val_metrics['Thermostability'].split(":")[1])
+            if curr_val_mse < best_val_thermo_loss:
+                best_val_thermo_loss = curr_val_mse
                 torch.save(engine.state_dict(), os.path.join(SAVE_DIR, "best_model.pt"))
-                print(f"New Best Prompt Model Saved! (Thermo MSE: {best_val_thermo_loss:.4f})")
+                print(f"  🌟 New Best Prompt Model Saved! (Val Thermo MSE: {best_val_thermo_loss:.4f})")
         except: pass
 
     print("\nDone!")
