@@ -135,7 +135,6 @@ def run_debug_integration():
             print(f"  ❌ FAIL: No gradient reached the task prompt.")
 
     print_section("DEBUG COMPLETE")
-    print("If all checks passed, you are ready to run 'train_prompt.py'!")
 
 if __name__ == "__main__":
     run_debug_integration()
