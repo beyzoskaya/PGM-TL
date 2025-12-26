@@ -1,112 +1,141 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Subset
+import numpy as np
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
-from protbert_hf import SharedProtBert
+from protbert_hf import SharedProtBertPromptTuning
 from engine_hf_prompt import TaskPromptedEngine
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+def print_section(title):
+    print(f"\n{'='*60}\n{title}\n{'='*60}")
 
-def run_real_data_sanity_check():
-    print("Starting Prompt-Tuning Sanity Check (Real Data Mode)...")
+def run_debug_integration():
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print_section(f"1. LOADING REAL DATA SUBSETS (Device: {device})")
 
-    print("  [1] Loading Data Subsets...")
-    ds_t = Thermostability(verbose=0)
-    ds_s = SecondaryStructure(verbose=0)
-    ds_c = CloningCLF(verbose=0)
-    
-    # Create mini-datasets (4 samples each)
-    train_t = Subset(ds_t, range(4))
-    train_s = Subset(ds_s, range(4))
-    train_c = Subset(ds_c, range(4))
-    
-    print(f"      -> Loaded {len(train_t)} Thermo, {len(train_s)} SSP, {len(train_c)} Cloning samples.")
+    try:
+        print("  [Data] Loading Thermostability...")
+        ds_thermo = Thermostability(verbose=0)
+        sub_thermo = Subset(ds_thermo, range(4))
 
-    print("  [2] Initializing Model & Engine...")
-    # Match training config: Unfrozen layers required for prompt interaction
-    backbone = SharedProtBert(lora_rank=4, unfrozen_layers=2) 
-    
+        print("  [Data] Loading SecondaryStructure...")
+        ds_ssp = SecondaryStructure(verbose=0)
+        sub_ssp = Subset(ds_ssp, range(4))
+
+        print("  [Data] Loading CloningCLF...")
+        ds_cloning = CloningCLF(verbose=0)
+        sub_cloning = Subset(ds_cloning, range(4))
+        
+        print("  ✓ Subsets created successfully.")
+    except Exception as e:
+        print(f"  ❌ Error loading data: {e}")
+        return
+
     task_configs = [
-        {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},       # Index 0
-        {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8}, # Index 1
-        {'name': 'Cloning', 'type': 'sequence_classification', 'num_labels': 2}    # Index 2
+        {'name': 'Thermostability', 'type': 'regression', 'num_labels': 1},
+        {'name': 'SecStructure', 'type': 'token_classification', 'num_labels': 8},
+        {'name': 'Cloning', 'type': 'sequence_classification', 'num_labels': 2}
     ]
+
+    print_section("2. INITIALIZING ENGINE WITH SUBSETS")
     
-    # Initialize Engine with REAL (but small) datasets
+    print("  [Model] Loading Backbone (SharedProtBert)...")
+    backbone = SharedProtBertPromptTuning(lora_rank=2, unfrozen_layers=0)
+    
+    print("  [Engine] Initializing TaskPromptedEngine...")
     engine = TaskPromptedEngine(
-        backbone=backbone, 
-        task_configs=task_configs, 
-        train_sets=[train_t, train_s, train_c], # Real loaders will be created here
-        valid_sets=None, 
-        test_sets=None,
-        batch_size=2, 
-        device=DEVICE
+        backbone=backbone,
+        task_configs=task_configs,
+        train_sets=[sub_thermo, sub_ssp, sub_cloning], # <--- Real Data
+        valid_sets=None, # Not needed for this check
+        batch_size=2,    # Small batch size for reading logs easily
+        device=device
     )
-    engine.train()
     
-    print("  [3] Fetching a Real Batch for Task 0 (Thermostability)...")
-    # Manually grab the first batch from the Thermo loader
-    loader_iter = iter(engine.train_loaders[0])
-    batch = next(loader_iter)
+    print_section("3. RUNNING FORWARD PASS CHECKS")
     
-    input_ids = batch['input_ids'].to(DEVICE)
-    mask = batch['attention_mask'].to(DEVICE)
-    targets = batch['targets'].to(DEVICE)
-    
-    print(f"      -> Input Shape: {input_ids.shape}")
-    print(f"      -> Target Shape: {targets.shape}")
+    for i, loader in enumerate(engine.train_loaders):
+        task_name = task_configs[i]['name']
+        task_type = task_configs[i]['type']
+        
+        print(f"\n>>> CHECKING TASK {i}: {task_name} ({task_type}) <<<")
+        
+        # A. Fetch Batch (Tests Collate Function)
+        try:
+            batch = next(iter(loader))
+            input_ids = batch['input_ids'].to(device)
+            mask = batch['attention_mask'].to(device)
+            targets = batch['targets'].to(device)
+            
+            print(f"  [Collate] Batch successfully loaded.")
+            print(f"  [Collate] Input Shape: {input_ids.shape}")
+            print(f"  [Collate] Target Shape: {targets.shape}")
+            
+            # Print raw target example to ensure normalization/formatting is sane
+            if task_type == 'regression':
+                print(f"  [Targets] Sample: {targets[0].item():.4f}")
+            elif task_type == 'token_classification':
+                print(f"  [Targets] Sample Length: {(targets[0] != -100).sum()} valid tokens")
+                
+        except Exception as e:
+            print(f"  ❌ CRITICAL FAIL in Data Loading: {e}")
+            continue
 
-    # 4. FORWARD PASS
-    print("  [4] Running Forward Pass with Task Prompt 0...")
-    # Explicitly pass task_idx=0 to activate Thermo Prompt
-    logits = engine.forward(input_ids, mask, task_idx=0, debug=True)
-    
-    # 5. BACKWARD PASS
-    print("  [5] Computing Loss & Backprop...")
-    loss = engine.loss_fns[0](logits, targets)
-    loss.backward()
-    
-    # 6. GRADIENT VERIFICATION
-    print("\n  [6] 🕵️ Checking Gradients:")
-    
-    # A. Check Prompt 0 (Thermo) -> Should Update
-    prompt_0_grad = False
-    if engine.task_prompts[0].grad is not None:
-        grad_sum = engine.task_prompts[0].grad.abs().sum().item()
-        if grad_sum > 0:
-            prompt_0_grad = True
-            print(f"      ✅ Prompt 0 (Thermo) has gradients! (Sum: {grad_sum:.4f})")
+        # B. Forward Pass (Tests Prompt Injection & Slicing)
+        print(f"  [Forward] Calling engine(..., debug=True)...")
+        print("-" * 20 + " INTERNAL DEBUG LOGS " + "-" * 20)
+        
+        # This will trigger the prints inside protbert_hf.py and engine_hf_prompt.py
+        logits = engine(input_ids, mask, task_idx=i, debug=True)
+        
+        print("-" * 60)
+        print(f"  [Output] Final Logits Shape: {logits.shape}")
+
+        # C. Verification Logic
+        seq_len_input = input_ids.shape[1]
+        
+        if task_type == 'token_classification':
+            # SSP: Shape should be [Batch, SeqLen, 8]
+            # It must NOT be SeqLen + 1 (which would happen if prompt wasn't removed)
+            if logits.shape[1] == seq_len_input:
+                print("  ✅ SUCCESS: Prompt token correctly sliced off before output.")
+            else:
+                print(f"  ❌ FAIL: Output length {logits.shape[1]} != Input {seq_len_input}. Prompt might be leaking!")
         else:
-             print(f"      ❌ Prompt 0 has Zero gradients.")
-    else:
-        print(f"      ❌ Prompt 0 has None gradients.")
+            # Pooling: Shape should be [Batch, NumLabels] (2D)
+            if len(logits.shape) == 2:
+                print("  ✅ SUCCESS: Sequence correctly pooled.")
+            else:
+                print(f"  ❌ FAIL: Expected 2D pooling output, got {logits.shape}")
 
-    # B. Check Prompt 2 (Cloning) -> Should Stay Frozen (Isolation Check)
-    prompt_2_grad = True
-    if engine.task_prompts[2].grad is None or engine.task_prompts[2].grad.abs().sum().item() == 0:
-        prompt_2_grad = False # This is good!
-        print("      ✅ Prompt 2 (Cloning) has NO gradients (Correct isolation).")
-    else:
-        print("      ❌ Prompt 2 has gradients! (Task Leakage detected)")
+        # D. Backward Pass (Tests Gradient Flow)
+        print(f"  [Backward] Checking Gradient Flow...")
+        loss_fn = engine.loss_fns[i]
+        
+        # Calculate Dummy Loss
+        if task_type == 'token_classification':
+            loss = loss_fn(logits.view(-1, logits.shape[-1]), targets.view(-1))
+        else:
+            loss = loss_fn(logits, targets)
+            
+        engine.zero_grad()
+        loss.backward()
+        
+        # Check if the prompt for THIS task got updated
+        prompt_grad = engine.task_prompts[i].grad
+        if prompt_grad is not None:
+            norm = prompt_grad.norm().item()
+            print(f"  [Grads] Task Prompt Gradient Norm: {norm:.8f}")
+            if norm > 0:
+                print(f"  ✅ SUCCESS: {task_name} Prompt is learning.")
+            else:
+                print(f"  ⚠️ WARNING: Gradient is zero.")
+        else:
+            print(f"  ❌ FAIL: No gradient reached the task prompt.")
 
-    # C. Check Backbone -> Should Update (because unfrozen_layers=2)
-    backbone_grad = False
-    for n, p in engine.backbone.named_parameters():
-        if p.grad is not None and p.requires_grad:
-            backbone_grad = True
-            # print(f"      (Debug) Gradient found in: {n}") # Uncomment if needed
-            break
-    
-    if backbone_grad:
-        print("      ✅ Backbone is receiving updates (Integration successful).")
-    else:
-        print("      ❌ Backbone has no gradients. (Did you set unfrozen_layers=0? It needs to be >0 for prompting).")
-
-    if prompt_0_grad and not prompt_2_grad and backbone_grad:
-        print("\nREAL DATA SANITY CHECK PASSED: The Framework is valid.")
-    else:
-        print("\nSANITY CHECK FAILED. Do not train.")
+    print_section("DEBUG COMPLETE")
+    print("If all checks passed, you are ready to run 'train_prompt.py'!")
 
 if __name__ == "__main__":
-    run_real_data_sanity_check()
+    run_debug_integration()

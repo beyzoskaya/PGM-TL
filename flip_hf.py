@@ -28,7 +28,6 @@ class HuggingFaceDataset(ProteinDataset):
         if target_columns is None: target_columns = []
         dataset = load_dataset(dataset_name)
         
-        # Basic split logic (simplified for brevity)
         if 'train' in dataset:
             train = dataset['train']
             valid = dataset.get('validation', dataset.get('valid'))
@@ -46,7 +45,6 @@ class HuggingFaceDataset(ProteinDataset):
                 
             splits = [train, valid, test]
         else:
-            # Fallback if structure is weird
             all_data = dataset[list(dataset.keys())[0]]
             split = all_data.train_test_split(test_size=0.2, seed=42)
             train = split['train']

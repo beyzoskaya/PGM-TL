@@ -12,7 +12,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 16        
 EPOCHS = 5
 LEARNING_RATE = 1e-4
-# Use the EXACT same directory
+
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_uncertainty"
 LORA_RANK = 16
 UNFROZEN_LAYERS = 0 

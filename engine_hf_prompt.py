@@ -8,25 +8,66 @@ import random
 import numpy as np
 
 def multitask_collate_fn(batch, tokenizer):
-    raw_seqs = [item['sequence'] if isinstance(item['sequence'], str) else " " for item in batch]
+    # --- 1. Sequence Validation ---
+    raw_seqs = []
+    for idx, item in enumerate(batch):
+        seq = item.get('sequence')
+        # Check type
+        if not isinstance(seq, str):
+            raise ValueError(f"[Collate Error] Sample {idx} sequence is not a string! Found: {type(seq)}")
+        # Check empty
+        if len(seq.strip()) == 0:
+            raise ValueError(f"[Collate Error] Sample {idx} sequence is empty/whitespace!")
+        raw_seqs.append(seq)
+
+    # Space sequences for ProtBert (M A C D ...)
     spaced_seqs = [" ".join(list(s)) for s in raw_seqs]
     inputs = tokenizer(spaced_seqs, return_tensors='pt', padding=True, truncation=True, max_length=1024)
     
+    # --- 2. Target Processing ---
     raw_targets = [item['targets']['target'] for item in batch]
     target_tensor = None
     
-    if raw_targets[0] is not None and isinstance(raw_targets[0], list): # SSP
-        batch_size = len(raw_targets); max_seq_len = inputs['input_ids'].shape[1] 
+    # Check the first item to decide how to process the batch
+    first_target = raw_targets[0]
+
+    if first_target is None:
+        # CRITICAL: If doing inference, this is fine. But for TRAINING, this is a bug.
+        # Since you are training, we raise an error.
+        raise ValueError("[Collate Error] Found 'None' in targets. Missing labels are not allowed during training!")
+
+    elif isinstance(first_target, list): 
+        # SSP Task (List of integers)
+        batch_size = len(raw_targets)
+        max_seq_len = inputs['input_ids'].shape[1] 
         target_tensor = torch.full((batch_size, max_seq_len), -100, dtype=torch.long)
+        
         for i, t_seq in enumerate(raw_targets):
-            valid_len = min(len(t_seq), max_seq_len - 2) 
-            if valid_len > 0: target_tensor[i, 1 : 1+valid_len] = torch.tensor(t_seq[:valid_len], dtype=torch.long)
-    elif raw_targets[0] is not None and isinstance(raw_targets[0], float): # Thermo
+            if not isinstance(t_seq, list):
+                raise ValueError(f"[Collate Error] SSP batch mixed types! Expected list, got {type(t_seq)}")
+            
+            valid_len = min(len(t_seq), max_seq_len - 2) # -2 for [CLS] and [SEP] safety
+            if valid_len > 0: 
+                # Note: We align to index 1 to skip [CLS]/[Prompt] depending on architecture
+                # The alignment here assumes standard Bert tokenization. 
+                target_tensor[i, 1 : 1+valid_len] = torch.tensor(t_seq[:valid_len], dtype=torch.long)
+                
+    elif isinstance(first_target, float): 
+        # Thermostability (Float)
+        # Ensure all items in batch are floats
+        if any(not isinstance(t, float) for t in raw_targets):
+             raise ValueError("[Collate Error] Regression batch contains non-float targets!")
         target_tensor = torch.tensor(raw_targets, dtype=torch.float32).unsqueeze(1)
-    elif raw_targets[0] is not None and isinstance(raw_targets[0], int): # Cloning
+        
+    elif isinstance(first_target, int): 
+        # Cloning (Integer Class)
+        if any(not isinstance(t, int) for t in raw_targets):
+             raise ValueError("[Collate Error] Classification batch contains non-int targets!")
         target_tensor = torch.tensor(raw_targets, dtype=torch.long)
+        
     else: 
-        target_tensor = torch.zeros(len(raw_targets))
+        # UNKNOWN TYPE -> CRASH
+        raise ValueError(f"[Collate Error] Unknown target type: {type(first_target)}. Cannot process.")
     
     return {'input_ids': inputs['input_ids'], 'attention_mask': inputs['attention_mask'], 'targets': target_tensor}
 
@@ -49,7 +90,8 @@ class TaskPromptedEngine(nn.Module):
         hidden_dim = backbone.hidden_size
         
         # --- LEARNABLE TASK PROMPTS ---
-        print(f"[Engine] Initializing {len(task_configs)} Task Prompts...")
+        print(f"[Engine] Initializing {len(task_configs)} Task Prompts (Prefix Tuning)...")
+        # Shape: [1, 1, Hidden]
         self.task_prompts = nn.ParameterList([
             nn.Parameter(torch.randn(1, 1, hidden_dim).to(device)) 
             for _ in task_configs
@@ -71,31 +113,46 @@ class TaskPromptedEngine(nn.Module):
                 self.loss_fns.append(nn.CrossEntropyLoss())
 
         tokenizer = backbone.tokenizer
+        # Note: Loaders handle shuffling and collation
         self.train_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in train_sets]
         self.valid_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in valid_sets] if valid_sets else None
         self.test_loaders = [DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=lambda b: multitask_collate_fn(b, tokenizer)) for ds in test_sets] if test_sets else None
 
     def forward(self, input_ids, attention_mask, task_idx, debug=False):
-        outputs = self.backbone(input_ids, attention_mask, task_type='token') 
+        # 1. Prepare the Prompt for this task
+        batch_size = input_ids.shape[0]
+        raw_prompt = self.task_prompts[task_idx] # [1, 1, Hidden]
         
-        if debug: print(f"  [Prompt Debug] Backbone Output Shape: {outputs.shape}")
-
-        prompt = self.task_prompts[task_idx] # Shape: [1, 1, 1024]
+        # Expand prompt to match batch size [Batch, 1, Hidden]
+        task_prompt_embeds = raw_prompt.expand(batch_size, -1, -1)
         
         if debug:
-            print(f"  [Prompt Debug] Task {task_idx} Prompt Shape: {prompt.shape}")
-            print(f"  [Prompt Debug] Prompt Values (First 5): {prompt[0,0,:5].detach().cpu().numpy()}")
-
-        prompted_embeddings = outputs + prompt
+            print(f"  [Engine] Processing Task: {self.task_configs[task_idx]['name']} (ID: {task_idx})")
+            print(f"  [Engine] Prompt Expanded Shape: {task_prompt_embeds.shape}")
         
-        if self.task_configs[task_idx]['type'] == 'token_classification':
-            final_emb = prompted_embeddings
-        else:
-            final_emb = prompted_embeddings[:, 0, :] 
-            
-        if debug: print(f"  [Prompt Debug] Final Input to Head: {final_emb.shape}")
-            
-        return self.heads[task_idx](final_emb)
+        # 2. Determine Output Type
+        # If token classification (SSP), we want sequence output
+        # If regression/classification (Thermo, Cloning), we want pooled output
+        t_type = 'token' if self.task_configs[task_idx]['type'] == 'token_classification' else 'sequence'
+
+        if debug:
+             print(f"  [Engine] Requested Task Type from Backbone: '{t_type}'")
+
+        # 3. Forward Pass (Early Fusion inside Backbone)
+        # We pass debug=debug so the backbone prints its own internal logs too
+        outputs = self.backbone(
+            input_ids=input_ids, 
+            attention_mask=attention_mask, 
+            task_prompt_embeds=task_prompt_embeds,
+            task_type=t_type,
+            debug=debug
+        )
+        
+        if debug:
+            print(f"  [Engine] Received Output from Backbone: {outputs.shape}")
+        
+        # 4. Heads
+        return self.heads[task_idx](outputs)
 
     def _project_conflicting(self, grads):
         pc_grads = [g.clone() for g in grads]
@@ -136,13 +193,17 @@ class TaskPromptedEngine(nn.Module):
                 mask = batch['attention_mask'].to(self.device)
                 targets = batch['targets'].to(self.device)
                 
+                # Debug only first step of first epoch
                 debug_now = (step == 0 and i == 0 and epoch_index == 1)
                 
                 logits = self.forward(input_ids, mask, task_idx=i, debug=debug_now)
                 
                 is_token = (self.task_configs[i]['type'] == 'token_classification')
-                if is_token: loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
-                else: loss = self.loss_fns[i](logits, targets)
+                if is_token: 
+                    # Flatten for CrossEntropy: [Batch*Seq, Labels] vs [Batch*Seq]
+                    loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
+                else: 
+                    loss = self.loss_fns[i](logits, targets)
                 
                 precision = torch.exp(-self.log_vars[i])
                 weighted_loss = (precision * loss) + self.log_vars[i]
@@ -211,7 +272,7 @@ class TaskPromptedEngine(nn.Module):
                         p = logits.argmax(dim=-1).view(-1); t = targets.view(-1); m = t!=-100
                         if m.sum()>0: correct += (p[m]==t[m]).sum().item(); total += m.sum().item()
                         
-                        # Collect Raw Data (Flattened)
+                        # Collect Data
                         p_batch = logits.argmax(dim=-1).cpu().numpy()
                         t_batch = targets.cpu().numpy()
                         for b in range(t_batch.shape[0]):

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from protbert_hf import SharedProtBert
-from engine_hf_bio_moe import BioMoE_Engine
+from bio_moe.engine_hf_bio_moe import BioMoE_Engine
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
