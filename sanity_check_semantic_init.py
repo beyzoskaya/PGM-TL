@@ -42,6 +42,7 @@ def run_debug_full():
     
     print("  [Model] Loading Backbone (Rank=2 for speed)...")
     backbone = SharedProtBert(lora_rank=2, unfrozen_layers=0)
+    backbone.to(device)
     
     # Get the TRUE [CLS] embedding manually
     print("  [Check] Extracting ground truth [CLS] embedding...")
