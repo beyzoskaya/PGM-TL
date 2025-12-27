@@ -7,7 +7,7 @@ from sklearn.metrics import mean_squared_error, accuracy_score, f1_score, matthe
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
+from engines.engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
 
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_uncertainty"
 EPOCHS_TO_EVAL = [1, 2, 3, 4, 5] 

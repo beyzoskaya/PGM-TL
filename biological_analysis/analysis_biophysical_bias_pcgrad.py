@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from protbert_hf import SharedProtBert
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid, multitask_collate_fn
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid, multitask_collate_fn
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'

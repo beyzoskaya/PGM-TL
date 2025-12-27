@@ -7,7 +7,7 @@ from sklearn.metrics import mean_squared_error, accuracy_score, f1_score, matthe
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_cascade import CascadeMultiTaskEngine
+from engines.engine_hf_cascade import CascadeMultiTaskEngine
 
 SEED = 42
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cascade_v1_lora16"

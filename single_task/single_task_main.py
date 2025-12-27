@@ -5,7 +5,7 @@ import logging
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_task_specific_encoder import MultiTaskEngine
+from engines.engine_hf_with_task_specific_encoder import MultiTaskEngine
 
 TARGET_TASK = 'Cloning' 
 

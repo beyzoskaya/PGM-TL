@@ -1,0 +1,447 @@
+Running Prompt-Tuning + PCGrad on cuda
+[1/5] Loading Datasets...
+
+[Data] Normalizing Thermostability targets...
+  ✓ Normalization complete. Mean: 0.1791, Std: 0.5662
+[2/5] Initializing Backbone...
+[SharedProtBert] Loading Rostlab/prot_bert_bfd...
+[SharedProtBert] Unfreezing top 2 transformer layers...
+[SharedProtBert] Trainable Parameters: 8,880,128 || (2.07%)
+[3/5] Setting up Prompted Engine...
+[Engine] Initializing 3 Task Prompts (Prefix Tuning)...
+   [Check] Number of Prompts: 3
+
+============================== EPOCH 1/8 ==============================
+
+[Train] Prompt-PCGrad Epoch 1 starting...
+  [Engine] Processing Task: Thermostability (ID: 0)
+  [Engine] Prompt Expanded Shape: torch.Size([16, 1, 1024])
+  [Engine] Requested Task Type from Backbone: 'sequence'
+    [Backbone] Prompt injected. New Seq Shape: torch.Size([16, 53, 1024])
+    [Backbone] Mean Pooling applied on sliced sequence. Shape: torch.Size([16, 1024])
+  [Engine] Received Output from Backbone: torch.Size([16, 1024])
+  Step 0/3351 | Loss: 3.4580 | Conflicts: 2 | LR: 3.73e-08
+  Step 50/3351 | Loss: 3.7316 | Conflicts: 4 | LR: 1.90e-06
+  Step 100/3351 | Loss: 3.4613 | Conflicts: 4 | LR: 3.77e-06
+  Step 150/3351 | Loss: 3.3872 | Conflicts: 4 | LR: 5.63e-06
+  Step 200/3351 | Loss: 4.0853 | Conflicts: 2 | LR: 7.50e-06
+  Step 250/3351 | Loss: 3.4243 | Conflicts: 0 | LR: 9.37e-06
+  Step 300/3351 | Loss: 3.4735 | Conflicts: 2 | LR: 1.12e-05
+  Step 350/3351 | Loss: 2.9050 | Conflicts: 6 | LR: 1.31e-05
+  Step 400/3351 | Loss: 3.0580 | Conflicts: 2 | LR: 1.50e-05
+  Step 450/3351 | Loss: 3.6140 | Conflicts: 2 | LR: 1.68e-05
+  Step 500/3351 | Loss: 3.0001 | Conflicts: 6 | LR: 1.87e-05
+  Step 550/3351 | Loss: 2.4179 | Conflicts: 4 | LR: 2.06e-05
+  Step 600/3351 | Loss: 3.5904 | Conflicts: 0 | LR: 2.24e-05
+  Step 650/3351 | Loss: 2.8232 | Conflicts: 4 | LR: 2.43e-05
+  Step 700/3351 | Loss: 2.5029 | Conflicts: 3 | LR: 2.62e-05
+  Step 750/3351 | Loss: 3.1494 | Conflicts: 4 | LR: 2.80e-05
+  Step 800/3351 | Loss: 2.0687 | Conflicts: 4 | LR: 2.99e-05
+  Step 850/3351 | Loss: 2.8131 | Conflicts: 6 | LR: 3.18e-05
+  Step 900/3351 | Loss: 2.3094 | Conflicts: 0 | LR: 3.36e-05
+  Step 950/3351 | Loss: 2.5037 | Conflicts: 4 | LR: 3.55e-05
+  Step 1000/3351 | Loss: 2.3226 | Conflicts: 3 | LR: 3.74e-05
+  Step 1050/3351 | Loss: 2.0293 | Conflicts: 5 | LR: 3.92e-05
+  Step 1100/3351 | Loss: 2.0391 | Conflicts: 2 | LR: 4.11e-05
+  Step 1150/3351 | Loss: 2.3918 | Conflicts: 4 | LR: 4.29e-05
+  Step 1200/3351 | Loss: 1.9322 | Conflicts: 4 | LR: 4.48e-05
+  Step 1250/3351 | Loss: 2.7178 | Conflicts: 4 | LR: 4.67e-05
+  Step 1300/3351 | Loss: 2.3436 | Conflicts: 6 | LR: 4.85e-05
+  Step 1350/3351 | Loss: 1.9367 | Conflicts: 2 | LR: 5.04e-05
+  Step 1400/3351 | Loss: 2.0408 | Conflicts: 0 | LR: 5.23e-05
+  Step 1450/3351 | Loss: 1.9875 | Conflicts: 0 | LR: 5.41e-05
+  Step 1500/3351 | Loss: 2.4930 | Conflicts: 4 | LR: 5.60e-05
+  Step 1550/3351 | Loss: 1.9364 | Conflicts: 2 | LR: 5.79e-05
+  Step 1600/3351 | Loss: 2.0433 | Conflicts: 2 | LR: 5.97e-05
+  Step 1650/3351 | Loss: 1.8256 | Conflicts: 4 | LR: 6.16e-05
+  Step 1700/3351 | Loss: 1.7588 | Conflicts: 4 | LR: 6.35e-05
+  Step 1750/3351 | Loss: 1.7455 | Conflicts: 4 | LR: 6.53e-05
+  Step 1800/3351 | Loss: 2.0181 | Conflicts: 0 | LR: 6.72e-05
+  Step 1850/3351 | Loss: 1.6765 | Conflicts: 0 | LR: 6.91e-05
+  Step 1900/3351 | Loss: 2.0009 | Conflicts: 0 | LR: 7.09e-05
+  Step 1950/3351 | Loss: 1.4958 | Conflicts: 2 | LR: 7.28e-05
+  Step 2000/3351 | Loss: 1.5359 | Conflicts: 0 | LR: 7.47e-05
+  Step 2050/3351 | Loss: 1.6939 | Conflicts: 4 | LR: 7.65e-05
+  Step 2100/3351 | Loss: 2.0750 | Conflicts: 4 | LR: 7.84e-05
+  Step 2150/3351 | Loss: 2.2637 | Conflicts: 4 | LR: 8.03e-05
+  Step 2200/3351 | Loss: 1.3405 | Conflicts: 4 | LR: 8.21e-05
+  Step 2250/3351 | Loss: 1.3581 | Conflicts: 5 | LR: 8.40e-05
+  Step 2300/3351 | Loss: 2.1392 | Conflicts: 2 | LR: 8.59e-05
+  Step 2350/3351 | Loss: 2.3061 | Conflicts: 6 | LR: 8.77e-05
+  Step 2400/3351 | Loss: 1.7689 | Conflicts: 4 | LR: 8.96e-05
+  Step 2450/3351 | Loss: 1.5168 | Conflicts: 2 | LR: 9.15e-05
+  Step 2500/3351 | Loss: 1.3544 | Conflicts: 2 | LR: 9.33e-05
+  Step 2550/3351 | Loss: 1.9344 | Conflicts: 4 | LR: 9.52e-05
+  Step 2600/3351 | Loss: 2.1332 | Conflicts: 2 | LR: 9.71e-05
+  Step 2650/3351 | Loss: 1.9891 | Conflicts: 3 | LR: 9.89e-05
+  Step 2700/3351 | Loss: 1.8556 | Conflicts: 0 | LR: 9.99e-05
+  Step 2750/3351 | Loss: 1.3814 | Conflicts: 4 | LR: 9.97e-05
+  Step 2800/3351 | Loss: 1.3929 | Conflicts: 4 | LR: 9.95e-05
+  Step 2850/3351 | Loss: 2.1734 | Conflicts: 6 | LR: 9.93e-05
+  Step 2900/3351 | Loss: 1.4427 | Conflicts: 4 | LR: 9.91e-05
+  Step 2950/3351 | Loss: 1.5870 | Conflicts: 0 | LR: 9.89e-05
+  Step 3000/3351 | Loss: 1.6658 | Conflicts: 2 | LR: 9.87e-05
+  Step 3050/3351 | Loss: 1.3597 | Conflicts: 2 | LR: 9.85e-05
+  Step 3100/3351 | Loss: 1.8890 | Conflicts: 2 | LR: 9.83e-05
+  Step 3150/3351 | Loss: 1.1692 | Conflicts: 2 | LR: 9.80e-05
+  Step 3200/3351 | Loss: 1.6888 | Conflicts: 0 | LR: 9.78e-05
+  Step 3250/3351 | Loss: 2.1686 | Conflicts: 2 | LR: 9.76e-05
+  Step 3300/3351 | Loss: 1.4969 | Conflicts: 4 | LR: 9.74e-05
+  Step 3350/3351 | Loss: 1.5201 | Conflicts: 2 | LR: 9.72e-05
+
+  [TRAIN] Combined Loss: 2.2946
+
+[VALIDATION] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.4655
+  SecStructure: Acc: 0.7043
+  Cloning: Acc: 0.7827
+  📊 Diagnostic plot saved: /content/drive/MyDrive/protein_multitask_outputs/framework_prompt_early_fusion/plots/epoch_1_diagnostics.png
+
+[TEST] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.4046
+  SecStructure: Acc: 0.6838
+  Cloning: Acc: 0.7700
+  🌟 New Best Prompt Model Saved! (Val Thermo MSE: 0.4655)
+
+============================== EPOCH 2/8 ==============================
+
+[Train] Prompt-PCGrad Epoch 2 starting...
+  Step 0/3351 | Loss: 1.5617 | Conflicts: 2 | LR: 9.72e-05
+  Step 50/3351 | Loss: 1.7821 | Conflicts: 2 | LR: 9.70e-05
+  Step 100/3351 | Loss: 1.5041 | Conflicts: 4 | LR: 9.68e-05
+  Step 150/3351 | Loss: 1.2735 | Conflicts: 4 | LR: 9.66e-05
+  Step 200/3351 | Loss: 1.6479 | Conflicts: 4 | LR: 9.64e-05
+  Step 250/3351 | Loss: 1.5822 | Conflicts: 0 | LR: 9.62e-05
+  Step 300/3351 | Loss: 1.2970 | Conflicts: 4 | LR: 9.60e-05
+  Step 350/3351 | Loss: 1.8006 | Conflicts: 2 | LR: 9.58e-05
+  Step 400/3351 | Loss: 1.5396 | Conflicts: 4 | LR: 9.56e-05
+  Step 450/3351 | Loss: 1.8411 | Conflicts: 4 | LR: 9.53e-05
+  Step 500/3351 | Loss: 1.9501 | Conflicts: 6 | LR: 9.51e-05
+  Step 550/3351 | Loss: 1.4046 | Conflicts: 2 | LR: 9.49e-05
+  Step 600/3351 | Loss: 1.1098 | Conflicts: 2 | LR: 9.47e-05
+  Step 650/3351 | Loss: 1.2603 | Conflicts: 4 | LR: 9.45e-05
+  Step 700/3351 | Loss: 1.3272 | Conflicts: 0 | LR: 9.43e-05
+  Step 750/3351 | Loss: 1.7399 | Conflicts: 0 | LR: 9.41e-05
+  Step 800/3351 | Loss: 1.5030 | Conflicts: 4 | LR: 9.39e-05
+  Step 850/3351 | Loss: 0.7820 | Conflicts: 0 | LR: 9.37e-05
+  Step 900/3351 | Loss: 1.6579 | Conflicts: 6 | LR: 9.35e-05
+  Step 950/3351 | Loss: 1.6313 | Conflicts: 2 | LR: 9.33e-05
+  Step 1000/3351 | Loss: 1.3456 | Conflicts: 2 | LR: 9.31e-05
+  Step 1050/3351 | Loss: 1.2817 | Conflicts: 2 | LR: 9.29e-05
+  Step 1100/3351 | Loss: 1.2063 | Conflicts: 4 | LR: 9.27e-05
+  Step 1150/3351 | Loss: 1.4474 | Conflicts: 4 | LR: 9.24e-05
+  Step 1200/3351 | Loss: 1.8773 | Conflicts: 0 | LR: 9.22e-05
+  Step 1250/3351 | Loss: 0.9374 | Conflicts: 6 | LR: 9.20e-05
+  Step 1300/3351 | Loss: 1.4623 | Conflicts: 4 | LR: 9.18e-05
+  Step 1350/3351 | Loss: 1.3398 | Conflicts: 4 | LR: 9.16e-05
+  Step 1400/3351 | Loss: 0.8906 | Conflicts: 2 | LR: 9.14e-05
+  Step 1450/3351 | Loss: 1.2887 | Conflicts: 2 | LR: 9.12e-05
+  Step 1500/3351 | Loss: 0.8692 | Conflicts: 4 | LR: 9.10e-05
+  Step 1550/3351 | Loss: 1.4764 | Conflicts: 3 | LR: 9.08e-05
+  Step 1600/3351 | Loss: 0.7434 | Conflicts: 4 | LR: 9.06e-05
+  Step 1650/3351 | Loss: 1.2057 | Conflicts: 4 | LR: 9.04e-05
+  Step 1700/3351 | Loss: 1.0972 | Conflicts: 6 | LR: 9.02e-05
+  Step 1750/3351 | Loss: 1.1659 | Conflicts: 4 | LR: 9.00e-05
+  Step 1800/3351 | Loss: 1.0519 | Conflicts: 6 | LR: 8.98e-05
+  Step 1850/3351 | Loss: 1.3734 | Conflicts: 0 | LR: 8.95e-05
+  Step 1900/3351 | Loss: 1.0966 | Conflicts: 4 | LR: 8.93e-05
+  Step 1950/3351 | Loss: 1.3653 | Conflicts: 2 | LR: 8.91e-05
+  Step 2000/3351 | Loss: 1.0435 | Conflicts: 2 | LR: 8.89e-05
+  Step 2050/3351 | Loss: 1.4715 | Conflicts: 0 | LR: 8.87e-05
+  Step 2100/3351 | Loss: 1.3262 | Conflicts: 4 | LR: 8.85e-05
+  Step 2150/3351 | Loss: 0.8791 | Conflicts: 4 | LR: 8.83e-05
+  Step 2200/3351 | Loss: 1.7839 | Conflicts: 4 | LR: 8.81e-05
+  Step 2250/3351 | Loss: 2.0161 | Conflicts: 4 | LR: 8.79e-05
+  Step 2300/3351 | Loss: 1.1095 | Conflicts: 0 | LR: 8.77e-05
+  Step 2350/3351 | Loss: 1.3884 | Conflicts: 2 | LR: 8.75e-05
+  Step 2400/3351 | Loss: 0.9635 | Conflicts: 4 | LR: 8.73e-05
+  Step 2450/3351 | Loss: 1.8457 | Conflicts: 4 | LR: 8.71e-05
+  Step 2500/3351 | Loss: 1.5234 | Conflicts: 4 | LR: 8.69e-05
+  Step 2550/3351 | Loss: 0.9715 | Conflicts: 4 | LR: 8.66e-05
+  Step 2600/3351 | Loss: 0.6994 | Conflicts: 4 | LR: 8.64e-05
+  Step 2650/3351 | Loss: 0.9933 | Conflicts: 4 | LR: 8.62e-05
+  Step 2700/3351 | Loss: 0.6167 | Conflicts: 4 | LR: 8.60e-05
+  Step 2750/3351 | Loss: 0.9458 | Conflicts: 2 | LR: 8.58e-05
+  Step 2800/3351 | Loss: 1.3865 | Conflicts: 4 | LR: 8.56e-05
+  Step 2850/3351 | Loss: 1.0936 | Conflicts: 0 | LR: 8.54e-05
+  Step 2900/3351 | Loss: 2.4892 | Conflicts: 2 | LR: 8.52e-05
+  Step 2950/3351 | Loss: 1.4209 | Conflicts: 2 | LR: 8.50e-05
+  Step 3000/3351 | Loss: 1.1639 | Conflicts: 2 | LR: 8.48e-05
+  Step 3050/3351 | Loss: 0.8659 | Conflicts: 4 | LR: 8.46e-05
+  Step 3100/3351 | Loss: 1.0811 | Conflicts: 4 | LR: 8.44e-05
+  Step 3150/3351 | Loss: 0.4147 | Conflicts: 4 | LR: 8.42e-05
+  Step 3200/3351 | Loss: 0.5769 | Conflicts: 0 | LR: 8.40e-05
+  Step 3250/3351 | Loss: 1.4731 | Conflicts: 0 | LR: 8.37e-05
+  Step 3300/3351 | Loss: 1.1851 | Conflicts: 4 | LR: 8.35e-05
+  Step 3350/3351 | Loss: 0.8069 | Conflicts: 2 | LR: 8.33e-05
+
+  [TRAIN] Combined Loss: 1.3099
+
+[VALIDATION] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.4005
+  SecStructure: Acc: 0.7114
+  Cloning: Acc: 0.7857
+  📊 Diagnostic plot saved: /content/drive/MyDrive/protein_multitask_outputs/framework_prompt_early_fusion/plots/epoch_2_diagnostics.png
+
+[TEST] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.2673
+  SecStructure: Acc: 0.6889
+  Cloning: Acc: 0.7656
+  🌟 New Best Prompt Model Saved! (Val Thermo MSE: 0.4005)
+
+============================== EPOCH 3/8 ==============================
+
+[Train] Prompt-PCGrad Epoch 3 starting...
+  Step 0/3351 | Loss: 0.9025 | Conflicts: 2 | LR: 8.33e-05
+  Step 50/3351 | Loss: 0.6290 | Conflicts: 0 | LR: 8.31e-05
+  Step 100/3351 | Loss: 0.9112 | Conflicts: 0 | LR: 8.29e-05
+  Step 150/3351 | Loss: 0.7078 | Conflicts: 4 | LR: 8.27e-05
+  Step 200/3351 | Loss: 0.8504 | Conflicts: 4 | LR: 8.25e-05
+  Step 250/3351 | Loss: 1.2807 | Conflicts: 0 | LR: 8.23e-05
+  Step 300/3351 | Loss: 0.6479 | Conflicts: 2 | LR: 8.21e-05
+  Step 350/3351 | Loss: 0.8389 | Conflicts: 0 | LR: 8.19e-05
+  Step 400/3351 | Loss: 0.3921 | Conflicts: 4 | LR: 8.17e-05
+  Step 450/3351 | Loss: 1.1683 | Conflicts: 4 | LR: 8.15e-05
+  Step 500/3351 | Loss: 0.9149 | Conflicts: 2 | LR: 8.13e-05
+  Step 550/3351 | Loss: 0.6075 | Conflicts: 2 | LR: 8.10e-05
+  Step 600/3351 | Loss: 0.6096 | Conflicts: 4 | LR: 8.08e-05
+  Step 650/3351 | Loss: 0.2637 | Conflicts: 4 | LR: 8.06e-05
+  Step 700/3351 | Loss: 0.6367 | Conflicts: 6 | LR: 8.04e-05
+  Step 750/3351 | Loss: 0.8962 | Conflicts: 2 | LR: 8.02e-05
+  Step 800/3351 | Loss: 0.7270 | Conflicts: 4 | LR: 8.00e-05
+  Step 850/3351 | Loss: 0.4333 | Conflicts: 4 | LR: 7.98e-05
+  Step 900/3351 | Loss: 0.5553 | Conflicts: 2 | LR: 7.96e-05
+  Step 950/3351 | Loss: 0.3044 | Conflicts: 2 | LR: 7.94e-05
+  Step 1000/3351 | Loss: 1.0015 | Conflicts: 2 | LR: 7.92e-05
+  Step 1050/3351 | Loss: 0.5080 | Conflicts: 4 | LR: 7.90e-05
+  Step 1100/3351 | Loss: 0.4138 | Conflicts: 0 | LR: 7.88e-05
+  Step 1150/3351 | Loss: 1.2000 | Conflicts: 2 | LR: 7.86e-05
+  Step 1200/3351 | Loss: 2.1710 | Conflicts: 4 | LR: 7.84e-05
+  Step 1250/3351 | Loss: 0.0930 | Conflicts: 4 | LR: 7.81e-05
+  Step 1300/3351 | Loss: 1.3894 | Conflicts: 2 | LR: 7.79e-05
+  Step 1350/3351 | Loss: 0.9061 | Conflicts: 2 | LR: 7.77e-05
+  Step 1400/3351 | Loss: 0.6011 | Conflicts: 6 | LR: 7.75e-05
+  Step 1450/3351 | Loss: 0.5136 | Conflicts: 4 | LR: 7.73e-05
+  Step 1500/3351 | Loss: 0.4077 | Conflicts: 2 | LR: 7.71e-05
+  Step 1550/3351 | Loss: 0.5076 | Conflicts: 4 | LR: 7.69e-05
+  Step 1600/3351 | Loss: 0.4873 | Conflicts: 4 | LR: 7.67e-05
+  Step 1650/3351 | Loss: 0.1837 | Conflicts: 2 | LR: 7.65e-05
+  Step 1700/3351 | Loss: 0.8554 | Conflicts: 2 | LR: 7.63e-05
+  Step 1750/3351 | Loss: 0.1290 | Conflicts: 2 | LR: 7.61e-05
+  Step 1800/3351 | Loss: -0.0387 | Conflicts: 4 | LR: 7.59e-05
+  Step 1850/3351 | Loss: 1.7058 | Conflicts: 4 | LR: 7.57e-05
+  Step 1900/3351 | Loss: 1.2831 | Conflicts: 0 | LR: 7.55e-05
+  Step 1950/3351 | Loss: 0.5094 | Conflicts: 2 | LR: 7.52e-05
+  Step 2000/3351 | Loss: 1.6524 | Conflicts: 4 | LR: 7.50e-05
+  Step 2050/3351 | Loss: 0.1496 | Conflicts: 4 | LR: 7.48e-05
+  Step 2100/3351 | Loss: 0.9563 | Conflicts: 4 | LR: 7.46e-05
+  Step 2150/3351 | Loss: 0.0302 | Conflicts: 0 | LR: 7.44e-05
+  Step 2200/3351 | Loss: 0.6196 | Conflicts: 4 | LR: 7.42e-05
+  Step 2250/3351 | Loss: 0.0374 | Conflicts: 2 | LR: 7.40e-05
+  Step 2300/3351 | Loss: 0.4808 | Conflicts: 2 | LR: 7.38e-05
+  Step 2350/3351 | Loss: 0.8909 | Conflicts: 6 | LR: 7.36e-05
+  Step 2400/3351 | Loss: 0.4617 | Conflicts: 4 | LR: 7.34e-05
+  Step 2450/3351 | Loss: 0.6294 | Conflicts: 4 | LR: 7.32e-05
+  Step 2500/3351 | Loss: 0.9361 | Conflicts: 2 | LR: 7.30e-05
+  Step 2550/3351 | Loss: 1.1096 | Conflicts: 0 | LR: 7.28e-05
+  Step 2600/3351 | Loss: 0.8715 | Conflicts: 2 | LR: 7.26e-05
+  Step 2650/3351 | Loss: 0.0738 | Conflicts: 2 | LR: 7.23e-05
+  Step 2700/3351 | Loss: 0.7140 | Conflicts: 2 | LR: 7.21e-05
+  Step 2750/3351 | Loss: -0.0116 | Conflicts: 4 | LR: 7.19e-05
+  Step 2800/3351 | Loss: 0.3480 | Conflicts: 0 | LR: 7.17e-05
+  Step 2850/3351 | Loss: 0.1973 | Conflicts: 4 | LR: 7.15e-05
+  Step 2900/3351 | Loss: 0.1967 | Conflicts: 4 | LR: 7.13e-05
+  Step 2950/3351 | Loss: 0.3314 | Conflicts: 6 | LR: 7.11e-05
+  Step 3000/3351 | Loss: -0.2108 | Conflicts: 2 | LR: 7.09e-05
+  Step 3050/3351 | Loss: 0.5617 | Conflicts: 2 | LR: 7.07e-05
+  Step 3100/3351 | Loss: 0.0377 | Conflicts: 2 | LR: 7.05e-05
+  Step 3150/3351 | Loss: -0.0946 | Conflicts: 4 | LR: 7.03e-05
+  Step 3200/3351 | Loss: -0.0989 | Conflicts: 6 | LR: 7.01e-05
+  Step 3250/3351 | Loss: -0.1974 | Conflicts: 4 | LR: 6.99e-05
+  Step 3300/3351 | Loss: 1.0318 | Conflicts: 4 | LR: 6.96e-05
+  Step 3350/3351 | Loss: -0.1752 | Conflicts: 0 | LR: 6.94e-05
+
+  [TRAIN] Combined Loss: 0.6153
+
+[VALIDATION] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.3949
+  SecStructure: Acc: 0.7112
+  Cloning: Acc: 0.7780
+  📊 Diagnostic plot saved: /content/drive/MyDrive/protein_multitask_outputs/framework_prompt_early_fusion/plots/epoch_3_diagnostics.png
+
+[TEST] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.2617
+  SecStructure: Acc: 0.6904
+  Cloning: Acc: 0.7554
+  🌟 New Best Prompt Model Saved! (Val Thermo MSE: 0.3949)
+
+============================== EPOCH 4/8 ==============================
+
+[Train] Prompt-PCGrad Epoch 4 starting...
+  Step 0/3351 | Loss: -0.0388 | Conflicts: 2 | LR: 6.94e-05
+  Step 50/3351 | Loss: 0.2319 | Conflicts: 4 | LR: 6.92e-05
+  Step 100/3351 | Loss: 0.0745 | Conflicts: 2 | LR: 6.90e-05
+  Step 150/3351 | Loss: 0.0464 | Conflicts: 4 | LR: 6.88e-05
+  Step 200/3351 | Loss: 0.6283 | Conflicts: 2 | LR: 6.86e-05
+  Step 250/3351 | Loss: 0.9885 | Conflicts: 6 | LR: 6.84e-05
+  Step 300/3351 | Loss: 0.0629 | Conflicts: 2 | LR: 6.82e-05
+  Step 350/3351 | Loss: 0.1369 | Conflicts: 2 | LR: 6.80e-05
+  Step 400/3351 | Loss: 0.2046 | Conflicts: 4 | LR: 6.78e-05
+  Step 450/3351 | Loss: 0.1094 | Conflicts: 2 | LR: 6.76e-05
+  Step 500/3351 | Loss: -0.1248 | Conflicts: 4 | LR: 6.74e-05
+  Step 550/3351 | Loss: -0.3367 | Conflicts: 4 | LR: 6.72e-05
+  Step 600/3351 | Loss: 0.1896 | Conflicts: 6 | LR: 6.70e-05
+  Step 650/3351 | Loss: -0.1238 | Conflicts: 2 | LR: 6.67e-05
+  Step 700/3351 | Loss: 0.4529 | Conflicts: 4 | LR: 6.65e-05
+  Step 750/3351 | Loss: -0.1970 | Conflicts: 0 | LR: 6.63e-05
+  Step 800/3351 | Loss: 0.5661 | Conflicts: 0 | LR: 6.61e-05
+  Step 850/3351 | Loss: -0.1225 | Conflicts: 2 | LR: 6.59e-05
+  Step 900/3351 | Loss: -0.0525 | Conflicts: 3 | LR: 6.57e-05
+  Step 950/3351 | Loss: 0.2596 | Conflicts: 0 | LR: 6.55e-05
+  Step 1000/3351 | Loss: -0.2009 | Conflicts: 6 | LR: 6.53e-05
+  Step 1050/3351 | Loss: 0.0568 | Conflicts: 2 | LR: 6.51e-05
+  Step 1100/3351 | Loss: -0.2752 | Conflicts: 4 | LR: 6.49e-05
+  Step 1150/3351 | Loss: 2.1987 | Conflicts: 6 | LR: 6.47e-05
+  Step 1200/3351 | Loss: 0.1744 | Conflicts: 2 | LR: 6.45e-05
+  Step 1250/3351 | Loss: -0.0795 | Conflicts: 2 | LR: 6.43e-05
+  Step 1300/3351 | Loss: 1.1098 | Conflicts: 6 | LR: 6.41e-05
+  Step 1350/3351 | Loss: 0.5033 | Conflicts: 6 | LR: 6.38e-05
+  Step 1400/3351 | Loss: 0.1646 | Conflicts: 4 | LR: 6.36e-05
+  Step 1450/3351 | Loss: 0.1721 | Conflicts: 2 | LR: 6.34e-05
+  Step 1500/3351 | Loss: -0.2059 | Conflicts: 2 | LR: 6.32e-05
+  Step 1550/3351 | Loss: -0.0621 | Conflicts: 2 | LR: 6.30e-05
+  Step 1600/3351 | Loss: 0.3072 | Conflicts: 2 | LR: 6.28e-05
+  Step 1650/3351 | Loss: 0.1661 | Conflicts: 0 | LR: 6.26e-05
+  Step 1700/3351 | Loss: -0.1057 | Conflicts: 6 | LR: 6.24e-05
+  Step 1750/3351 | Loss: -0.2019 | Conflicts: 2 | LR: 6.22e-05
+  Step 1800/3351 | Loss: 0.7870 | Conflicts: 2 | LR: 6.20e-05
+  Step 1850/3351 | Loss: 0.3008 | Conflicts: 4 | LR: 6.18e-05
+  Step 1900/3351 | Loss: -0.3361 | Conflicts: 2 | LR: 6.16e-05
+  Step 1950/3351 | Loss: -0.3090 | Conflicts: 0 | LR: 6.14e-05
+  Step 2000/3351 | Loss: -0.2196 | Conflicts: 4 | LR: 6.11e-05
+  Step 2050/3351 | Loss: -0.1586 | Conflicts: 0 | LR: 6.09e-05
+  Step 2100/3351 | Loss: 0.0895 | Conflicts: 2 | LR: 6.07e-05
+  Step 2150/3351 | Loss: -0.0813 | Conflicts: 0 | LR: 6.05e-05
+  Step 2200/3351 | Loss: -0.3009 | Conflicts: 4 | LR: 6.03e-05
+  Step 2250/3351 | Loss: -0.3093 | Conflicts: 2 | LR: 6.01e-05
+  Step 2300/3351 | Loss: -0.1437 | Conflicts: 6 | LR: 5.99e-05
+  Step 2350/3351 | Loss: 0.5003 | Conflicts: 2 | LR: 5.97e-05
+  Step 2400/3351 | Loss: -0.1667 | Conflicts: 4 | LR: 5.95e-05
+  Step 2450/3351 | Loss: -0.1686 | Conflicts: 2 | LR: 5.93e-05
+  Step 2500/3351 | Loss: -0.5657 | Conflicts: 4 | LR: 5.91e-05
+  Step 2550/3351 | Loss: -0.1629 | Conflicts: 6 | LR: 5.89e-05
+  Step 2600/3351 | Loss: 0.2781 | Conflicts: 0 | LR: 5.87e-05
+  Step 2650/3351 | Loss: 0.3061 | Conflicts: 2 | LR: 5.85e-05
+  Step 2700/3351 | Loss: 0.6305 | Conflicts: 4 | LR: 5.82e-05
+  Step 2750/3351 | Loss: -0.3380 | Conflicts: 4 | LR: 5.80e-05
+  Step 2800/3351 | Loss: -0.5972 | Conflicts: 4 | LR: 5.78e-05
+  Step 2850/3351 | Loss: -0.4751 | Conflicts: 4 | LR: 5.76e-05
+  Step 2900/3351 | Loss: 0.3393 | Conflicts: 6 | LR: 5.74e-05
+  Step 2950/3351 | Loss: -0.3754 | Conflicts: 6 | LR: 5.72e-05
+  Step 3000/3351 | Loss: -0.1384 | Conflicts: 2 | LR: 5.70e-05
+  Step 3050/3351 | Loss: -0.4683 | Conflicts: 2 | LR: 5.68e-05
+  Step 3100/3351 | Loss: -0.3550 | Conflicts: 4 | LR: 5.66e-05
+  Step 3150/3351 | Loss: -0.3930 | Conflicts: 2 | LR: 5.64e-05
+  Step 3200/3351 | Loss: 0.2755 | Conflicts: 0 | LR: 5.62e-05
+  Step 3250/3351 | Loss: -0.3714 | Conflicts: 4 | LR: 5.60e-05
+  Step 3300/3351 | Loss: -0.2247 | Conflicts: 2 | LR: 5.58e-05
+  Step 3350/3351 | Loss: -0.4227 | Conflicts: 4 | LR: 5.56e-05
+
+  [TRAIN] Combined Loss: 0.0265
+
+[VALIDATION] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.3661
+  SecStructure: Acc: 0.7145
+  Cloning: Acc: 0.7806
+  📊 Diagnostic plot saved: /content/drive/MyDrive/protein_multitask_outputs/framework_prompt_early_fusion/plots/epoch_4_diagnostics.png
+
+[TEST] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.2428
+  SecStructure: Acc: 0.6936
+  Cloning: Acc: 0.7635
+  🌟 New Best Prompt Model Saved! (Val Thermo MSE: 0.3661)
+
+============================== EPOCH 5/8 ==============================
+
+[Train] Prompt-PCGrad Epoch 5 starting...
+  Step 0/3351 | Loss: -0.4190 | Conflicts: 4 | LR: 5.55e-05
+  Step 50/3351 | Loss: -0.3470 | Conflicts: 2 | LR: 5.53e-05
+  Step 100/3351 | Loss: -0.3207 | Conflicts: 2 | LR: 5.51e-05
+  Step 150/3351 | Loss: -0.6103 | Conflicts: 4 | LR: 5.49e-05
+  Step 200/3351 | Loss: -0.5385 | Conflicts: 6 | LR: 5.47e-05
+  Step 250/3351 | Loss: -0.4036 | Conflicts: 4 | LR: 5.45e-05
+  Step 300/3351 | Loss: -0.6856 | Conflicts: 2 | LR: 5.43e-05
+  Step 350/3351 | Loss: -0.6062 | Conflicts: 4 | LR: 5.41e-05
+  Step 400/3351 | Loss: -0.6963 | Conflicts: 2 | LR: 5.39e-05
+  Step 450/3351 | Loss: -0.6134 | Conflicts: 2 | LR: 5.37e-05
+  Step 500/3351 | Loss: -0.0961 | Conflicts: 4 | LR: 5.35e-05
+  Step 550/3351 | Loss: -0.2209 | Conflicts: 4 | LR: 5.33e-05
+  Step 600/3351 | Loss: -0.4733 | Conflicts: 2 | LR: 5.31e-05
+  Step 650/3351 | Loss: -0.2596 | Conflicts: 4 | LR: 5.29e-05
+  Step 700/3351 | Loss: -0.8668 | Conflicts: 4 | LR: 5.26e-05
+  Step 750/3351 | Loss: -0.1845 | Conflicts: 2 | LR: 5.24e-05
+  Step 800/3351 | Loss: -0.1971 | Conflicts: 6 | LR: 5.22e-05
+  Step 850/3351 | Loss: -0.7713 | Conflicts: 4 | LR: 5.20e-05
+  Step 900/3351 | Loss: -0.2266 | Conflicts: 2 | LR: 5.18e-05
+  Step 950/3351 | Loss: -0.3118 | Conflicts: 2 | LR: 5.16e-05
+  Step 1000/3351 | Loss: -0.6394 | Conflicts: 2 | LR: 5.14e-05
+  Step 1050/3351 | Loss: -0.2303 | Conflicts: 4 | LR: 5.12e-05
+  Step 1100/3351 | Loss: -0.4836 | Conflicts: 2 | LR: 5.10e-05
+  Step 1150/3351 | Loss: -0.5216 | Conflicts: 4 | LR: 5.08e-05
+  Step 1200/3351 | Loss: -0.5959 | Conflicts: 2 | LR: 5.06e-05
+  Step 1250/3351 | Loss: -0.6182 | Conflicts: 4 | LR: 5.04e-05
+  Step 1300/3351 | Loss: -0.2797 | Conflicts: 0 | LR: 5.02e-05
+  Step 1350/3351 | Loss: -0.6370 | Conflicts: 2 | LR: 5.00e-05
+  Step 1400/3351 | Loss: 0.1736 | Conflicts: 2 | LR: 4.97e-05
+  Step 1450/3351 | Loss: -0.4460 | Conflicts: 0 | LR: 4.95e-05
+  Step 1500/3351 | Loss: -0.4675 | Conflicts: 2 | LR: 4.93e-05
+  Step 1550/3351 | Loss: -0.5904 | Conflicts: 4 | LR: 4.91e-05
+  Step 1600/3351 | Loss: -0.1983 | Conflicts: 4 | LR: 4.89e-05
+  Step 1650/3351 | Loss: -0.3482 | Conflicts: 2 | LR: 4.87e-05
+  Step 1700/3351 | Loss: -0.5586 | Conflicts: 6 | LR: 4.85e-05
+  Step 1750/3351 | Loss: -0.2144 | Conflicts: 0 | LR: 4.83e-05
+  Step 1800/3351 | Loss: -0.4735 | Conflicts: 2 | LR: 4.81e-05
+  Step 1850/3351 | Loss: -0.7601 | Conflicts: 4 | LR: 4.79e-05
+  Step 1900/3351 | Loss: -0.5202 | Conflicts: 4 | LR: 4.77e-05
+  Step 1950/3351 | Loss: -0.5714 | Conflicts: 4 | LR: 4.75e-05
+  Step 2000/3351 | Loss: -0.9689 | Conflicts: 2 | LR: 4.73e-05
+  Step 2050/3351 | Loss: -0.8778 | Conflicts: 4 | LR: 4.71e-05
+  Step 2100/3351 | Loss: -0.5026 | Conflicts: 4 | LR: 4.68e-05
+  Step 2150/3351 | Loss: -0.7556 | Conflicts: 4 | LR: 4.66e-05
+  Step 2200/3351 | Loss: -0.5214 | Conflicts: 2 | LR: 4.64e-05
+  Step 2250/3351 | Loss: -0.2276 | Conflicts: 6 | LR: 4.62e-05
+  Step 2300/3351 | Loss: -0.0744 | Conflicts: 4 | LR: 4.60e-05
+  Step 2350/3351 | Loss: -0.5006 | Conflicts: 6 | LR: 4.58e-05
+  Step 2400/3351 | Loss: -0.8298 | Conflicts: 4 | LR: 4.56e-05
+  Step 2450/3351 | Loss: -0.4175 | Conflicts: 6 | LR: 4.54e-05
+  Step 2500/3351 | Loss: -0.8761 | Conflicts: 4 | LR: 4.52e-05
+  Step 2550/3351 | Loss: -0.4906 | Conflicts: 6 | LR: 4.50e-05
+  Step 2600/3351 | Loss: -0.2369 | Conflicts: 4 | LR: 4.48e-05
+  Step 2650/3351 | Loss: -0.9793 | Conflicts: 6 | LR: 4.46e-05
+  Step 2700/3351 | Loss: 0.3284 | Conflicts: 4 | LR: 4.44e-05
+  Step 2750/3351 | Loss: -0.6641 | Conflicts: 0 | LR: 4.42e-05
+  Step 2800/3351 | Loss: -0.5091 | Conflicts: 2 | LR: 4.39e-05
+  Step 2850/3351 | Loss: -0.6819 | Conflicts: 2 | LR: 4.37e-05
+  Step 2900/3351 | Loss: -0.4180 | Conflicts: 2 | LR: 4.35e-05
+  Step 2950/3351 | Loss: -0.6942 | Conflicts: 6 | LR: 4.33e-05
+  Step 3000/3351 | Loss: 0.1572 | Conflicts: 4 | LR: 4.31e-05
+  Step 3050/3351 | Loss: -0.0034 | Conflicts: 2 | LR: 4.29e-05
+  Step 3100/3351 | Loss: -0.7470 | Conflicts: 4 | LR: 4.27e-05
+  Step 3150/3351 | Loss: -0.5934 | Conflicts: 2 | LR: 4.25e-05
+  Step 3200/3351 | Loss: -0.8815 | Conflicts: 4 | LR: 4.23e-05
+  Step 3250/3351 | Loss: -0.6601 | Conflicts: 4 | LR: 4.21e-05
+  Step 3300/3351 | Loss: -0.9453 | Conflicts: 4 | LR: 4.19e-05
+  Step 3350/3351 | Loss: -0.4070 | Conflicts: 6 | LR: 4.17e-05
+
+  [TRAIN] Combined Loss: -0.4444
+
+[VALIDATION] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.3752
+  SecStructure: Acc: 0.7140
+  Cloning: Acc: 0.7737
+  📊 Diagnostic plot saved: /content/drive/MyDrive/protein_multitask_outputs/framework_prompt_early_fusion/plots/epoch_5_diagnostics.png
+
+[TEST] Evaluating & Collecting Data...
+  Thermostability: MSE: 0.2090
+  SecStructure: Acc: 0.6939
+  Cloning: Acc: 0.7512

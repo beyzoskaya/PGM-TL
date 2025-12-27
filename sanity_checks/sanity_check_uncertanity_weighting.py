@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
+from engines.engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
 
 def run_robust_sanity_check():
     print("\nSTARTING ROBUST SANITY CHECK (UNCERTAINTY WEIGHTING)...")

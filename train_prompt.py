@@ -1,5 +1,3 @@
-# --- START OF FILE train_prompt.py ---
-
 import os
 import torch
 import numpy as np
@@ -12,7 +10,7 @@ from transformers import get_linear_schedule_with_warmup
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_prompt import TaskPromptedEngine
+from engine_hf_semantic_prompt_tuning import TaskPromptedEngine
 
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -20,10 +18,12 @@ BATCH_SIZE = 16
 EPOCHS = 8 
 LEARNING_RATE = 1e-4
 
-UNFROZEN_LAYERS = 2 
-LORA_RANK = 16
+# --- NEW CONFIGS ---
+UNFROZEN_LAYERS = 0         # Compare 0 vs 2. Set to 0 for LoRA-only.
+INIT_STRATEGY = "semantic"  # "semantic" (CLS token) vs "random"
+PATIENCE = 3                # Early stopping patience
 
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_early_fusion"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_semantic"
 PLOT_DIR = os.path.join(SAVE_DIR, "plots")
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
@@ -32,7 +32,7 @@ def set_seed(seed):
     torch.manual_seed(seed); np.random.seed(seed)
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
 
-def normalize_regression_targets(train_ds, valid_ds, test_ds):
+def normalize_regression_targets(train_ds):
     print("\n[Data] Normalizing Thermostability targets...")
     full_dataset = train_ds.dataset; train_indices = train_ds.indices
     all_raw = full_dataset.targets['target']
@@ -67,7 +67,6 @@ def plot_epoch_diagnostics(results, epoch):
     ax = axes[1]
     s_true = results['SSP']['true']; s_pred = results['SSP']['pred']
     if len(s_true) > 0:
-        # Use simple heatmap
         cm = confusion_matrix(s_true, s_pred, normalize='true')
         sns.heatmap(cm, ax=ax, cmap="Blues", annot=False)
         ax.set_title("Secondary Structure Confusion")
@@ -98,7 +97,7 @@ def main():
     # Thermostability
     ds_t = Thermostability(verbose=0)
     t_train, t_val, t_test = ds_t.split()
-    normalize_regression_targets(t_train, t_val, t_test)
+    normalize_regression_targets(t_train) # Only calc stats on train
     
     # Secondary Structure
     ds_s = SecondaryStructure(verbose=0)
@@ -123,7 +122,6 @@ def main():
     backbone = SharedProtBert(
         model_name="Rostlab/prot_bert_bfd",
         lora_rank=LORA_RANK,
-        lora_alpha=32,
         lora_dropout=0.1,
         unfrozen_layers=UNFROZEN_LAYERS 
     )
@@ -138,16 +136,12 @@ def main():
         test_sets=test_sets,
         batch_size=BATCH_SIZE, 
         device=DEVICE, 
-        save_dir=SAVE_DIR
+        save_dir=SAVE_DIR,
+        init_strategy=INIT_STRATEGY # <--- Pass Semantic Strategy
     )
 
-    print(f"   [Check] Number of Prompts: {len(engine.task_prompts)}")
-
     # 4. OPTIMIZATION
-    # We optimize both the backbone (LoRA) and the Engine (Prompts + Heads)
     optimizer = torch.optim.AdamW(engine.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
-    
-    # Calculate total steps for scheduler
     max_len = max([len(l) for l in engine.train_loaders])
     total_steps = max_len * EPOCHS
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(0.1*total_steps), num_training_steps=total_steps)
@@ -161,51 +155,53 @@ def main():
         for t in task_configs: headers.append(f"Test_{t['name']}")
         writer.writerow(headers)
 
+    # Early Stopping Vars
     best_val_thermo_loss = float('inf')
+    patience_counter = 0
 
     # 6. TRAINING LOOP
     for epoch in range(EPOCHS):
         print(f"\n{'='*30} EPOCH {epoch+1}/{EPOCHS} {'='*30}")
         
-        # --- TRAIN ---
-        # Note: We do NOT pass debug=True here, so logs stay clean
         train_res = engine.train_one_epoch(optimizer, scheduler, epoch+1)
         print(f"\n  [TRAIN] Combined Loss: {train_res['avg_loss']:.4f}")
 
-        # --- VALIDATE ---
         val_metrics, val_raw_data = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
         plot_epoch_diagnostics(val_raw_data, epoch+1)
 
-        # --- TEST ---
         test_metrics, _ = engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
 
-        # --- SAVE LOGS ---
+        # Save Logs
         row = [epoch+1, train_res['avg_loss']]
-        
-        # Parse Val Metrics
         for t in task_configs:
             val_str = val_metrics.get(t['name'], "0.0")
             try: row.append(float(val_str.split(":")[-1].strip()))
             except: row.append(0.0)
-            
-        # Parse Test Metrics
         for t in task_configs:
             test_str = test_metrics.get(t['name'], "0.0")
             try: row.append(float(test_str.split(":")[-1].strip()))
             except: row.append(0.0)
-
         with open(history_path, 'a', newline='') as f: csv.writer(f).writerow(row)
 
-        # --- CHECKPOINTING ---
         torch.save(engine.state_dict(), os.path.join(SAVE_DIR, f"model_epoch_{epoch+1}.pt"))
         
-        # Save Best Model based on Thermostability (Regression is usually the hardest to stabilize)
+        # --- EARLY STOPPING & BEST MODEL ---
         try:
             curr_val_mse = float(val_metrics['Thermostability'].split(":")[1])
+            
             if curr_val_mse < best_val_thermo_loss:
                 best_val_thermo_loss = curr_val_mse
+                patience_counter = 0 # Reset
                 torch.save(engine.state_dict(), os.path.join(SAVE_DIR, "best_model.pt"))
                 print(f"  🌟 New Best Prompt Model Saved! (Val Thermo MSE: {best_val_thermo_loss:.4f})")
+            else:
+                patience_counter += 1
+                print(f"  ⏳ No improvement in Thermostability. Patience: {patience_counter}/{PATIENCE}")
+                
+            if patience_counter >= PATIENCE:
+                print(f"\n[Early Stopping] Stopping training because Thermo MSE hasn't improved in {PATIENCE} epochs.")
+                break
+                
         except: 
             pass
 

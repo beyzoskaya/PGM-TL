@@ -8,7 +8,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
 
 from protbert_hf import SharedProtBert
-from engine_hf_cascade import CascadeMultiTaskEngine
+from engines.engine_hf_cascade import CascadeMultiTaskEngine
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 

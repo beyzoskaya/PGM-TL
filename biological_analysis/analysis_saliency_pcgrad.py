@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from protbert_hf import SharedProtBert
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_PATH = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_hybrid_pcgrad/model_epoch_5.pt"

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from protbert_hf import SharedProtBert
 
-from engine_hf_cascade import CascadeMultiTaskEngine, multitask_collate_fn
+from engines.engine_hf_cascade import CascadeMultiTaskEngine, multitask_collate_fn
 from flip_hf import Thermostability, CloningCLF
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'

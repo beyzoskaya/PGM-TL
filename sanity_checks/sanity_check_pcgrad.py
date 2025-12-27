@@ -5,7 +5,7 @@ import pandas as pd
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
 
 def run_hybrid_sanity_check_v2():
     print("\n🧬 STARTING SANITY CHECK V2: HYBRID (PCGrad + Uncertainty)...")

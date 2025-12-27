@@ -7,7 +7,7 @@ from sklearn.metrics import mean_squared_error, accuracy_score, f1_score, matthe
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_task_specific_encoder import MultiTaskEngine 
+from engines.engine_hf_with_task_specific_encoder import MultiTaskEngine 
 
 SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/cyclic_v1_lora16_all_frozen" 
 EPOCHS_TO_EVAL = [1, 2, 3, 4] 

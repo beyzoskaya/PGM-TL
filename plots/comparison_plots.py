@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
 
-from engine_hf_with_task_specific_encoder import MultiTaskEngine as StandardEngine
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid as HybridEngine
+from engines.engine_hf_with_task_specific_encoder import MultiTaskEngine as StandardEngine
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid as HybridEngine
 from flip_hf import Thermostability
 from protbert_hf import SharedProtBert
 

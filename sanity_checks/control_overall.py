@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_task_specific_encoder import MultiTaskEngine, multitask_collate_fn
+from engines.engine_hf_with_task_specific_encoder import MultiTaskEngine, multitask_collate_fn
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 

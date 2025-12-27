@@ -5,7 +5,7 @@ import csv
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
+from engines.engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
 
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'

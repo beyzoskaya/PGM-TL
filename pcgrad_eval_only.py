@@ -8,8 +8,8 @@ from sklearn.metrics import mean_squared_error, accuracy_score, f1_score, matthe
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
+from engines.engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
 
 SEED = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'

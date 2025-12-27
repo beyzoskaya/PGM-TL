@@ -6,7 +6,7 @@ from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 from protbert_hf import SharedProtBert
 
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid, multitask_collate_fn
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid, multitask_collate_fn
 from flip_hf import SecondaryStructure
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'

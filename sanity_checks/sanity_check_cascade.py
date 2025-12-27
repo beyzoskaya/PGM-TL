@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from protbert_hf import SharedProtBert
-from engine_hf_cascade import CascadeMultiTaskEngine
+from engines.engine_hf_cascade import CascadeMultiTaskEngine
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 

@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
-from engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
+from engines.engine_hf_with_uncertanity_weighting import MultiTaskEngineUncertanityWeighting
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 BATCH_SIZE = 32 
@@ -126,7 +126,7 @@ def plot_ssp_confusion(engine, dataset):
     
     # Standard Collate for manual loader
     def collate(b): 
-        from engine_hf_with_uncertanity_weighting import multitask_collate_fn
+        from engines.engine_hf_with_uncertanity_weighting import multitask_collate_fn
         return multitask_collate_fn(b, engine.backbone.tokenizer)
 
     loader = torch.utils.data.DataLoader(dataset, batch_size=16, collate_fn=collate)

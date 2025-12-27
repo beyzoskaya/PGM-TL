@@ -7,7 +7,7 @@ import os
 from tqdm import tqdm
 from sklearn.metrics import r2_score, confusion_matrix, classification_report
 
-from engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
+from engines.engine_hf_hybrid_pcgrad import MultiTaskEngineHybrid
 from flip_hf import Thermostability, SecondaryStructure, CloningCLF
 from protbert_hf import SharedProtBert
 
