@@ -1,3 +1,6 @@
+NOTE: This version unfroze 2 layers from ProtBERT backbone with early fusion of prompt tuning 
+as a start of random parameter initialization for the tuning of task prompts.
+
 Running Prompt-Tuning + PCGrad on cuda
 [1/5] Loading Datasets...
 

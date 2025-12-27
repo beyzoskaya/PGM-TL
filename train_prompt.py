@@ -20,6 +20,7 @@ LEARNING_RATE = 1e-4
 
 # --- NEW CONFIGS ---
 UNFROZEN_LAYERS = 0         # Compare 0 vs 2. Set to 0 for LoRA-only.
+LORA_RANK = 16
 INIT_STRATEGY = "semantic"  # "semantic" (CLS token) vs "random"
 PATIENCE = 3                # Early stopping patience
 
