@@ -23,7 +23,7 @@ UNFROZEN_LAYERS = 0         # Compare 0 vs 2. Set to 0 for LoRA-only.
 INIT_STRATEGY = "semantic"  # "semantic" (CLS token) vs "random"
 PATIENCE = 3                # Early stopping patience
 
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_semantic"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_semantic_lora_only"
 PLOT_DIR = os.path.join(SAVE_DIR, "plots")
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
