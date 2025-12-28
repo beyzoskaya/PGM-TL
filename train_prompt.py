@@ -18,13 +18,12 @@ BATCH_SIZE = 16
 EPOCHS = 8 
 LEARNING_RATE = 1e-4
 
-# --- NEW CONFIGS ---
-UNFROZEN_LAYERS = 0         # Compare 0 vs 2. Set to 0 for LoRA-only.
+UNFROZEN_LAYERS = 0         
 LORA_RANK = 16
-INIT_STRATEGY = "semantic"  # "semantic" (CLS token) vs "random"
-PATIENCE = 3                # Early stopping patience
+INIT_STRATEGY = "semantic"  
+PATIENCE = 3                
 
-SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_semantic_lora_only"
+SAVE_DIR = "/content/drive/MyDrive/protein_multitask_outputs/framework_prompt_balanced_downstreamTasks"
 PLOT_DIR = os.path.join(SAVE_DIR, "plots")
 os.makedirs(SAVE_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
@@ -52,7 +51,7 @@ def normalize_regression_targets(train_ds):
 def plot_epoch_diagnostics(results, epoch):
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(1, 3, figsize=(20, 6))
-    fig.suptitle(f"Prompt-Tuning Diagnostics - Epoch {epoch}", fontsize=16)
+    fig.suptitle(f"Diagnostics (Balanced) - Epoch {epoch}", fontsize=16)
 
     # 1. Thermostability Scatter
     ax = axes[0]
@@ -90,21 +89,19 @@ def plot_epoch_diagnostics(results, epoch):
 
 def main():
     set_seed(SEED)
-    print(f"Running Prompt-Tuning + PCGrad on {DEVICE}")
+    print(f"Running Prompt-Tuning + PCGrad + Frequency Balancing on {DEVICE}")
+    print(f"Config: Init={INIT_STRATEGY}, Unfrozen={UNFROZEN_LAYERS}, Patience={PATIENCE}")
 
     # 1. DATA LOADING
     print("[1/5] Loading Datasets...")
     
-    # Thermostability
     ds_t = Thermostability(verbose=0)
     t_train, t_val, t_test = ds_t.split()
-    normalize_regression_targets(t_train) # Only calc stats on train
+    normalize_regression_targets(t_train)
     
-    # Secondary Structure
     ds_s = SecondaryStructure(verbose=0)
     s_train, s_val, s_test = ds_s.split()
     
-    # Cloning
     ds_c = CloningCLF(verbose=0)
     c_train, c_val, c_test = ds_c.split()
 
@@ -138,7 +135,7 @@ def main():
         batch_size=BATCH_SIZE, 
         device=DEVICE, 
         save_dir=SAVE_DIR,
-        init_strategy=INIT_STRATEGY # <--- Pass Semantic Strategy
+        init_strategy=INIT_STRATEGY 
     )
 
     # 4. OPTIMIZATION
@@ -151,12 +148,14 @@ def main():
     history_path = os.path.join(SAVE_DIR, "training_history.csv")
     with open(history_path, 'w', newline='') as f:
         writer = csv.writer(f)
+        # Detailed Headers
         headers = ["Epoch", "Train_Combined_Loss"] 
-        for t in task_configs: headers.append(f"Val_{t['name']}")
-        for t in task_configs: headers.append(f"Test_{t['name']}")
+        # Add Validation Headers
+        headers.extend(["Val_Thermo_MSE", "Val_Thermo_Spearman", "Val_SSP_Acc", "Val_SSP_F1", "Val_Cloning_Acc", "Val_Cloning_MCC"])
+        # Add Test Headers
+        headers.extend(["Test_Thermo_MSE", "Test_Thermo_Spearman", "Test_SSP_Acc", "Test_SSP_F1", "Test_Cloning_Acc", "Test_Cloning_MCC"])
         writer.writerow(headers)
 
-    # Early Stopping Vars
     best_val_thermo_loss = float('inf')
     patience_counter = 0
 
@@ -164,35 +163,52 @@ def main():
     for epoch in range(EPOCHS):
         print(f"\n{'='*30} EPOCH {epoch+1}/{EPOCHS} {'='*30}")
         
+        # --- TRAIN ---
         train_res = engine.train_one_epoch(optimizer, scheduler, epoch+1)
         print(f"\n  [TRAIN] Combined Loss: {train_res['avg_loss']:.4f}")
 
+        # --- VALIDATE ---
         val_metrics, val_raw_data = engine.evaluate(loader_list=engine.valid_loaders, split_name="VALIDATION")
         plot_epoch_diagnostics(val_raw_data, epoch+1)
 
+        # --- TEST ---
         test_metrics, _ = engine.evaluate(loader_list=engine.test_loaders, split_name="TEST")
 
-        # Save Logs
+        # --- SAVE LOGS ---
         row = [epoch+1, train_res['avg_loss']]
-        for t in task_configs:
-            val_str = val_metrics.get(t['name'], "0.0")
-            try: row.append(float(val_str.split(":")[-1].strip()))
-            except: row.append(0.0)
-        for t in task_configs:
-            test_str = test_metrics.get(t['name'], "0.0")
-            try: row.append(float(test_str.split(":")[-1].strip()))
-            except: row.append(0.0)
+        
+        # Helper to extract safely
+        def get_m(metrics_dict, task, metric):
+            return metrics_dict.get(task, {}).get(metric, 0.0)
+
+        # Add Validation
+        row.append(get_m(val_metrics, 'Thermostability', 'MSE'))
+        row.append(get_m(val_metrics, 'Thermostability', 'Spearman'))
+        row.append(get_m(val_metrics, 'SecStructure', 'Acc'))
+        row.append(get_m(val_metrics, 'SecStructure', 'F1'))
+        row.append(get_m(val_metrics, 'Cloning', 'Acc'))
+        row.append(get_m(val_metrics, 'Cloning', 'MCC'))
+
+        # Add Test
+        row.append(get_m(test_metrics, 'Thermostability', 'MSE'))
+        row.append(get_m(test_metrics, 'Thermostability', 'Spearman'))
+        row.append(get_m(test_metrics, 'SecStructure', 'Acc'))
+        row.append(get_m(test_metrics, 'SecStructure', 'F1'))
+        row.append(get_m(test_metrics, 'Cloning', 'Acc'))
+        row.append(get_m(test_metrics, 'Cloning', 'MCC'))
+
         with open(history_path, 'a', newline='') as f: csv.writer(f).writerow(row)
 
         torch.save(engine.state_dict(), os.path.join(SAVE_DIR, f"model_epoch_{epoch+1}.pt"))
         
         # --- EARLY STOPPING & BEST MODEL ---
         try:
-            curr_val_mse = float(val_metrics['Thermostability'].split(":")[1])
+            # We use MSE for Early Stopping decision
+            curr_val_mse = val_metrics['Thermostability']['MSE']
             
             if curr_val_mse < best_val_thermo_loss:
                 best_val_thermo_loss = curr_val_mse
-                patience_counter = 0 # Reset
+                patience_counter = 0 
                 torch.save(engine.state_dict(), os.path.join(SAVE_DIR, "best_model.pt"))
                 print(f"  🌟 New Best Prompt Model Saved! (Val Thermo MSE: {best_val_thermo_loss:.4f})")
             else:
@@ -202,8 +218,8 @@ def main():
             if patience_counter >= PATIENCE:
                 print(f"\n[Early Stopping] Stopping training because Thermo MSE hasn't improved in {PATIENCE} epochs.")
                 break
-                
-        except: 
+        except Exception as e:
+            print(f"Warning: Error in Early Stopping logic: {e}")
             pass
 
     print("\nDone!")

@@ -7,7 +7,11 @@ import csv
 import random
 import numpy as np
 
+from scipy.stats import spearmanr
+from sklearn.metrics import f1_score, matthews_corrcoef, accuracy_score, mean_squared_error
+
 def multitask_collate_fn(batch, tokenizer):
+    # --- 1. Sequence Validation ---
     raw_seqs = []
     for idx, item in enumerate(batch):
         seq = item.get('sequence')
@@ -20,6 +24,7 @@ def multitask_collate_fn(batch, tokenizer):
     spaced_seqs = [" ".join(list(s)) for s in raw_seqs]
     inputs = tokenizer(spaced_seqs, return_tensors='pt', padding=True, truncation=True, max_length=1024)
     
+    # --- 2. Target Processing ---
     raw_targets = [item['targets']['target'] for item in batch]
     target_tensor = None
     first_target = raw_targets[0]
@@ -38,10 +43,14 @@ def multitask_collate_fn(batch, tokenizer):
                 
     elif isinstance(first_target, float): 
         # Thermostability
+        if any(not isinstance(t, float) for t in raw_targets):
+             raise ValueError("[Collate Error] Regression batch contains non-float targets!")
         target_tensor = torch.tensor(raw_targets, dtype=torch.float32).unsqueeze(1)
         
     elif isinstance(first_target, int): 
         # Cloning
+        if any(not isinstance(t, int) for t in raw_targets):
+             raise ValueError("[Collate Error] Classification batch contains non-int targets!")
         target_tensor = torch.tensor(raw_targets, dtype=torch.long)
         
     else: 
@@ -52,7 +61,7 @@ def multitask_collate_fn(batch, tokenizer):
 class TaskPromptedEngine(nn.Module):
     def __init__(self, backbone, task_configs, train_sets, valid_sets, 
                  test_sets=None, batch_size=8, device='cuda', save_dir=".",
-                 init_strategy="semantic"): # <--- NEW ARGUMENT
+                 init_strategy="semantic"):
         super().__init__()
         self.backbone = backbone.to(device)
         self.device = device
@@ -68,31 +77,20 @@ class TaskPromptedEngine(nn.Module):
 
         hidden_dim = backbone.hidden_size
         
-        # --- LEARNABLE TASK PROMPTS ---
+        # --- PROMPTS ---
         print(f"[Engine] Initializing {len(task_configs)} Task Prompts (Strategy: {init_strategy})...")
-        
         self.task_prompts = nn.ParameterList()
-        
-        # Pre-fetch CLS embedding if semantic
         cls_vec = None
         if init_strategy == "semantic":
-            # Get [CLS] from backbone: [1, 1024]
-            cls_vec = backbone.get_cls_embedding(device).detach()
-            # Reshape for prompt: [1, 1, 1024]
-            cls_vec = cls_vec.unsqueeze(0) 
+            cls_vec = backbone.get_cls_embedding(device).detach().unsqueeze(0)
 
         for _ in task_configs:
             p = nn.Parameter(torch.zeros(1, 1, hidden_dim).to(device))
-            
             if init_strategy == "semantic" and cls_vec is not None:
-                # Copy [CLS] vector
                 p.data.copy_(cls_vec)
-                # Add tiny noise (std=0.001) so tasks aren't identical at start
                 p.data.add_(torch.randn_like(p) * 0.001)
             else:
-                # Random initialization
                 nn.init.normal_(p, std=0.02)
-                
             self.task_prompts.append(p)
 
         # --- HEADS ---
@@ -160,6 +158,14 @@ class TaskPromptedEngine(nn.Module):
         
         loader_lens = [len(l) for l in self.train_loaders]
         max_steps = max(loader_lens)
+        loss_scales = [length / max_steps for length in loader_lens]
+        
+        if epoch_index == 1:
+            print(f"\n[Balance] Dataset Repetition Compensation:")
+            for i, cfg in enumerate(self.task_configs):
+                repeats = max_steps / loader_lens[i]
+                print(f"  - {cfg['name']:<15}: {loader_lens[i]} batches. Repeats {repeats:.2f}x. Loss Scale: {loss_scales[i]:.4f}")
+
         iterators = [cycle(l) for l in self.train_loaders]
         
         epoch_loss = 0
@@ -169,6 +175,9 @@ class TaskPromptedEngine(nn.Module):
             task_grads = []
             step_loss_total = 0
             
+            debug_stats = []
+            should_print = (step == 0) or (step % 500 == 0)
+
             for i in range(len(self.task_configs)):
                 optimizer.zero_grad() 
                 batch = next(iterators[i])
@@ -176,10 +185,8 @@ class TaskPromptedEngine(nn.Module):
                 mask = batch['attention_mask'].to(self.device)
                 targets = batch['targets'].to(self.device)
                 
-                # Debug only first step of first epoch
-                debug_now = (step == 0 and i == 0 and epoch_index == 1)
-                
-                logits = self.forward(input_ids, mask, task_idx=i, debug=debug_now)
+                debug_backbone = (step == 0 and i == 0 and epoch_index == 1)
+                logits = self.forward(input_ids, mask, task_idx=i, debug=debug_backbone)
                 
                 is_token = (self.task_configs[i]['type'] == 'token_classification')
                 if is_token: 
@@ -190,8 +197,19 @@ class TaskPromptedEngine(nn.Module):
                 precision = torch.exp(-self.log_vars[i])
                 weighted_loss = (precision * loss) + self.log_vars[i]
                 
-                weighted_loss.backward()
-                step_loss_total += weighted_loss.item()
+                balanced_loss = weighted_loss * loss_scales[i]
+                
+                if should_print:
+                    debug_stats.append({
+                        'name': self.task_configs[i]['name'],
+                        'raw': loss.item(),
+                        'uncert': weighted_loss.item(),
+                        'scale': loss_scales[i],
+                        'final': balanced_loss.item()
+                    })
+
+                balanced_loss.backward()
+                step_loss_total += balanced_loss.item()
                 
                 grads = []
                 for p in self.parameters():
@@ -200,6 +218,14 @@ class TaskPromptedEngine(nn.Module):
                         else: grads.append(torch.zeros(p.numel(), device=self.device))
                 task_grads.append(torch.cat(grads))
             
+            if should_print:
+                print(f"\n[Debug Step {step}] Loss Breakdown:")
+                print(f"  {'Task':<15} | {'Raw Loss':<10} | {'Uncert Loss':<12} | {'Freq Scale':<10} | {'Final Loss':<10}")
+                print("-" * 70)
+                for s in debug_stats:
+                    print(f"  {s['name']:<15} | {s['raw']:<10.4f} | {s['uncert']:<12.4f} | {s['scale']:<10.4f} | {s['final']:<10.4f}")
+                print("-" * 70)
+
             final_grad, conflicts = self._project_conflicting(task_grads)
             
             optimizer.zero_grad()
@@ -226,20 +252,29 @@ class TaskPromptedEngine(nn.Module):
         self.backbone.eval()
         for h in self.heads: h.eval()
         
-        raw_results = {
+        # We will return a dictionary of dictionaries for better logging
+        # e.g., {'Thermo': {'MSE': 0.2, 'Spearman': 0.8}, ...}
+        results_log = {}
+        
+        # Raw data to return for plotting
+        raw_plot_data = {
             'Thermo': {'true': [], 'pred': []},
             'SSP': {'true': [], 'pred': []},
             'Cloning': {'true': [], 'pred': [], 'probs': []}
         }
         
-        metrics_log = {}
         print(f"\n[{split_name}] Evaluating & Collecting Data...")
         
         with torch.no_grad():
             for i, loader in enumerate(loader_list):
                 name = self.task_configs[i]['name']
                 is_token = (self.task_configs[i]['type'] == 'token_classification')
-                total_loss=0; correct=0; total=0
+                
+                all_preds = []
+                all_targets = []
+                all_probs = [] # For AUC/Cloning
+                
+                total_loss=0; total=0
                 
                 for batch in loader:
                     input_ids = batch['input_ids'].to(self.device)
@@ -248,40 +283,80 @@ class TaskPromptedEngine(nn.Module):
                     
                     logits = self.forward(input_ids, mask, task_idx=i)
                     
-                    if is_token:
-                        # SSP Task
-                        loss = self.loss_fns[i](logits.view(-1, logits.shape[-1]), targets.view(-1))
-                        p = logits.argmax(dim=-1).view(-1); t = targets.view(-1); m = t!=-100
-                        if m.sum()>0: correct += (p[m]==t[m]).sum().item(); total += m.sum().item()
+                    if is_token: # SSP
+                        # Flatten for metrics
+                        p = logits.argmax(dim=-1).view(-1).cpu().numpy()
+                        t = targets.view(-1).cpu().numpy()
                         
-                        # Collect Data
+                        # Filter out -100
+                        mask_np = t != -100
+                        all_preds.extend(p[mask_np])
+                        all_targets.extend(t[mask_np])
+                        
+                        # Data for plotting (Batch Level)
                         p_batch = logits.argmax(dim=-1).cpu().numpy()
                         t_batch = targets.cpu().numpy()
                         for b in range(t_batch.shape[0]):
                             valid = t_batch[b] != -100
-                            raw_results['SSP']['true'].extend(t_batch[b][valid])
-                            raw_results['SSP']['pred'].extend(p_batch[b][valid])
+                            raw_plot_data['SSP']['true'].extend(t_batch[b][valid])
+                            raw_plot_data['SSP']['pred'].extend(p_batch[b][valid])
                             
                     else:
                         loss = self.loss_fns[i](logits, targets)
-                        if self.task_configs[i]['type'] == 'regression': 
-                            total += input_ids.size(0)
-                            raw_results['Thermo']['true'].extend(targets.view(-1).cpu().numpy())
-                            raw_results['Thermo']['pred'].extend(logits.view(-1).cpu().numpy())
-                        else: 
-                            total += input_ids.size(0)
-                            correct += (logits.argmax(dim=1)==targets).sum().item()
+                        total_loss += loss.item() * input_ids.size(0)
+                        total += input_ids.size(0)
+
+                        if self.task_configs[i]['type'] == 'regression': # Thermo
+                            p = logits.view(-1).cpu().numpy()
+                            t = targets.view(-1).cpu().numpy()
+                            all_preds.extend(p)
+                            all_targets.extend(t)
                             
-                            probs = torch.softmax(logits, dim=1)[:, 1]
-                            raw_results['Cloning']['true'].extend(targets.cpu().numpy())
-                            raw_results['Cloning']['pred'].extend(logits.argmax(dim=1).cpu().numpy())
-                            raw_results['Cloning']['probs'].extend(probs.cpu().numpy())
+                            raw_plot_data['Thermo']['true'].extend(t)
+                            raw_plot_data['Thermo']['pred'].extend(p)
+                            
+                        else: # Cloning
+                            p = logits.argmax(dim=1).cpu().numpy()
+                            t = targets.cpu().numpy()
+                            probs = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
+                            
+                            all_preds.extend(p)
+                            all_targets.extend(t)
+                            all_probs.extend(probs)
+                            
+                            raw_plot_data['Cloning']['true'].extend(t)
+                            raw_plot_data['Cloning']['pred'].extend(p)
+                            raw_plot_data['Cloning']['probs'].extend(probs)
+
+                # --- CALCULATE SCIENTIFIC METRICS ---
+                metrics = {}
+                
+                if self.task_configs[i]['type'] == 'regression':
+                    mse = mean_squared_error(all_targets, all_preds)
+                    try:
+                        spearman = spearmanr(all_targets, all_preds).correlation
+                    except: spearman = 0.0
                     
-                    total_loss += loss.item() * input_ids.size(0)
+                    metrics['MSE'] = mse
+                    metrics['Spearman'] = spearman
+                    print(f"  {name}: MSE={mse:.4f} | Spearman={spearman:.4f}")
+                    
+                elif self.task_configs[i]['type'] == 'token_classification':
+                    acc = accuracy_score(all_targets, all_preds)
+                    f1 = f1_score(all_targets, all_preds, average='macro')
+                    
+                    metrics['Acc'] = acc
+                    metrics['F1'] = f1
+                    print(f"  {name}: Acc={acc:.4f} | F1={f1:.4f}")
+                    
+                else: # Cloning
+                    acc = accuracy_score(all_targets, all_preds)
+                    mcc = matthews_corrcoef(all_targets, all_preds)
+                    
+                    metrics['Acc'] = acc
+                    metrics['MCC'] = mcc
+                    print(f"  {name}: Acc={acc:.4f} | MCC={mcc:.4f}")
                 
-                avg = total_loss / (total if total>0 else 1)
-                if self.task_configs[i]['type'] == 'regression': metrics_log[name] = f"MSE: {avg:.4f}"
-                else: metrics_log[name] = f"Acc: {correct/(total if total>0 else 1):.4f}"
-                print(f"  {name}: {metrics_log[name]}")
+                results_log[name] = metrics
                 
-        return metrics_log, raw_results
+        return results_log, raw_plot_data
